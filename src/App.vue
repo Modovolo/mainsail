@@ -19,7 +19,7 @@
             <the-screws-tilt-adjust-dialog />
             <the-macro-prompt />
         </template>
-        <the-select-printer-dialog v-else-if="instancesDB !== 'moonraker'" />
+        <the-select-printer-dialog v-else-if="instancesDB !== 'moonraker' && instancesDB !== 'json'" />
         <the-connecting-dialog v-else />
     </v-app>
 </template>

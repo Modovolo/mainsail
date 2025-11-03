@@ -9,6 +9,18 @@ Vue.use(Vuetify, {
 export default new Vuetify({
     theme: {
         dark: true,
+        themes: {
+            dark: {
+                primary: '#0000FF',    // Electric blue
+                secondary: '#EFEFEF',  // Light grey
+                accent: '#0000FF',     // Electric blue
+                error: '#F44336',
+                warning: '#FF9800',
+                info: '#0000FF',
+                success: '#8BC34A',
+                background: '#000000', // Black
+            },
+        },
         options: { customProperties: true },
     },
     icons: {

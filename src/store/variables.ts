@@ -1,7 +1,7 @@
 import { KlipperRepos, Theme } from '@/store/types'
 
 export const defaultMode = 'dark'
-export const defaultTheme = 'mainsail'
+export const defaultTheme = 'modovolo'
 export const defaultLogoColor = '#D41216'
 export const defaultPrimaryColor = '#2196f3'
 export const defaultBigThumbnailBackground = '#1e1e1e'
@@ -151,6 +151,18 @@ export const rolloverLogfiles = ['klipper', 'moonraker']
  */
 export const themes: Theme[] = [
     { name: 'mainsail', displayName: 'Mainsail', colorLogo: defaultLogoColor },
+    {
+        name: 'modovolo',
+        displayName: 'Modovolo',
+        colorLogo: '#0000FF',
+        colorPrimary: '#0000FF',
+        logo: { show: true, light: false },
+        // enable loading of CSS from /css/themes/modovolo.css
+        css: true,
+        // allow themed background helpers if desired
+        sidebarBackground: { show: false, light: false },
+        mainBackground: { show: false, light: false },
+    },
     {
         name: 'klipper',
         displayName: 'Klipper',

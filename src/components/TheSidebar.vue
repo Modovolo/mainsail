@@ -16,20 +16,13 @@
             <v-list class="pr-0 pt-0 ml-0">
                 <v-list-item-group active-class="active-nav-item">
                     <v-list-item
-                        v-if="isMobile"
                         router
                         to="/"
-                        :class="mobileLogoClass"
-                        :style="'height: ' + topbarHeight + 'px'"
+                        class="d-flex align-center justify-center py-4"
                         :ripple="false">
-                        <template v-if="sidebarLogo">
-                            <img :src="sidebarLogo" :style="logoCssVars" class="nav-logo" alt="Logo" />
-                        </template>
-                        <template v-else>
-                            <mainsail-logo :color="logoColor" :style="logoCssVars" class="nav-logo" :ripple="false" />
-                        </template>
+                        <img src="/img/modovolo-logo-logomark-white.svg" :style="logoCssVars" class="nav-logo" alt="Modovolo Logo" style="max-width: 48px; max-height: 48px;" />
                         <template v-if="navigationStyle !== 'iconsOnly'">
-                            <span class="text-h6 font-weight-regular text-truncate">{{ printerName }}</span>
+                            <span class="text-h6 font-weight-regular text-truncate ml-3">{{ printerName }}</span>
                         </template>
                     </v-list-item>
                     <sidebar-item v-for="(category, index) in visibleNaviPoints" :key="index" :item="category" />
@@ -53,7 +46,7 @@ import BaseMixin from '@/components/mixins/base'
 import TheSelectPrinterDialog from '@/components/TheSelectPrinterDialog.vue'
 import AboutDialog from '@/components/dialogs/AboutDialog.vue'
 import { navigationWidth, topbarHeight } from '@/store/variables'
-import MainsailLogo from '@/components/ui/MainsailLogo.vue'
+
 import SidebarItem from '@/components/ui/SidebarItem.vue'
 import NavigationMixin from '@/components/mixins/navigation'
 import ThemeMixin from '@/components/mixins/theme'
@@ -63,7 +56,7 @@ import ThemeMixin from '@/components/mixins/theme'
         SidebarItem,
         TheSelectPrinterDialog,
         AboutDialog,
-        MainsailLogo,
+
     },
 })
 export default class TheSidebar extends Mixins(NavigationMixin, BaseMixin, ThemeMixin) {

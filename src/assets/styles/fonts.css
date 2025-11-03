@@ -1,3 +1,20 @@
+/* JetBrains Mono */
+@font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 400; /* Or a range like 100 900 for variable fonts */
+    font-display: swap;
+    src: url(/fonts/JetBrains_Mono/static/JetBrainsMono-Regular.ttf) format('truetype');
+}
+
+@font-face {
+    font-family: 'JetBrains Mono';
+    font-style: italic;
+    font-weight: 400; /* Or a range */
+    font-display: swap;
+    src: url(/fonts/JetBrains_Mono/static/JetBrainsMono-italic.ttf) format('truetype');
+}
+
 /* latin */
 @font-face {
     font-family: 'Roboto';

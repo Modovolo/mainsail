@@ -79,6 +79,12 @@ const initLoad = async () => {
         const locale = (file.defaultLocale ?? 'en') as string
         await setAndLoadLocale(locale)
 
+        if (store.state.instancesDB !== 'moonraker') {
+            store.commit('socket/setConnected')
+            await store.dispatch('socket/removeInitComponent', 'server')
+            await store.dispatch('gui/remoteprinters/initFromLocalstorage')
+        }
+
         // Handle mode outside store init and before vue mount for consistency in dialog
         const mode = file.defaultMode ?? defaultMode
         vuetify.framework.theme.dark = mode !== 'light'

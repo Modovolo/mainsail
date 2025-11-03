@@ -1,0 +1,52 @@
+/* Modovolo Brand Theme Styles */
+
+/* Modovolo color palette: 
+   - Black: #000000
+   - Light Grey: #EFEFEF
+   - Electric Blue: #0000FF
+*/
+
+/* Apply JetBrains Mono font globally */
+body, .v-application {
+    font-family: 'JetBrains Mono', monospace !important;
+}
+
+/* Custom background for the app */
+body {
+    background-color: #000000; /* Black background */
+}
+
+/* Optional overlay helpers retained if you still want them. Remove if not used. */
+.v-navigation-drawer {
+    position: relative;
+}
+.v-navigation-drawer::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 0;
+    pointer-events: none;
+}
+.v-navigation-drawer > * {
+    position: relative;
+    z-index: 1;
+}
+
+/* Custom styles for the Farm page data table */
+.v-data-table {
+    background-color: rgba(0, 0, 255, 0.1); /* Subtle electric blue tint */
+    border: 1px solid #0000FF;
+}
+
+.v-data-table .v-data-table-header th {
+    background-color: #0000FF; /* Electric blue header */
+    color: #EFEFEF; /* Light grey text */
+}
+
+/* Custom branding in panels */
+.farm-printer-panel .v-card {
+    border-left: 4px solid #0000FF; /* Electric blue accent */
+}
+
+/* Add more custom styles as needed for your branding */

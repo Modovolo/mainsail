@@ -54,6 +54,9 @@ export default class ThemeMixin extends Vue {
     }
 
     get sidebarBgImage() {
+        if (this.themeName === 'modovolo') {
+            return '/img/modovolo_lift_front.png'
+        }
         if (this.theme.sidebarBackground?.show) {
             if (this.theme.sidebarBackground?.light && this.themeMode === 'light')
                 return `/img/themes/sidebarBackground-${this.themeName}-light.png`
@@ -80,6 +83,9 @@ export default class ThemeMixin extends Vue {
     }
 
     get mainBgImage() {
+        if (this.themeName === 'modovolo') {
+            return '/img/modovolo_lift_front.png'
+        }
         const url = this.$store.getters['files/getMainBackground']
         if (url || this.themeName === 'mainsail') return url
 
