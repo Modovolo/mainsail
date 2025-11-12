@@ -83,9 +83,27 @@
                     </v-img>
                     <v-card-text v-if="printer_preview.length" class="px-0 py-2">
                         <v-container class="py-0">
-                            <v-row>
+                            <v-row v-if="printerExtruderTemps.length">
                                 <v-col
-                                    v-for="object in printer_preview"
+                                    v-for="object in printerExtruderTemps"
+                                    :key="object.name"
+                                    class="col px-2">
+                                    <strong class="d-block text-center">{{ object.name }}</strong>
+                                    <span class="d-block text-center">{{ object.value }}</span>
+                                </v-col>
+                            </v-row>
+                            <v-row v-if="printerBedTemps.length" class="mt-1">
+                                <v-col
+                                    v-for="object in printerBedTemps"
+                                    :key="object.name"
+                                    class="col px-2">
+                                    <strong class="d-block text-center">{{ object.name }}</strong>
+                                    <span class="d-block text-center">{{ object.value }}</span>
+                                </v-col>
+                            </v-row>
+                            <v-row v-if="printerOtherPreview.length" class="mt-1">
+                                <v-col
+                                    v-for="object in printerOtherPreview"
                                     :key="object.name"
                                     :class="object.name === 'ETA' ? 'col-auto' : 'col' + ' px-2'">
                                     <strong class="d-block text-center">{{ object.name }}</strong>
@@ -93,6 +111,22 @@
                                 </v-col>
                             </v-row>
                         </v-container>
+                    </v-card-text>
+                    <v-card-text class="px-0 py-2">
+                        <div class="info-grid">
+                            <div class="info-row">
+                                <span class="info-label">Status</span>
+                                <span class="info-value">{{ printer_status }}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Job</span>
+                                <span class="info-value">{{ printer_current_filename || '—' }}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Last Seen</span>
+                                <span class="info-value">{{ printer_last_seen }}</span>
+                            </div>
+                        </div>
                     </v-card-text>
                     <v-fade-transition>
                         <v-overlay v-if="hover" absolute :z-index="4">
@@ -124,6 +158,11 @@ import WebcamMixin from '@/components/mixins/webcam'
 import WebcamWrapper from '@/components/webcams/WebcamWrapper.vue'
 import { GuiWebcamStateWebcam } from '@/store/gui/webcams/types'
 import ThemeMixin from '@/components/mixins/theme'
+
+interface PrinterPreviewStat {
+    name: string
+    value: string
+}
 
 @Component({
     components: {
@@ -178,6 +217,11 @@ export default class FarmPrinterPanel extends Mixins(BaseMixin, ThemeMixin, Webc
         return this.$store.getters['farm/' + this.printer._namespace + '/getCurrentFilename']
     }
 
+    get printer_last_seen() {
+        const socket = this.printer?.socket as { last_seen?: string } | undefined
+        return socket?.last_seen ?? 'N/A'
+    }
+
     get printer_image() {
         if (this.currentWebcam) return this.sidebarBgImage
 
@@ -196,8 +240,24 @@ export default class FarmPrinterPanel extends Mixins(BaseMixin, ThemeMixin, Webc
         return this.$store.getters['farm/' + this.printer._namespace + '/getPosition']
     }
 
-    get printer_preview() {
-        return this.$store.getters['farm/' + this.printer._namespace + '/getPrinterPreview']
+    get printer_preview(): PrinterPreviewStat[] {
+        return (
+            (this.$store.getters['farm/' + this.printer._namespace + '/getPrinterPreview'] as PrinterPreviewStat[]) ?? []
+        )
+    }
+
+    get printerExtruderTemps(): PrinterPreviewStat[] {
+        return this.printer_preview.filter((object: PrinterPreviewStat) => /extruder/i.test(object.name))
+    }
+
+    get printerBedTemps(): PrinterPreviewStat[] {
+        return this.printer_preview.filter((object: PrinterPreviewStat) => /bed/i.test(object.name))
+    }
+
+    get printerOtherPreview(): PrinterPreviewStat[] {
+        return this.printer_preview.filter(
+            (object: PrinterPreviewStat) => !/extruder/i.test(object.name) && !/bed/i.test(object.name)
+        )
     }
 
     get showWebcamSwitch() {
@@ -291,5 +351,30 @@ export default class FarmPrinterPanel extends Mixins(BaseMixin, ThemeMixin, Webc
 
 ::v-deep .farmprinter-panel {
     position: relative;
+}
+
+.info-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.875rem;
+}
+
+.info-label {
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.7);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.75rem;
+}
+
+.info-value {
+    color: #ffffff;
 }
 </style>

@@ -11,6 +11,7 @@ import BaseMixin from '@/components/mixins/base'
 import Component from 'vue-class-component'
 import { validGcodeExtensions } from '@/store/variables'
 import { mdiTrayArrowDown } from '@mdi/js'
+import { EventBus, FARM_UPLOAD_DROP } from '@/plugins/eventBus'
 
 @Component
 export default class TheFullscreenUpload extends Mixins(BaseMixin) {
@@ -23,16 +24,16 @@ export default class TheFullscreenUpload extends Mixins(BaseMixin) {
         }
     }
 
-    get currentRoute() {
-        return this.$route.path ?? ''
-    }
-
     get currentPathGcodes() {
         return this.$store.state.gui.view.gcodefiles.currentPath ?? ''
     }
 
     get currentPathConfig() {
         return this.$store.state.gui.view.configfiles.currentPath ?? ''
+    }
+
+    get currentRoutePath() {
+        return this.$route?.path ?? ''
     }
 
     mounted() {
@@ -77,6 +78,15 @@ export default class TheFullscreenUpload extends Mixins(BaseMixin) {
         if (e.dataTransfer?.files?.length) {
             const files = [...e.dataTransfer.files]
 
+            const routeName = (this.$route?.name as string | undefined) ?? ''
+            const routePath = this.$route?.path ?? ''
+            const isFarmRoute = routeName === 'farm' || routePath.endsWith('/allPrinters')
+
+            if (isFarmRoute) {
+                EventBus.$emit(FARM_UPLOAD_DROP, files)
+                return
+            }
+
             await this.$store.dispatch('socket/addLoading', { name: 'gcodeUpload' })
             await this.$store.dispatch('files/uploadSetCurrentNumber', 0)
             await this.$store.dispatch('files/uploadSetMaxNumber', files.length)
@@ -87,8 +97,8 @@ export default class TheFullscreenUpload extends Mixins(BaseMixin) {
                 const isGcode = validGcodeExtensions.includes(extension)
 
                 let path = ''
-                if (this.currentRoute === '/files' && isGcode) path = this.currentPathGcodes
-                else if (this.currentRoute === '/config' && !isGcode) path = this.currentPathConfig
+                if (this.currentRoutePath === '/files' && isGcode) path = this.currentPathGcodes
+                else if (this.currentRoutePath === '/config' && !isGcode) path = this.currentPathConfig
 
                 const root = isGcode ? 'gcodes' : 'config'
                 await this.$store.dispatch('files/uploadIncrementCurrentNumber')

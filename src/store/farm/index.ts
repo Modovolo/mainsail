@@ -3,6 +3,13 @@ import { Module } from 'vuex'
 import { FarmState } from '@/store/farm/types'
 import { RootState } from '@/store/types'
 
+const normalizeGroup = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null
+
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : null
+}
+
 export const getDefaultState = (): FarmState => {
     return {}
 }
@@ -43,8 +50,17 @@ export const farm: Module<FarmState, RootState> = {
                 this.registerModule(['farm', payload.id], printer)
                 commit('farm/' + payload.id + '/setSocketData', { ...payload, _namespace: payload.id }, { root: true })
 
-                if ('settings' in payload)
-                    commit('farm/' + payload.id + '/setSettings', payload.settings, { root: true })
+                if ('settings' in payload) {
+                    const settings = {
+                        ...(payload.settings ?? {}),
+                    }
+
+                    if (Object.prototype.hasOwnProperty.call(settings, 'group')) {
+                        settings.group = normalizeGroup(settings.group)
+                    }
+
+                    commit('farm/' + payload.id + '/setSettings', settings, { root: true })
+                }
                 dispatch('farm/' + payload.id + '/connect', {}, { root: true })
             }
         },
@@ -55,6 +71,15 @@ export const farm: Module<FarmState, RootState> = {
                 path: payload.values.path,
                 isConnecting: true,
             })
+
+            const hasGroupOnRoot = Object.prototype.hasOwnProperty.call(payload.values, 'group')
+            const hasGroupInSettings = Object.prototype.hasOwnProperty.call(payload.values.settings ?? {}, 'group')
+
+            if (hasGroupOnRoot || hasGroupInSettings) {
+                const rawGroup = hasGroupOnRoot ? payload.values.group : payload.values.settings?.group
+                const group = normalizeGroup(rawGroup)
+                commit(payload.id + '/setSettings', { group })
+            }
             dispatch(payload.id + '/reconnect')
         },
         unregisterPrinter({ state }, id) {
