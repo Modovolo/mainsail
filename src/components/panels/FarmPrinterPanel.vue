@@ -130,14 +130,20 @@
                     </v-card-text>
                     <v-fade-transition>
                         <v-overlay v-if="hover" absolute :z-index="4">
-                            <v-btn color="primary" @click="clickPrinter">
-                                {{
-                                    printer.socket.isConnected
-                                        ? $t('Panels.FarmPrinterPanel.SwitchToPrinter')
-                                        : $t('Panels.FarmPrinterPanel.ReconnectToPrinter')
-                                }}
-                            </v-btn>
-                        </v-overlay>
+                                <v-btn color="primary" @click="clickPrinter">
+                                    <!-- If this printer is the current active printer, allow returning to manager -->
+                                    <template v-if="isCurrentPrinter">
+                                        {{ $t('Panels.FarmPrinterPanel.ReturnToManager') }}
+                                    </template>
+                                    <template v-else>
+                                        {{
+                                            printer.socket.isConnected
+                                                ? $t('Panels.FarmPrinterPanel.SwitchToPrinter')
+                                                : $t('Panels.FarmPrinterPanel.ReconnectToPrinter')
+                                        }}
+                                    </template>
+                                </v-btn>
+                            </v-overlay>
                     </v-fade-transition>
                 </div>
             </template>
@@ -288,7 +294,13 @@ export default class FarmPrinterPanel extends Mixins(BaseMixin, ThemeMixin, Webc
     }
 
     clickPrinter() {
-        // If the printer is already connected, just switch to it
+        // If this printer is the current connection, then clicking returns to manager
+        if (this.isCurrentPrinter) {
+            this.$store.dispatch('disconnectToManager')
+            return
+        }
+
+        // If the printer is already connected (but not current), just switch to it
         if (this.printer.socket.isConnected) {
             this.$store.dispatch('changePrinter', { printer: this.printer._namespace })
             return

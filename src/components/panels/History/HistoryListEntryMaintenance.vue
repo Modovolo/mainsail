@@ -12,6 +12,7 @@
             <v-icon color="primary">{{ icon }}</v-icon>
         </td>
         <td>{{ item.name }}</td>
+        <td>{{ item.printer ? ($store.getters['farm/getPrinterName'](item.printer) ?? item.printer) : $t('History.Manager') }}</td>
         <td class="text-right text-no-wrap">
             <v-tooltip v-if="reminder !== null" top>
                 <template #activator="{ on, attrs }">

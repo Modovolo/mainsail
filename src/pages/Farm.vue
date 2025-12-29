@@ -81,10 +81,22 @@
                             <v-icon left>{{ isSelectionMode ? mdiSelectOff : mdiCheckboxMultipleOutline }}</v-icon>
                             {{ isSelectionMode ? 'Exit Selection Mode' : 'Select Printers on Panels' }}
                         </v-btn>
+                        <v-btn
+                            text
+                            class="ml-2"
+                            @click="isTransferDialogOpen = true">
+                            <v-icon left>{{ mdiCogTransfer }}</v-icon>
+                            Manage Groups
+                        </v-btn>
                     </v-col>
                 </v-row>
             </v-card-text>
         </v-card>
+        <printer-group-transfer-dialog
+            v-model="isTransferDialogOpen"
+            :all-printers="tableItems"
+            :available-groups="groupOptions"
+        />
         <v-slide-y-transition>
             <v-card v-if="isSelectionMode" class="mb-4 selection-summary">
                 <v-card-text class="selection-summary__content">
@@ -177,6 +189,9 @@
                             <v-btn icon small @click.stop="startEditingGroup(group)">
                                 <v-icon small>{{ mdiPencil }}</v-icon>
                             </v-btn>
+                            <v-btn v-if="group.label" icon small class="ml-1" @click.stop="deleteGroup(group)">
+                                <v-icon small>{{ mdiDelete }}</v-icon>
+                            </v-btn>
                         </template>
                     </div>
                 </v-expansion-panel-header>
@@ -235,6 +250,7 @@
 import { Component, Mixins, Watch } from 'vue-property-decorator'
 import BaseMixin from '@/components/mixins/base'
 import FarmPrinterPanel from '@/components/panels/FarmPrinterPanel.vue'
+import PrinterGroupTransferDialog from '@/components/dialogs/PrinterGroupTransferDialog.vue'
 import { EventBus, FARM_UPLOAD_DROP } from '@/plugins/eventBus'
 import { FarmPrinterState } from '@/store/farm/printer/types'
 import {
@@ -245,6 +261,8 @@ import {
     mdiCheckboxMultipleOutline,
     mdiSelectOff,
     mdiSwapHorizontal,
+    mdiDelete,
+    mdiCogTransfer,
 } from '@mdi/js'
 
 interface PrinterTableItem {
@@ -277,7 +295,7 @@ interface PrinterPanelGroup extends Omit<PrinterGroupDisplay, 'items'> {
 }
 
 @Component({
-    components: { FarmPrinterPanel },
+    components: { FarmPrinterPanel, PrinterGroupTransferDialog },
 })
 class PageFarm extends Mixins(BaseMixin) {
     // File upload state
@@ -294,6 +312,7 @@ class PageFarm extends Mixins(BaseMixin) {
     private isSavingGroup = false
     public isSelectionMode = false
     public isMoveDialogOpen = false
+    public isTransferDialogOpen = false
     public moveTargetGroup: string | null = 'Ungrouped'
     public isMoveProcessing = false
     public mdiPlus = mdiPlus
@@ -303,6 +322,8 @@ class PageFarm extends Mixins(BaseMixin) {
     public mdiCheckboxMultipleOutline = mdiCheckboxMultipleOutline
     public mdiSelectOff = mdiSelectOff
     public mdiSwapHorizontal = mdiSwapHorizontal
+    public mdiDelete = mdiDelete
+    public mdiCogTransfer = mdiCogTransfer
     public draggedPrinterId: string | null = null
     private dragSourceGroupKey: string | null = null
     public dragOverGroupKey: string | null = null
@@ -854,6 +875,38 @@ class PageFarm extends Mixins(BaseMixin) {
         this.editingLabel = ''
     }
 
+    async deleteGroup(group: PrinterPanelGroup): Promise<void> {
+        const message =
+            group.items.length > 0
+                ? `Delete group "${group.label}"? ${group.items.length} printer(s) will be moved to Ungrouped.`
+                : `Delete group "${group.label}"?`
+
+        if (!confirm(message)) return
+
+        if (group.items.length > 0) {
+            try {
+                const promises = group.items.map((item) =>
+                    this.$store.dispatch('gui/remoteprinters/updateSettings', {
+                        id: item.id,
+                        values: { group: '' },
+                    })
+                )
+                await Promise.all(promises)
+            } catch (error) {
+                console.error('Farm.vue: Failed to move printers to Ungrouped', error)
+                this.$toast.error('Failed to move printers to Ungrouped')
+                return
+            }
+        }
+
+        if (group.manualId) {
+            this.manualGroups = this.manualGroups.filter((g) => g.id !== group.manualId)
+            this.saveManualGroups()
+        }
+
+        this.$toast.success(`Group "${group.label}" deleted`)
+    }
+
     async saveGroupLabel(group: PrinterPanelGroup): Promise<void> {
         if (this.editingGroupKey !== group.key || this.isSavingGroup) return
 
@@ -1197,7 +1250,7 @@ export default PageFarm
 
 .group-panel-list {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 16px;
 }
 

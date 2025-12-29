@@ -240,6 +240,33 @@ export const actions: ActionTree<FarmPrinterState, RootState> = {
         commit('setMainsailData', payload.value)
     },
 
+    /**
+     * Forward history payload back to manager: this action is invoked when
+     * the local farm printer received a server.history.list response and
+     * should forward it to the central manager (root store).
+     */
+    forwardHistoryToManager({ dispatch, state }, payload) {
+        // payload already contains requestParams and jobs, plus actionPreload.printer
+        // attach an explicit farm_done flag when this printer's chunk looks final
+        const limit = payload.requestParams?.limit ?? Number.MAX_SAFE_INTEGER
+        const jobsLen = payload.jobs?.length ?? 0
+        const farm_done = jobsLen < limit
+
+        // forward to server/history root action so it can aggregate
+        dispatch(
+            'server/history/getHistoryFromFarm',
+            { ...payload, printer: state._namespace, farm_done },
+            { root: true }
+        )
+    },
+
+    /**
+     * Forward totals payload back to manager to be aggregated into totals
+     */
+    forwardTotalsToManager({ dispatch, state }, payload) {
+        dispatch('server/history/getTotalsFromFarm', { ...payload, printer: state._namespace }, { root: true })
+    },
+
     getWebcamsData({ commit }, payload) {
         commit('setWebcamsData', payload.webcams)
     },

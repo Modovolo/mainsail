@@ -51,6 +51,10 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
                     position: element.position ?? 999,
                 })
 
+                // Hide the Dashboard route if Klippy (printer) is not connected
+                const isDashboard = (element.name === 'dashboard')
+                const shouldShowDashboard = !isDashboard || this.klippyIsConnected
+
                 points.push({
                     type: 'route',
                     title: this.$t(`Router.${element.title}`),
@@ -58,7 +62,7 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
                     icon: element.icon,
                     to: element.path,
                     position,
-                    visible,
+                    visible: visible && shouldShowDashboard,
                 } as NaviPoint)
             })
 
@@ -91,7 +95,31 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
     }
 
     get visibleNaviPoints(): NaviPoint[] {
-        return this.naviPoints.filter((entry) => entry.visible)
+        const points = this.naviPoints.filter((entry) => entry.visible)
+        
+        // If connected to the manager host (frontend served from the manager)
+        // and we have farm printers configured, treat this as the manager
+        // context. Use socket hostname === window.location.hostname to detect
+        // the manager host reliably instead of relying on the displayed
+        // printer name.
+        if (this.$store.state.socket.hostname === window.location.hostname) {
+            return points.filter(entry => {
+                // Keep Files, Machine (config), History, and Farm (Printers)
+                // Hide Dashboard, Console etc.
+                // allow both the translated/short title and the full route title for files
+                const allowedTitles = ['Files', 'G-Code Files', 'Machine', 'Printers', 'Farm', 'History'];
+                // Check against orgTitle (e.g. 'Dashboard', 'Console') or the translated title if orgTitle missing
+                const titleToCheck = entry.orgTitle || entry.title;
+                
+                // Allow if it's in our allowed list
+                if (allowedTitles.includes(titleToCheck)) return true;
+                
+                // Also allow custom links if needed, but for now let's be strict
+                return false;
+            });
+        }
+        
+        return points;
     }
 
     get uiSettings(): GuiNavigationStateEntry[] {
@@ -154,7 +182,20 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
     showInNavi(route: AppRoute): boolean {
         if (['shutdown', 'error', 'disconnected'].includes(this.klippy_state) && !route.alwaysShow) return false
         else if (route.title === 'Webcam' && this.webcamCount === 0) return false
-        else if (route.moonrakerComponent && !this.moonrakerComponents.includes(route.moonrakerComponent)) return false
+        else if (route.moonrakerComponent && !this.moonrakerComponents.includes(route.moonrakerComponent)) {
+            // If we're running as the manager host, allow certain manager-only routes
+            // even if the server.component discovery hasn't populated for the current
+            // (non-connected) context yet. Specifically, allow `history` so the
+            // History page shows up for FARM MANAGER instances even before any
+            // printer connection happened.
+            // allow history when we are on the manager host (front-end served
+            // from manager) with farm printers available – this lets the
+            // manager see the History route even before any printer connects
+            // to a klipper instance.
+            if (!(this.$store.state.socket.hostname === window.location.hostname && route.moonrakerComponent === 'history')) {
+                return false
+            }
+        }
         else if (route.registeredDirectory && !this.registeredDirectories.includes(route.registeredDirectory))
             return false
         else if (route.klipperComponent && !(route.klipperComponent in this.klipperConfigfileSettings)) return false

@@ -51,6 +51,7 @@
             </template>
         </td>
         <td>{{ item.filename }}</td>
+        <td>{{ item.printer ? ($store.getters['farm/getPrinterName'](item.printer) ?? item.printer) : $t('History.Manager') }}</td>
         <td class="text-right text-no-wrap">
             <template v-if="'note' in item && item.note">
                 <v-tooltip top>

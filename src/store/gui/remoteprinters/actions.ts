@@ -24,6 +24,27 @@ export const actions: ActionTree<GuiRemoteprintersState, RootState> = {
         let value = rootState.configInstances ?? []
         if (rootState.instancesDB === 'browser') value = JSON.parse(localStorage.getItem('printers') ?? '{}')
         if (Array.isArray(value)) {
+            // Remove the manager instance from the remote printers list so the
+            // UI doesn't treat the manager host as a printer.  We skip any
+            // entry that matches the current host where the app is served from
+            // (window.location.hostname) or any hostname labeled as "FARM MANAGER".
+            try {
+                const currentHost = (window.location.hostname || '').toLowerCase()
+                value = value.filter((p) => {
+                    try {
+                        const h = (p.hostname || '').toString().toLowerCase()
+                        if (!h) return false
+                        if (h === currentHost) return false
+                        if (h === 'farm manager') return false
+                        return true
+                    } catch (_) {
+                        return true
+                    }
+                })
+            } catch (_) {
+                // ignore — defensive in environments without window
+            }
+
             const printers: any = {}
 
             value.forEach((printer) => {

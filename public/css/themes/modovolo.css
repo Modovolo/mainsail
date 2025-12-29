@@ -12,8 +12,8 @@ body, .v-application {
 }
 
 /* Custom background for the app */
-body {
-    background-color: #000000; /* Black background */
+body, .v-application {
+    background-color: #000000 !important; /* Black background */
 }
 
 /* Optional overlay helpers retained if you still want them. Remove if not used. */

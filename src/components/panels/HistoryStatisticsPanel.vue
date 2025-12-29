@@ -104,6 +104,11 @@ export default class HistoryStatisticsPanel extends Mixins(BaseMixin, HistoryMix
     }
 
     get totalPrintTime() {
+        // When filtered to a specific printer, calculate totals based on the filtered jobs
+        if ((this as any).selectedPrinterFilter && (this as any).selectedPrinterFilter !== 'all') {
+            return this.jobs.reduce((acc: number, job: ServerHistoryStateJob) => acc + (job.print_duration ?? 0), 0)
+        }
+
         return this.$store.state.server.history.job_totals?.total_print_time ?? 0
     }
 
@@ -118,6 +123,15 @@ export default class HistoryStatisticsPanel extends Mixins(BaseMixin, HistoryMix
     }
 
     get longestPrintTime() {
+        if ((this as any).selectedPrinterFilter && (this as any).selectedPrinterFilter !== 'all') {
+            let maxVal = 0
+            this.jobs.forEach((job: ServerHistoryStateJob) => {
+                if (job.print_duration > maxVal) maxVal = job.print_duration
+            })
+
+            return maxVal
+        }
+
         return this.$store.state.server.history.job_totals?.longest_print ?? 0
     }
 
@@ -146,6 +160,10 @@ export default class HistoryStatisticsPanel extends Mixins(BaseMixin, HistoryMix
     }
 
     get totalFilamentUsed() {
+        if ((this as any).selectedPrinterFilter && (this as any).selectedPrinterFilter !== 'all') {
+            return this.jobs.reduce((acc: number, job: ServerHistoryStateJob) => acc + (job.filament_used ?? 0), 0)
+        }
+
         return this.$store.state.server.history.job_totals?.total_filament_used ?? 0
     }
 
@@ -172,6 +190,10 @@ export default class HistoryStatisticsPanel extends Mixins(BaseMixin, HistoryMix
     }
 
     get totalJobsCount() {
+        if ((this as any).selectedPrinterFilter && (this as any).selectedPrinterFilter !== 'all') {
+            return this.jobs.length
+        }
+
         return this.$store.state.server.history.job_totals?.total_jobs ?? 0
     }
 

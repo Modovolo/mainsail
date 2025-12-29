@@ -51,6 +51,17 @@
                 <v-icon class="mr-md-2">{{ mdiAlertOctagonOutline }}</v-icon>
                 <span class="d-none d-md-inline">{{ $t('App.TopBar.EmergencyStop') }}</span>
             </v-btn>
+            <v-btn
+                v-if="showDisconnectButton"
+                tile
+                :icon="$vuetify.breakpoint.smAndDown"
+                :text="$vuetify.breakpoint.mdAndUp"
+                color="secondary"
+                class="button-min-width-auto px-3 d-none d-sm-flex disconnect-button"
+                @click="btnDisconnect">
+                <v-icon class="mr-md-2">{{ mdiLogout }}</v-icon>
+                <span class="d-none d-md-inline">{{ $t('App.TopBar.ReturnToManager') }}</span>
+            </v-btn>
             <the-notification-menu />
             <the-settings-menu />
             <the-top-corner-menu />
@@ -85,7 +96,7 @@ import PrinterSelector from '@/components/ui/PrinterSelector.vue'
 import MainsailLogo from '@/components/ui/MainsailLogo.vue'
 import TheNotificationMenu from '@/components/notifications/TheNotificationMenu.vue'
 import { topbarHeight } from '@/store/variables'
-import { mdiAlertOctagonOutline, mdiContentSave, mdiFileUpload, mdiClose, mdiCloseThick } from '@mdi/js'
+import { mdiAlertOctagonOutline, mdiContentSave, mdiFileUpload, mdiClose, mdiCloseThick, mdiLogout } from '@mdi/js'
 import EmergencyStopDialog from '@/components/dialogs/EmergencyStopDialog.vue'
 import InlineSvg from 'vue-inline-svg'
 import ThemeMixin from '@/components/mixins/theme'
@@ -116,6 +127,7 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
     mdiContentSave = mdiContentSave
     mdiFileUpload = mdiFileUpload
     mdiClose = mdiClose
+    mdiLogout = mdiLogout
     mdiCloseThick = mdiCloseThick
 
     topbarHeight = topbarHeight
@@ -208,6 +220,20 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
         )
     }
 
+    /**
+     * Show disconnect button when we are connected to a remote printer
+     * (socket host/port differs from the current window host/port)
+     */
+    get showDisconnectButton(): boolean {
+        const socketHostname = this.$store.state.socket.hostname ?? ''
+        const socketPort = this.$store.state.socket.port ? Number(this.$store.state.socket.port) : (window.location.protocol === 'https:' ? 443 : 80)
+        const locationHostname = window.location.hostname ?? ''
+        const locationPort = window.location.port ? Number(window.location.port) : (window.location.protocol === 'https:' ? 443 : 80)
+
+        if (!socketHostname) return false
+        return socketHostname !== locationHostname || socketPort !== locationPort
+    }
+
     get defaultNavigationStateSetting() {
         return this.$store.state.gui?.uiSettings?.defaultNavigationStateSetting ?? 'alwaysOpen'
     }
@@ -236,6 +262,10 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
         }
 
         this.emergencyStop()
+    }
+
+    btnDisconnect() {
+        this.$store.dispatch('disconnectToManager')
     }
 
     emergencyStop() {
@@ -298,6 +328,15 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
                 })
                 .then((result) => {
                     this.uploadSnackbar.status = false
+                    // if the server returned an item path, refresh the directory to show newly uploaded file
+                    try {
+                        const path = result?.data?.item?.path
+                        if (path) {
+                            const root = path.split('/')[0]
+                            this.$socket.emit('server.files.get_directory', { path: root }, { action: 'files/getDirectory' })
+                        }
+                    } catch (_) {}
+
                     resolve(result.data.result)
                 })
                 .catch(() => {

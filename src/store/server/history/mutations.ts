@@ -45,4 +45,18 @@ export const mutations: MutationTree<ServerHistoryState> = {
     setAllLoaded(state) {
         Vue.set(state, 'all_loaded', true)
     },
+
+    setOutstandingFarmRequests(state, payload) {
+        Vue.set(state, 'outstanding_farm_requests', payload)
+    },
+
+    setOutstandingFarmTotal(state, payload) {
+        Vue.set(state, 'outstanding_farm_total', payload)
+    },
+
+    decrementOutstandingFarmRequests(state) {
+        const current = state.outstanding_farm_requests ?? 0
+        const next = Math.max(0, current - 1)
+        Vue.set(state, 'outstanding_farm_requests', next)
+    },
 }

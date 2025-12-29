@@ -84,7 +84,7 @@ export default class ThemeMixin extends Vue {
 
     get mainBgImage() {
         if (this.themeName === 'modovolo') {
-            return '/img/modovolo_lift_front.png'
+            return null // '/img/modovolo_lift_front.png'
         }
         const url = this.$store.getters['files/getMainBackground']
         if (url || this.themeName === 'mainsail') return url

@@ -12,6 +12,10 @@ export interface ServerHistoryState {
     }
     auxiliary_totals: ServerHistoryStateJobAuxiliaryTotal[]
     all_loaded: boolean
+    // number of outstanding sources (local + remote printers) expected
+    outstanding_farm_requests?: number
+    // immutable total for the current farm fetch so UI can show progress
+    outstanding_farm_total?: number
 }
 
 export interface ServerHistoryStateJob {
@@ -52,6 +56,8 @@ export interface ServerHistoryStateJob {
     start_time: number
     total_duration: number
     auxiliary_data?: ServerHistoryStateJobAuxiliaryData[]
+    // optional printer id/namespace if the job originated from a remote/farm printer
+    printer?: string
 }
 
 export interface ServerHistoryStateJobAuxiliaryData {

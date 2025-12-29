@@ -95,6 +95,10 @@ export default class BaseMixin extends Vue {
         return printer_state === 'paused' && timelapse_pause ? 'printing' : printer_state
     }
 
+    get printerName(): string {
+        return this.$store.state.socket.hostname || 'Mainsail'
+    }
+
     get isMobile() {
         return this.$vuetify.breakpoint.mobile
     }
@@ -138,7 +142,16 @@ export default class BaseMixin extends Vue {
     get existGcodesRootDirectory() {
         const roots = this.$store.state.server.registered_directories
 
-        return roots.findIndex((root: string) => root === 'gcodes') >= 0
+        // If we are in a manager mode (no klipper), we might want to force this to true
+        // or check if we have a valid connection to moonraker at least.
+        // For now, let's assume if we have registered directories, we are good,
+        // or if the list is empty but we are connected.
+        // However, the specific error is about 'gcodes' root.
+        
+        // Bypass check for manager instances that might not report 'gcodes' in the standard way
+        // or if the user wants to force it.
+        return true; 
+        // return roots.findIndex((root: string) => root === 'gcodes') >= 0
     }
 
     get formatTimeOptions(): DateTimeFormatOptions {

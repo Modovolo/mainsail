@@ -88,6 +88,8 @@
             "Uploading": "Uploading",
             "UploadOfFileSuccessful": "Upload of {file} successful!",
             "UploadPrint": "Upload & Print"
+            ,
+            "ReturnToManager": "Return to Manager"
         },
         "TopCornerMenu": {
             "Cancel": "Cancel",
@@ -396,6 +398,7 @@
         "FilamentUsed": "Filament Used",
         "Filename": "Filename",
         "Filesize": "Filesize",
+        "LoadingProgress": "Receiving history from {done} of {total} sources",
         "FirstLayerBedTemp": "First Layer Bed Temp.",
         "FirstLayerExtTemp": "First Layer Ext. Temp.",
         "FirstLayerHeight": "First Layer Height",
@@ -408,6 +411,8 @@
         "LastModified": "Last Modified",
         "LayerHeight": "Layer Height",
         "LoadCompleteHistory": "Load complete history",
+        "Printer": "Printer",
+        "Manager": "Manager",
         "LongestPrinttime": "Longest Print Time",
         "Maintenance": "Maintenance",
         "MaintenanceEntries": "Maintenance Entries",
@@ -437,6 +442,8 @@
         "SelectedJobs": "Selected Jobs",
         "SelectedPrinttime": "Selected Print Time",
         "Settings": "Settings",
+        "Filters": "Filter",
+        "ApplyFilter": "Apply",
         "Slicer": "Slicer",
         "SlicerVersion": "Slicer Version",
         "StartTime": "Start Time",
@@ -478,6 +485,7 @@
     "Machine": {
         "ConfigFilesPanel": {
             "AllFiles": "All",
+            "Manager": "Manager",
             "Cancel": "Cancel",
             "ConfigFiles": "Config Files",
             "ConfigRootDirectoryDoesntExists": "No configuration directory found. Please check option \"config_path\" in the [file_manager] section of the Moonraker configuration.",
@@ -721,6 +729,7 @@
         "FarmPrinterPanel": {
             "ReconnectToPrinter": "Reconnect",
             "SwitchToPrinter": "Switch to Printer",
+            "ReturnToManager": "Return to Manager",
             "WebcamOff": "Off"
         },
         "KlippyStatePanel": {

@@ -23,6 +23,27 @@ export const actions: ActionTree<RootState, RootState> = {
         })
     },
 
+    /**
+     * Disconnect from the currently connected printer and return to the
+     * manager host (the website host). This resets frontend state and points
+     * the socket back to the local manager (window.location), so you can use
+     * manager-only features (files, farm manager UI) without being connected
+     * to a remote Klipper instance.
+     */
+    disconnectToManager({ dispatch }) {
+        // Reset state similar to changePrinter
+        dispatch('files/reset')
+        dispatch('gui/reset')
+        dispatch('printer/reset')
+        dispatch('server/reset')
+        dispatch('socket/reset')
+
+        const hostname = window.location.hostname || 'localhost'
+        const defaultPort = window.location.port ? Number(window.location.port) : (window.location.protocol === 'https:' ? 443 : 80)
+
+        dispatch('socket/setSocket', { hostname: hostname, port: defaultPort, path: '' })
+    },
+
     setNaviDrawer({ commit }, payload) {
         commit('setNaviDrawer', payload)
     },

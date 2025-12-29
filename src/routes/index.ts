@@ -80,7 +80,6 @@ const routes: AppRoute[] = [
         component: Files,
         alwaysShow: true,
         showInNavi: true,
-        registeredDirectory: 'gcodes',
         position: 50,
         fullscreen: true,
     },

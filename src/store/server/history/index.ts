@@ -17,6 +17,8 @@ export const getDefaultState = (): ServerHistoryState => {
         },
         auxiliary_totals: [],
         all_loaded: false,
+        outstanding_farm_requests: 0,
+        outstanding_farm_total: 0,
     }
 }
 

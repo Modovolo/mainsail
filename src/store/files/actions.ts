@@ -23,7 +23,7 @@ export const actions: ActionTree<FileState, RootState> = {
             if (state.filetree.findIndex((tmp: FileStateFile) => tmp.filename === dirname) === -1) {
                 commit('createRootDir', {
                     name: dirname,
-                    permissions: 'r',
+                    permissions: 'rw', // Force read-write permissions for manager mode
                 })
                 Vue.$socket.emit('server.files.get_directory', { path: dirname }, { action: 'files/getDirectory' })
             }
@@ -31,41 +31,19 @@ export const actions: ActionTree<FileState, RootState> = {
     },
 
     getDirectory({ state, commit, getters }, payload: ApiGetDirectoryReturn) {
-        const pathArray = payload.requestParams.path.split('/')
-        const root = pathArray.length ? pathArray[0] : payload.requestParams.path
+        // Fallback for missing requestParams, assuming root gcodes if not specified
+        const requestPath = payload.requestParams?.path || 'gcodes';
+        
+        // DEBUG LOGGING
+        console.log('[Mainsail Debug] getDirectory payload:', payload);
+        console.log('[Mainsail Debug] requestPath:', requestPath);
 
-        const slashIndex = payload.requestParams.path.indexOf('/')
-        const path = slashIndex > 1 ? payload.requestParams.path.slice(slashIndex + 1) : ''
+        const pathArray = requestPath.split('/')
+        const root = pathArray.length ? pathArray[0] : requestPath
+
+        const slashIndex = requestPath.indexOf('/')
+        const path = slashIndex > 1 ? requestPath.slice(slashIndex + 1) : ''
         const directory = getters['getDirectory'](root + '/' + path)
-
-        if (directory?.childrens?.length) {
-            directory?.childrens.forEach((item: FileStateFile) => {
-                if (
-                    item?.isDirectory &&
-                    payload.dirs?.findIndex((element: ApiGetDirectoryReturnDir) => element.dirname === item.filename) <
-                        0
-                ) {
-                    commit('setDeleteDir', {
-                        item: {
-                            path: path.length ? path + '/' + item.filename : item.filename,
-                            root: root,
-                        },
-                    })
-                } else if (
-                    !item?.isDirectory &&
-                    payload.files?.findIndex(
-                        (element: ApiGetDirectoryReturnFile) => element.filename === item.filename
-                    ) < 0
-                ) {
-                    commit('setDeleteFile', {
-                        item: {
-                            path: path.length ? path + '/' + item.filename : item.filename,
-                            root: root,
-                        },
-                    })
-                }
-            })
-        }
 
         if (payload.dirs?.length) {
             payload.dirs
@@ -87,7 +65,7 @@ export const actions: ActionTree<FileState, RootState> = {
 
                         Vue.$socket.emit(
                             'server.files.get_directory',
-                            { path: payload.requestParams.path + '/' + dir.dirname },
+                            { path: requestPath + '/' + dir.dirname },
                             { action: 'files/getDirectory' }
                         )
                     }
@@ -338,6 +316,11 @@ export const actions: ActionTree<FileState, RootState> = {
                 })
                 .then((result: any) => {
                     commit('uploadSetShow', false)
+                    // refresh the directory listing for the uploaded file's root
+                    try {
+                        const root = result?.data?.item?.path?.split('/')?.[0]
+                        if (root) Vue.$socket.emit('server.files.get_directory', { path: root }, { action: 'files/getDirectory' })
+                    } catch (_) {}
                     const lastPos = result.data.item.path.lastIndexOf('/')
                     const filename = result.data.item.path.slice(lastPos + 1)
                     resolve(filename)

@@ -50,7 +50,6 @@
                                 <v-icon>{{ mdiDatabaseArrowDownOutline }}</v-icon>
                             </v-btn>
                         </template>
-                        <span>{{ $t('History.LoadCompleteHistory') }}</span>
                     </v-tooltip>
                     <v-tooltip top>
                         <template #activator="{ on, attrs }">
@@ -60,7 +59,7 @@
                         </template>
                         <span>{{ $t('History.TitleExportHistory') }}</span>
                     </v-tooltip>
-                    <v-menu :offset-y="true" :close-on-content-click="false">
+                    <v-menu offset-y>
                         <template #activator="{ on, attrs }">
                             <v-tooltip top>
                                 <template #activator="{ on: onToolTip }">
@@ -143,14 +142,14 @@
             <template #item="{ item, isSelected, select }">
                 <history-list-entry-job
                     v-if="item.type === 'job'"
-                    :key="item.select_id"
+                    :key="'job-' + item.select_id"
                     :is-selected="isSelected"
                     :item="item"
                     :table-fields="tableFields"
                     @select="select" />
                 <history-list-entry-maintenance
                     v-else-if="item.type === 'maintenance'"
-                    :key="item.select_id"
+                    :key="'maint-' + item.select_id"
                     :is-selected="isSelected"
                     :item="item"
                     :table-fields="tableFields"
@@ -221,6 +220,69 @@ export default class HistoryListPanel extends Mixins(BaseMixin, HistoryMixin, Hi
 
     formatFilesize = formatFilesize
 
+    get printerOptions() {
+        const out: { text: string; value: string }[] = []
+        out.push({ text: this.$t('History.AllFiles').toString(), value: 'all' })
+        out.push({ text: this.$t('App.Titles.PrinterOff') ?? 'Manager', value: 'local' })
+
+        const printers = this.$store.getters['farm/getPrinters'] ?? {}
+        Object.keys(printers).forEach((namespace) => {
+            const name = this.$store.getters['farm/getPrinterName'](namespace) ?? namespace
+            out.push({ text: name, value: namespace })
+        })
+
+        return out
+    }
+
+    get selectedPrinter() {
+        return this.$store.state.gui.view.history.selectedPrinter ?? 'all'
+    }
+
+    set selectedPrinter(newVal: string) {
+        this.$store.dispatch('gui/saveSetting', { name: 'view.history.selectedPrinter', value: newVal })
+
+        // Update the route query so /history?printer=<id> can be bookmarked/shared
+        try {
+            if (this.$route.name === 'history' || this.$route.path === '/history') {
+                const query = { ...(this.$route.query || {}) }
+                if (!newVal || newVal === 'all') {
+                    delete query.printer
+                } else {
+                    query.printer = newVal
+                }
+
+                // replace to avoid polluting history stack
+                this.$router.replace({ name: this.$route.name || 'history', query })
+            }
+        } catch (_) {
+            // ignore if router not available or route mismatch
+        }
+    }
+
+    // initial fetch is handled by the HistoryFilterPanel; keep this component focused on rendering
+    
+    mounted() {
+        // If the manager-only filter panel is hidden (for example when connected to a printer)
+        // the HistoryListPanel should still trigger an initial fetch for the current context
+        // (local server or a specific printer).
+        this.ensureInitialFetch()
+
+        // watch for changes in selected printer (deep switch in UI) and perform fetches
+        this.$watch(
+            () => this.$store.state.gui.view.history.selectedPrinter,
+            (newVal: any) => {
+                // allow a short delay for other state changes to settle
+                setTimeout(() => this.ensureInitialFetch(), 50)
+            }
+        )
+
+        // also react to base socket host changes (switching between manager and a printer)
+        this.$watch(
+            () => this.$store.state.socket.hostname + ':' + (this.$store.state.socket.port ?? ''),
+            () => setTimeout(() => this.ensureInitialFetch(), 50)
+        )
+    }
+
     search = ''
     sortBy = 'start_time'
     sortDesc = true
@@ -230,6 +292,63 @@ export default class HistoryListPanel extends Mixins(BaseMixin, HistoryMixin, Hi
 
     get allLoaded() {
         return this.$store.state.server.history.all_loaded ?? false
+    }
+
+    ensureInitialFetch() {
+        try {
+            // Determine whether manager-only filter panel is visible - if yes, it will manage fetches
+            const isManagerHost = this.$store.state.socket.hostname === window.location.hostname
+            const printersCount = this.$store.getters['farm/countPrinters'] ?? 0
+            const printers = this.$store.getters['farm/getPrinters'] ?? {}
+            const viewingRemotePrinter = Object.keys(printers).some((ns: string) => this.$store.getters[ns + '/isCurrentPrinter'] === true)
+            const selectedPrinter = this.$store.state.gui.view.history.selectedPrinter ?? 'all'
+
+            // If manager mode and aggregated all view and filter panel is mounted, do not duplicate fetch
+            const filterPanelVisible = isManagerHost && printersCount > 0 && !viewingRemotePrinter && selectedPrinter === 'all'
+            if (filterPanelVisible) return
+
+            // If we're here, the filter panel isn't going to fetch for us — do it here.
+            // Avoid duplicate loading entries
+            if (!this.loadings.includes('historyLoadAll')) this.$store.dispatch('socket/addLoading', { name: 'historyLoadAll' })
+
+            // Case: local root server
+            if (selectedPrinter === 'local' || (!isManagerHost && selectedPrinter === 'all')) {
+                this.$store.dispatch('server/history/reset')
+                this.$socket.emit('server.history.list', { start: 0, limit: 50 }, { action: 'server/history/getHistory' })
+                this.$socket.emit('server.history.totals', {}, { action: 'server/history/getTotals' })
+                return
+            }
+
+            // Case: specific remote printer selected
+            if (selectedPrinter && selectedPrinter !== 'all' && selectedPrinter !== 'local') {
+                this.$store.dispatch('server/history/reset')
+
+                // request from remote printer via farm module
+                this.$store.dispatch(
+                    'farm/' + selectedPrinter + '/sendObj',
+                    {
+                        method: 'server.history.list',
+                        params: { start: 0, limit: 50 },
+                        action: 'forwardHistoryToManager',
+                        actionPreload: { printer: selectedPrinter },
+                    },
+                    { root: true }
+                )
+
+                this.$store.dispatch(
+                    'farm/' + selectedPrinter + '/sendObj',
+                    {
+                        method: 'server.history.totals',
+                        params: {},
+                        action: 'forwardTotalsToManager',
+                        actionPreload: { printer: selectedPrinter },
+                    },
+                    { root: true }
+                )
+            }
+        } catch (e) {
+            // Ignore — this is only a fallback initiation
+        }
     }
 
     get maintenanceEntries() {
@@ -274,6 +393,13 @@ export default class HistoryListPanel extends Mixins(BaseMixin, HistoryMixin, Hi
                 value: 'filename',
                 align: 'left',
                 configable: false,
+                visible: true,
+            },
+            {
+                text: this.$t('History.Printer').toString() as string,
+                value: 'printer',
+                align: 'left',
+                configable: true,
                 visible: true,
             },
             {
@@ -427,8 +553,10 @@ export default class HistoryListPanel extends Mixins(BaseMixin, HistoryMixin, Hi
     }
 
     get tableFields() {
+        // Do not include filename, status or the special printer column in the 'tableFields'
+        // since the template renders filename/printer/status explicitly to keep ordering.
         return this.filteredHeaders.filter(
-            (col: any) => !['filename', 'status'].includes(col.value) && col.value !== ''
+            (col: any) => !['filename', 'status', 'printer'].includes(col.value) && col.value !== ''
         )
     }
 
@@ -490,6 +618,19 @@ export default class HistoryListPanel extends Mixins(BaseMixin, HistoryMixin, Hi
     refreshHistory() {
         this.$store.dispatch('socket/addLoading', { name: 'historyLoadAll' })
 
+        const printersCount = this.$store.getters['farm/countPrinters'] ?? 0
+        const socketHostname = this.$store.state.socket.hostname ?? ''
+        const socketPort = this.$store.state.socket.port ? Number(this.$store.state.socket.port) : (window.location.protocol === 'https:' ? 443 : 80)
+        const locationHostname = window.location.hostname ?? ''
+        const locationPort = window.location.port ? Number(window.location.port) : (window.location.protocol === 'https:' ? 443 : 80)
+
+        // If we are the manager host and we have farm printers, request aggregated history
+        if (printersCount > 0 && socketHostname === locationHostname && socketPort === locationPort) {
+            this.$store.dispatch('server/history/initFarmHistory')
+            return
+        }
+
+        // normal single-instance behavior
         this.$socket.emit('server.history.list', { start: 0, limit: 50 }, { action: 'server/history/getHistory' })
     }
 
@@ -549,6 +690,7 @@ export default class HistoryListPanel extends Mixins(BaseMixin, HistoryMixin, Hi
         const row: string[] = []
 
         row.push('filename')
+        row.push('printer')
         row.push('type')
         row.push('status')
 
@@ -579,6 +721,7 @@ export default class HistoryListPanel extends Mixins(BaseMixin, HistoryMixin, Hi
                 if (type === 'maintenance') {
                     const maintenance = entry as HistoryListRowMaintenance
                     row.push(maintenance.name)
+                    row.push(maintenance.printer ?? 'manager')
                     row.push('maintenance')
                     row.push(maintenance.end_time !== null ? 'performed' : 'open') // status
 
@@ -624,6 +767,7 @@ export default class HistoryListPanel extends Mixins(BaseMixin, HistoryMixin, Hi
                 let filename = job.filename
                 if (filename.includes(csvSeperator)) filename = '"' + filename + '"'
                 row.push(filename)
+                row.push((job as any).printer ?? 'manager')
                 row.push('job')
                 row.push(job.status)
 

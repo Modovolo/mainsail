@@ -90,6 +90,9 @@ export const actions: ActionTree<ServerState, RootState> = {
 
         if (payload.registered_directories?.length) {
             dispatch('files/initRootDirs', payload.registered_directories, { root: true })
+        } else {
+            // Force init of gcodes dir if not present (e.g. manager mode)
+            dispatch('files/initRootDirs', ['gcodes'], { root: true })
         }
 
         commit('setData', payload)

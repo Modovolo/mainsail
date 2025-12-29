@@ -16,10 +16,23 @@ export default class HistoryMixin extends Vue {
         return this.$store.state.server.history.jobs ?? []
     }
 
+    get selectedPrinterFilter() {
+        // empty or 'all' means no filter
+        return this.$store.state.gui.view.history.selectedPrinter ?? 'all'
+    }
+
     get jobs() {
-        return this.allJobs.filter((job: ServerHistoryStateJob) => {
-            return !this.hidePrintStatus.includes(job.status)
-        })
+        return this.allJobs
+            .filter((job: ServerHistoryStateJob) => !this.hidePrintStatus.includes(job.status))
+            .filter((job: ServerHistoryStateJob) => {
+                const filter = this.selectedPrinterFilter ?? 'all'
+                if (!filter || filter === 'all') return true
+
+                // job.printer might be undefined for local/manager jobs — use 'local' or hostname matching
+                if (!job.printer) return filter === 'local' || filter === 'all'
+
+                return job.printer === filter
+            })
     }
 
     get selectedJobs(): ServerHistoryStateJob[] {
