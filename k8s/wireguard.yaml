@@ -1,0 +1,161 @@
+---
+# WireGuard Secret - REPLACE WITH YOUR KEYS
+apiVersion: v1
+kind: Secret
+metadata:
+  name: wireguard-keys
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: wireguard
+    app.kubernetes.io/component: vpn
+type: Opaque
+stringData:
+  # Generate with: wg genkey | tee privatekey | wg pubkey > publickey
+  privatekey: "REPLACE_WITH_SERVER_PRIVATE_KEY"
+  # Printer peer public keys (add more as needed)
+  # Format: printer-name=public-key
+  peers: |
+    # Example peers - replace with actual printer public keys
+    # printer-01=PRINTER_01_PUBLIC_KEY
+    # printer-02=PRINTER_02_PUBLIC_KEY
+---
+# WireGuard ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wireguard-config
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: wireguard
+    app.kubernetes.io/component: vpn
+data:
+  wg0.conf.template: |
+    [Interface]
+    Address = 10.10.0.1/24
+    ListenPort = 51820
+    PrivateKey = ${PRIVATE_KEY}
+    
+    # Enable IP forwarding for routing
+    PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+    PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+    
+    # Peers will be added dynamically by init script
+  
+  init-wireguard.sh: |
+    #!/bin/sh
+    set -e
+    
+    echo "Initializing WireGuard configuration..."
+    
+    # Read private key
+    PRIVATE_KEY=$(cat /etc/wireguard/secrets/privatekey)
+    
+    # Generate base config
+    envsubst < /etc/wireguard/config/wg0.conf.template > /etc/wireguard/wg0.conf
+    
+    # Add peers from secrets
+    PEER_ID=2
+    if [ -f /etc/wireguard/secrets/peers ]; then
+      while IFS='=' read -r name pubkey; do
+        # Skip comments and empty lines
+        case "$name" in
+          \#*|"") continue ;;
+        esac
+        
+        echo "" >> /etc/wireguard/wg0.conf
+        echo "# Peer: $name" >> /etc/wireguard/wg0.conf
+        echo "[Peer]" >> /etc/wireguard/wg0.conf
+        echo "PublicKey = $pubkey" >> /etc/wireguard/wg0.conf
+        echo "AllowedIPs = 10.10.0.$PEER_ID/32" >> /etc/wireguard/wg0.conf
+        echo "PersistentKeepalive = 25" >> /etc/wireguard/wg0.conf
+        
+        PEER_ID=$((PEER_ID + 1))
+      done < /etc/wireguard/secrets/peers
+    fi
+    
+    echo "WireGuard configuration complete"
+    cat /etc/wireguard/wg0.conf
+    
+    # Start WireGuard
+    wg-quick up wg0
+    
+    # Keep container running
+    echo "WireGuard started, monitoring..."
+    while true; do
+      wg show
+      sleep 60
+    done
+---
+# WireGuard DaemonSet (runs on specific nodes)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: wireguard
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: wireguard
+    app.kubernetes.io/component: vpn
+spec:
+  selector:
+    matchLabels:
+      app: wireguard
+  template:
+    metadata:
+      labels:
+        app: wireguard
+        app.kubernetes.io/name: wireguard
+        app.kubernetes.io/component: vpn
+    spec:
+      # Only run on nodes labeled for VPN
+      nodeSelector:
+        fleet.io/wireguard: "true"
+      hostNetwork: true  # Required for VPN traffic
+      containers:
+        - name: wireguard
+          image: linuxserver/wireguard:latest
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - SYS_MODULE
+            privileged: true
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+          ports:
+            - containerPort: 51820
+              protocol: UDP
+              hostPort: 51820
+          volumeMounts:
+            - name: wireguard-config
+              mountPath: /etc/wireguard/config
+            - name: wireguard-secrets
+              mountPath: /etc/wireguard/secrets
+              readOnly: true
+            - name: host-modules
+              mountPath: /lib/modules
+              readOnly: true
+          command:
+            - /bin/sh
+            - /etc/wireguard/config/init-wireguard.sh
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: wireguard-config
+          configMap:
+            name: wireguard-config
+            defaultMode: 0755
+        - name: wireguard-secrets
+          secret:
+            secretName: wireguard-keys
+        - name: host-modules
+          hostPath:
+            path: /lib/modules
+            type: Directory

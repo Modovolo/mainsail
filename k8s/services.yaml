@@ -1,0 +1,76 @@
+---
+# Mainsail Service (internal)
+apiVersion: v1
+kind: Service
+metadata:
+  name: mainsail
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: mainsail
+    app.kubernetes.io/component: frontend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: mainsail
+---
+# Moonraker Service (internal)
+apiVersion: v1
+kind: Service
+metadata:
+  name: moonraker
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: moonraker
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 7125
+      targetPort: 7125
+      protocol: TCP
+      name: http
+  selector:
+    app: moonraker
+---
+# Nginx Proxy Service (external-facing)
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-proxy
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: nginx-proxy
+    app.kubernetes.io/component: proxy
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    app: nginx-proxy
+---
+# Headless service for WireGuard peer discovery
+apiVersion: v1
+kind: Service
+metadata:
+  name: wireguard-peers
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: wireguard
+    app.kubernetes.io/component: vpn
+spec:
+  clusterIP: None
+  ports:
+    - port: 51820
+      targetPort: 51820
+      protocol: UDP
+      name: wireguard
+  selector:
+    app: wireguard

@@ -1,0 +1,43 @@
+# Kustomize configuration for Fleet deployment
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fleet
+
+resources:
+  - namespace.yaml
+  - storage.yaml
+  - configmaps.yaml
+  - deployments.yaml
+  - services.yaml
+  - ingress.yaml
+  - wireguard.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: printer-fleet
+  app.kubernetes.io/managed-by: kustomize
+
+# Image customization (override for different environments)
+images:
+  - name: fleet-moonraker
+    newName: jmarji/moonraker
+    newTag: v0.0.1
+  - name: ghcr.io/mainsail-crew/mainsail
+    newName: jmarji/mainsail
+    newTag: v0.0.1
+
+# ConfigMap generator for dynamic configuration
+configMapGenerator: []
+
+# Secret generator (for production, use external secrets)
+secretGenerator: []
+
+# Patches for environment-specific overrides
+patches: []
+
+# Replicas override
+replicas:
+  - name: mainsail
+    count: 2
+  - name: nginx-proxy
+    count: 2

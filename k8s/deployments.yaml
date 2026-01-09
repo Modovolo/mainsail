@@ -1,0 +1,211 @@
+---
+# Mainsail Frontend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mainsail
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: mainsail
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mainsail
+  template:
+    metadata:
+      labels:
+        app: mainsail
+        app.kubernetes.io/name: mainsail
+        app.kubernetes.io/component: frontend
+    spec:
+      imagePullSecrets:
+        - name: dockerhub-creds
+      containers:
+        - name: mainsail
+          image: jmarji/mainsail:v0.0.1
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/nginx/html/config.json
+              subPath: config.json
+            - name: config
+              mountPath: /usr/share/nginx/html/img/modovolo-logo-black.svg
+              subPath: modovolo-logo-black.svg
+            - name: config
+              mountPath: /usr/share/nginx/html/img/modovolo-logo-white.svg
+              subPath: modovolo-logo-white.svg
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: mainsail-config
+---
+# Moonraker Backend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: moonraker
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: moonraker
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1  # Single replica for now due to shared state
+  strategy:
+    type: Recreate  # Ensure clean state transitions
+  selector:
+    matchLabels:
+      app: moonraker
+  template:
+    metadata:
+      labels:
+        app: moonraker
+        app.kubernetes.io/name: moonraker
+        app.kubernetes.io/component: backend
+    spec:
+      imagePullSecrets:
+        - name: dockerhub-creds
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        # Initialize printer_data directory structure
+        - name: init-data
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /printer_data/config
+              mkdir -p /printer_data/gcodes
+              mkdir -p /printer_data/logs
+              mkdir -p /printer_data/comms
+              mkdir -p /printer_data/database
+              chmod -R 775 /printer_data
+              echo "Printer data directories initialized"
+          volumeMounts:
+            - name: printer-data
+              mountPath: /printer_data
+      containers:
+        - name: moonraker
+          image: jmarji/moonraker:v0.0.1
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 7125
+              name: http
+          env:
+            - name: MOONRAKER_DATA_PATH
+              value: /printer_data
+            - name: MOONRAKER_CONFIG_PATH
+              value: /printer_data/config/moonraker.conf
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: printer-data
+              mountPath: /printer_data
+            - name: config
+              mountPath: /printer_data/config/moonraker.conf
+              subPath: moonraker.conf
+          livenessProbe:
+            httpGet:
+              path: /server/info
+              port: 7125
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /server/info
+              port: 7125
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+      volumes:
+        - name: printer-data
+          persistentVolumeClaim:
+            claimName: fleet-shared-data
+        - name: config
+          configMap:
+            name: moonraker-config
+---
+# Nginx Reverse Proxy Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-proxy
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: nginx-proxy
+    app.kubernetes.io/component: proxy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-proxy
+  template:
+    metadata:
+      labels:
+        app: nginx-proxy
+        app.kubernetes.io/name: nginx-proxy
+        app.kubernetes.io/component: proxy
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.25-alpine
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-proxy-config

@@ -1,0 +1,62 @@
+---
+# Ingress for external HTTPS access
+# Requires: ingress-nginx controller and cert-manager
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fleet-ingress
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: printer-fleet
+    app.kubernetes.io/component: ingress
+  annotations:
+    # For cert-manager TLS
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Nginx ingress annotations
+    nginx.ingress.kubernetes.io/proxy-body-size: "1024m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "86400"
+    # WebSocket support
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$remote_addr"
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "30"
+    nginx.ingress.kubernetes.io/limit-connections: "100"
+    # Allow HTTP for ACME challenges
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - fleet.modovolo.com
+      secretName: fleet-tls
+  rules:
+    - host: fleet.modovolo.com
+      http:
+        paths:
+          # All traffic goes through nginx-proxy which handles routing
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx-proxy
+                port:
+                  number: 80
+---
+# ClusterIssuer for Let's Encrypt (if not already exists)
+# Uncomment if you need to create cert-manager issuer
+# apiVersion: cert-manager.io/v1
+# kind: ClusterIssuer
+# metadata:
+#   name: letsencrypt-prod
+# spec:
+#   acme:
+#     server: https://acme-v02.api.letsencrypt.org/directory
+#     email: your-email@example.com
+#     privateKeySecretRef:
+#       name: letsencrypt-prod
+#     solvers:
+#       - http01:
+#           ingress:
+#             class: nginx

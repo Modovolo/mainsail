@@ -1,0 +1,33 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fleet-shared-data
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: printer-fleet
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce  # Single pod access (Moonraker is single replica)
+  resources:
+    requests:
+      storage: 50Gi
+  # Uncomment and specify your storage class if needed
+  # storageClassName: nfs-client
+---
+# ConfigMap for shared printer configurations
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleet-printers-config
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: printer-fleet
+    app.kubernetes.io/component: config
+data:
+  # This will be dynamically updated as printers register
+  printers.json: |
+    {
+      "printers": []
+    }
