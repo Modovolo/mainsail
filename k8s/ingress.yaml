@@ -17,7 +17,7 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "86400"
-    # WebSocket support
+    # WebSocket support - Force HTTP/1.1 for WebSocket upgrades
     nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
     nginx.ingress.kubernetes.io/upstream-hash-by: "$remote_addr"
     # Rate limiting
@@ -35,7 +35,22 @@ spec:
     - host: fleet.modovolo.com
       http:
         paths:
-          # All traffic goes through nginx-proxy which handles routing
+          # WebSocket endpoints for fleet management
+          - path: /ws/printer
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 9080
+          - path: /ws/web
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 9081
+          # All other traffic goes through nginx-proxy which handles routing
           - path: /
             pathType: Prefix
             backend:

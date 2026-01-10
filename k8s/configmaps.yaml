@@ -96,6 +96,12 @@ data:
     channel: stable
     repo: mainsail-crew/mainsail
     path: /printer_data/mainsail
+
+    # Fleet Management WebSocket Support
+    [fleet_manager]
+    enabled: True
+    fleet_endpoint: ws://fleet-manager.fleet.svc.cluster.local:9080/ws
+    update_interval: 30
 ---
 # Nginx reverse proxy configuration
 apiVersion: v1

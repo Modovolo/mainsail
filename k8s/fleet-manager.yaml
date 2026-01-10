@@ -1,0 +1,79 @@
+---
+# Fleet Manager Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleet-manager
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: fleet-manager
+    app.kubernetes.io/component: websocket
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fleet-manager
+  template:
+    metadata:
+      labels:
+        app: fleet-manager
+        app.kubernetes.io/name: fleet-manager
+        app.kubernetes.io/component: websocket
+    spec:
+      containers:
+        - name: fleet-manager
+          image: jmarji/fleet-manager:v0.0.2
+          ports:
+            - containerPort: 9080
+              name: printer-ws
+              protocol: TCP
+            - containerPort: 9081
+              name: web-ws
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command:
+              - python
+              - -c
+              - "import socket; s=socket.socket(); s.connect(('127.0.0.1', 9080)); s.close()"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command:
+              - python
+              - -c
+              - "import socket; s=socket.socket(); s.connect(('127.0.0.1', 9080)); s.close()"
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+---
+# Fleet Manager Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: fleet-manager
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: fleet-manager
+    app.kubernetes.io/component: websocket
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9080
+      targetPort: 9080
+      protocol: TCP
+      name: printer-ws
+    - port: 9081
+      targetPort: 9081
+      protocol: TCP
+      name: web-ws
+  selector:
+    app: fleet-manager
