@@ -24,6 +24,10 @@ export const getDefaultState = (): SocketState => {
         loadings: [],
         initializationList: ['server'],
         connection_id: null,
+        // Fleet mode socket state
+        fleetSocketConnected: false,
+        fleetPrinterId: null,
+        fleetPrinterName: null,
     }
 }
 

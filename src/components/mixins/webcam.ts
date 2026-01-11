@@ -15,7 +15,8 @@ import BaseMixin from '@/components/mixins/base'
 @Component
 export default class WebcamMixin extends Mixins(BaseMixin) {
     convertUrl(baseUrl: string, printerUrl: string | null) {
-        let url = new URL(baseUrl, this.hostUrl.toString())
+        // Use printerHostUrl to get the actual printer's URL in fleet mode
+        let url = new URL(baseUrl, this.printerHostUrl.toString())
 
         // use printerURL if it exists
         if (printerUrl !== null) url = new URL(baseUrl, printerUrl)

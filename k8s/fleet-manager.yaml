@@ -1,5 +1,6 @@
 ---
 # Fleet Manager Deployment
+# Note: Secrets are defined in secrets.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -22,14 +23,54 @@ spec:
     spec:
       containers:
         - name: fleet-manager
-          image: jmarji/fleet-manager:v0.0.2
+          image: jmarji/fleet-manager:v0.0.7
+          imagePullPolicy: Always
           ports:
+            - containerPort: 8080
+              name: http-api
+              protocol: TCP
             - containerPort: 9080
               name: printer-ws
               protocol: TCP
             - containerPort: 9081
               name: web-ws
               protocol: TCP
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-secrets
+                  key: jwt-secret
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-secrets
+                  key: admin-password
+            - name: DB_HOST
+              value: "postgresql"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: "fleet_manager"
+            - name: DB_USER
+              value: "fleet_admin"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-secret
+                  key: POSTGRES_PASSWORD
+            - name: RESEND_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-secrets
+                  key: resend-api-key
+            - name: EMAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-secrets
+                  key: email-from
+            - name: FLEET_URL
+              value: "https://fleet.modovolo.com"
           resources:
             requests:
               cpu: 100m
@@ -38,21 +79,19 @@ spec:
               cpu: 500m
               memory: 512Mi
           livenessProbe:
-            exec:
-              command:
-              - python
-              - -c
-              - "import socket; s=socket.socket(); s.connect(('127.0.0.1', 9080)); s.close()"
+            httpGet:
+              path: /api/health
+              port: 8080
             initialDelaySeconds: 60
             periodSeconds: 30
+            failureThreshold: 3
           readinessProbe:
-            exec:
-              command:
-              - python
-              - -c
-              - "import socket; s=socket.socket(); s.connect(('127.0.0.1', 9080)); s.close()"
+            httpGet:
+              path: /api/health
+              port: 8080
             initialDelaySeconds: 30
             periodSeconds: 10
+            failureThreshold: 3
 
 ---
 # Fleet Manager Service
@@ -67,6 +106,10 @@ metadata:
 spec:
   type: ClusterIP
   ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http-api
     - port: 9080
       targetPort: 9080
       protocol: TCP

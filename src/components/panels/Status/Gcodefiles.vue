@@ -89,7 +89,9 @@ export default class StatusPanelGcodefiles extends Mixins(BaseMixin, ControlMixi
     }
 
     calcContentTdWidth() {
-        this.contentTdWidth = this.$refs.filesGcodeCard.$el.clientWidth - 48 - 48 - 32
+        if (this.$refs.filesGcodeCard?.$el) {
+            this.contentTdWidth = this.$refs.filesGcodeCard.$el.clientWidth - 48 - 48 - 32
+        }
     }
 
     handleResize() {

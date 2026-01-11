@@ -21,3 +21,5 @@ cypress/screenshots/
 cypress/videos/
 components.d.ts
 i18n-extract
+k8s/secrets.yaml
+k8s/secrets.yaml

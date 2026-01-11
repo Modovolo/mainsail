@@ -11,4 +11,8 @@ export interface SocketState {
     loadings: string[]
     initializationList: string[]
     connection_id: number | null
+    // Fleet mode socket state
+    fleetSocketConnected: boolean
+    fleetPrinterId: string | null
+    fleetPrinterName: string | null
 }

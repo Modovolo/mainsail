@@ -35,6 +35,46 @@ spec:
     - host: fleet.modovolo.com
       http:
         paths:
+          # Auth API endpoints
+          - path: /api/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
+          # Fleet API endpoints
+          - path: /api/fleet
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
+          # Printers API endpoints (user's printers)
+          - path: /api/printers
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
+          # Printer registration API endpoints
+          - path: /api/printer-registration
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
+          # Health check API
+          - path: /api/health
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
           # WebSocket endpoints for fleet management
           - path: /ws/printer
             pathType: Prefix
@@ -44,6 +84,14 @@ spec:
                 port:
                   number: 9080
           - path: /ws/web
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 9081
+          # WebSocket proxy for individual printer connections (Moonraker proxy)
+          - path: /ws/client
             pathType: Prefix
             backend:
               service:

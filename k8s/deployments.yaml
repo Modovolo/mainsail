@@ -24,10 +24,10 @@ spec:
         - name: dockerhub-creds
       containers:
         - name: mainsail
-          image: jmarji/mainsail:v0.0.1
+          image: jmarji/mainsail:v0.0.7
           imagePullPolicy: Always
           ports:
-            - containerPort: 8080
+            - containerPort: 80
               name: http
           resources:
             requests:
@@ -49,13 +49,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /
-              port: 8080
+              port: 80
             initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
             httpGet:
               path: /
-              port: 8080
+              port: 80
             initialDelaySeconds: 5
             periodSeconds: 10
       volumes:

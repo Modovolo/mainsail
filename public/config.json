@@ -5,17 +5,6 @@
     "hostname": null,
     "port": null,
     "path": null,
-    "instancesDB": "json",
-    "instances": [
-        { "hostname": "bfp1", "port": 7125, "path": "/" },
-        { "hostname": "bfp2", "port": 7125, "path": "/" },
-        { "hostname": "bfp3", "port": 7125, "path": "/" },
-        { "hostname": "bfp4", "port": 7125, "path": "/" },
-        { "hostname": "bfp5", "port": 7125, "path": "/" },
-        { "hostname": "bfp6", "port": 7125, "path": "/" },
-        { "hostname": "bfp7", "port": 7125, "path": "/" },
-        { "hostname": "bfp8", "port": 7125, "path": "/" },
-        { "hostname": "bfp9", "port": 7125, "path": "/" },
-        { "hostname": "bfp10", "port": 7125, "path": "/" }
-    ]
+    "instancesDB": "fleet",
+    "instances": []
 }

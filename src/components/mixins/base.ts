@@ -13,6 +13,15 @@ export default class BaseMixin extends Vue {
         return this.$store.getters['socket/getHostUrl']
     }
 
+    /**
+     * Get the URL for the actual printer.
+     * In fleet mode, this returns the printer's hostname (e.g., https://bfp8/)
+     * In normal mode, this returns the same as hostUrl
+     */
+    get printerHostUrl(): string {
+        return this.$store.getters['socket/getPrinterHostUrl']
+    }
+
     get hostPort(): number {
         return parseInt(this.$store.state.socket.port ?? 80)
     }

@@ -1,4 +1,5 @@
 import Dashboard from '../pages/Dashboard.vue'
+import FleetDashboard from '../pages/FleetDashboard.vue'
 import Webcam from '../pages/Webcam.vue'
 import Farm from '../pages/Farm.vue'
 import Console from '../pages/Console.vue'
@@ -6,10 +7,13 @@ import Files from '../pages/Files.vue'
 import History from '../pages/History.vue'
 import Timelapse from '../pages/Timelapse.vue'
 import Machine from '../pages/Machine.vue'
+import Login from '../pages/Login.vue'
+import MyPrinters from '../pages/MyPrinters.vue'
 import { AsyncComponent, Component } from 'vue'
 
 import {
     mdiMonitorDashboard,
+    mdiViewDashboard,
     mdiWebcam,
     mdiConsoleLine,
     mdiGrid,
@@ -18,26 +22,76 @@ import {
     mdiHistory,
     mdiTimelapse,
     mdiWrench,
+    mdiLogin,
+    mdiPrinter3d,
+    mdiPrinter3dNozzle,
 } from '@mdi/js'
 
 const routes: AppRoute[] = [
     {
-        name: 'dashboard',
-        title: 'Dashboard',
+        name: 'login',
+        title: 'Login',
+        path: '/login',
+        icon: mdiLogin,
+        component: Login,
+        alwaysShow: true,
+        showInNavi: false,
+        meta: { requiresAuth: false, isPublic: true },
+    },
+    {
+        name: 'fleet-dashboard',
+        title: 'Fleet Dashboard',
         path: '/',
-        icon: mdiMonitorDashboard,
-        component: Dashboard,
+        icon: mdiViewDashboard,
+        component: FleetDashboard,
         alwaysShow: true,
         showInNavi: true,
+        position: 1,
+        meta: { requiresAuth: true },
+    },
+    {
+        name: 'my-printers',
+        title: 'My Printers',
+        path: '/my-printers',
+        icon: mdiPrinter3d,
+        component: MyPrinters,
+        alwaysShow: true,
+        showInNavi: true,
+        position: 5,
+        meta: { requiresAuth: true },
+    },
+    {
+        name: 'register-printer',
+        title: 'Register Printer',
+        path: '/register-printer',
+        icon: mdiPrinter3dNozzle,
+        component: () => import('../pages/RegisterPrinter.vue'),
+        alwaysShow: true,
+        showInNavi: true,
+        position: 6,
+        meta: { requiresAuth: true },
+    },
+    {
+        name: 'dashboard',
+        title: 'Printer Dashboard',
+        path: '/printer/:id?',
+        icon: mdiMonitorDashboard,
+        component: Dashboard,
+        alwaysShow: false,
+        showInNavi: false,
         position: 10,
+        meta: { requiresAuth: true },
     },
     {
         name: 'farm',
-        title: 'Printers',
+        title: 'All Printers',
         path: '/allPrinters',
+        icon: mdiPrinter3d,
         component: Farm,
-        alwaysShow: false,
-        showInNavi: false,
+        alwaysShow: true,
+        showInNavi: true,
+        position: 7,
+        meta: { requiresAuth: true },
     },
     {
         name: 'webcam',
@@ -49,6 +103,7 @@ const routes: AppRoute[] = [
         showInNavi: true,
         position: 20,
         fullscreen: true,
+        meta: { requiresAuth: true },
     },
     {
         name: 'console',
@@ -60,6 +115,7 @@ const routes: AppRoute[] = [
         showInNavi: true,
         klipperIsConnected: true,
         position: 30,
+        meta: { requiresAuth: true },
     },
     {
         name: 'heightmap',
@@ -71,6 +127,7 @@ const routes: AppRoute[] = [
         showInNavi: true,
         klipperComponent: 'bed_mesh',
         position: 40,
+        meta: { requiresAuth: true },
     },
     {
         name: 'gcodefiles',
@@ -82,6 +139,7 @@ const routes: AppRoute[] = [
         showInNavi: true,
         position: 50,
         fullscreen: true,
+        meta: { requiresAuth: true },
     },
     {
         name: 'gcodeviewer',
@@ -93,6 +151,7 @@ const routes: AppRoute[] = [
         showInNavi: true,
         position: 60,
         fullscreen: true,
+        meta: { requiresAuth: true },
     },
     {
         name: 'history',
@@ -104,6 +163,7 @@ const routes: AppRoute[] = [
         showInNavi: true,
         moonrakerComponent: 'history',
         position: 70,
+        meta: { requiresAuth: true },
     },
     {
         name: 'timelapse',
@@ -115,6 +175,7 @@ const routes: AppRoute[] = [
         showInNavi: true,
         moonrakerComponent: 'timelapse',
         position: 80,
+        meta: { requiresAuth: true },
     },
     {
         name: 'machine',
@@ -125,6 +186,7 @@ const routes: AppRoute[] = [
         alwaysShow: true,
         showInNavi: true,
         position: 90,
+        meta: { requiresAuth: true },
     },
     {
         title: null,
@@ -154,4 +216,9 @@ export interface AppRoute {
     children?: AppRoute[]
     position?: number
     fullscreen?: boolean
+    meta?: {
+        requiresAuth?: boolean
+        isPublic?: boolean
+        roles?: string[]
+    }
 }

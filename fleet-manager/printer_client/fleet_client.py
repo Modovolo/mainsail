@@ -1,0 +1,708 @@
+#!/usr/bin/env python3
+"""
+Fleet Client Service
+Maintains a persistent WebSocket connection to the Fleet Manager.
+Also maintains a WebSocket connection to local Moonraker for JSON-RPC proxying.
+Reads configuration from /etc/fleet-client/config.json (created by fleet_register.py).
+
+This script is meant to run as a systemd service.
+Supports OTA (Over-The-Air) updates from fleet-manager.
+"""
+
+import asyncio
+import json
+import logging
+import time
+import signal
+import sys
+import os
+import hashlib
+import shutil
+import subprocess
+from datetime import datetime
+from typing import Optional, Dict, Any
+import websockets
+import aiohttp
+
+# Client version - update this when releasing new versions
+CLIENT_VERSION = "3.2.0"
+
+# Configuration
+CONFIG_FILE = os.environ.get("FLEET_CONFIG_FILE", "/etc/fleet-client/config.json")
+LOG_LEVEL = os.environ.get("FLEET_LOG_LEVEL", "INFO")
+UPDATE_CHECK_INTERVAL = int(os.environ.get("FLEET_UPDATE_INTERVAL", "3600"))  # Default: 1 hour
+
+# Setup logging
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+class FleetClient:
+    """Fleet Manager WebSocket Client with Moonraker JSON-RPC Proxy"""
+    
+    def __init__(self, config: dict):
+        self.printer_id = config["printer_id"]
+        self.printer_name = config.get("name", "Unknown")
+        self.fleet_ws_url = config["fleet_ws_url"]
+        self.moonraker_url = config.get("moonraker_url", "http://127.0.0.1:7125")
+        self.moonraker_ws_url = config.get("moonraker_ws_url", "ws://127.0.0.1:7125/websocket")
+        
+        # Fleet manager connection
+        self.websocket: Optional[websockets.WebSocketClientProtocol] = None
+        self.running = True
+        self.connected = False
+        self.reconnect_delay = 5  # Start with 5 seconds
+        self.max_reconnect_delay = 300  # Max 5 minutes
+        
+        # Moonraker WebSocket connection for JSON-RPC proxy
+        self.moonraker_ws: Optional[websockets.WebSocketClientProtocol] = None
+        self.moonraker_connected = False
+        self.moonraker_reconnect_delay = 2
+        self.moonraker_connection_id = None  # Set after identifying with Moonraker
+        
+        # Track pending requests from fleet to moonraker
+        # Maps moonraker request id -> fleet_id for response routing
+        self.pending_moonraker_requests: Dict[int, str] = {}
+        self.moonraker_request_id = 1000  # Start high to avoid conflicts
+        
+    async def get_printer_status(self) -> dict:
+        """Get current printer status from Moonraker"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Get printer info
+                async with session.get(
+                    f"{self.moonraker_url}/printer/info",
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    if resp.status == 200:
+                        printer_info = await resp.json()
+                    else:
+                        printer_info = {"state": "error", "error": f"HTTP {resp.status}"}
+                
+                # Get printer objects (temperatures, print status, etc.)
+                query = "print_stats&toolhead&extruder&heater_bed&display_status"
+                async with session.get(
+                    f"{self.moonraker_url}/printer/objects/query?{query}",
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    if resp.status == 200:
+                        objects_data = await resp.json()
+                        printer_objects = objects_data.get("result", {}).get("status", {})
+                    else:
+                        printer_objects = {}
+                
+                return {
+                    "timestamp": datetime.now().isoformat(),
+                    "printer_info": printer_info,
+                    "print_stats": printer_objects.get("print_stats", {}),
+                    "toolhead": printer_objects.get("toolhead", {}),
+                    "extruder": printer_objects.get("extruder", {}),
+                    "heater_bed": printer_objects.get("heater_bed", {}),
+                    "display_status": printer_objects.get("display_status", {}),
+                    "moonraker_connected": True
+                }
+                
+        except asyncio.TimeoutError:
+            logger.warning("Timeout getting printer status from Moonraker")
+            return {"moonraker_connected": False, "error": "timeout"}
+        except aiohttp.ClientError as e:
+            logger.warning(f"Error connecting to Moonraker: {e}")
+            return {"moonraker_connected": False, "error": str(e)}
+        except Exception as e:
+            logger.error(f"Unexpected error getting printer status: {e}")
+            return {"moonraker_connected": False, "error": str(e)}
+    
+    # ===== Moonraker WebSocket Proxy Methods =====
+    
+    async def connect_moonraker(self) -> bool:
+        """Connect to local Moonraker WebSocket"""
+        try:
+            logger.info(f"Connecting to Moonraker WebSocket: {self.moonraker_ws_url}")
+            
+            self.moonraker_ws = await websockets.connect(
+                self.moonraker_ws_url,
+                ping_interval=20,
+                ping_timeout=10,
+                close_timeout=5
+            )
+            
+            self.moonraker_connected = True
+            self.moonraker_reconnect_delay = 2  # Reset delay
+            logger.info("Connected to Moonraker WebSocket")
+            
+            # Identify ourselves to Moonraker
+            await self._identify_with_moonraker()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Moonraker WebSocket connection failed: {e}")
+            self.moonraker_connected = False
+            return False
+    
+    async def _identify_with_moonraker(self):
+        """Identify ourselves to Moonraker and get connection_id"""
+        try:
+            identify_msg = {
+                "jsonrpc": "2.0",
+                "method": "server.connection.identify",
+                "params": {
+                    "client_name": "fleet_client",
+                    "version": CLIENT_VERSION,
+                    "type": "agent",
+                    "url": "https://fleet.modovolo.com"
+                },
+                "id": 1
+            }
+            await self.moonraker_ws.send(json.dumps(identify_msg))
+            
+            # Wait for response
+            response = await asyncio.wait_for(self.moonraker_ws.recv(), timeout=5.0)
+            data = json.loads(response)
+            
+            if "result" in data and "connection_id" in data["result"]:
+                self.moonraker_connection_id = data["result"]["connection_id"]
+                logger.info(f"Identified with Moonraker, connection_id: {self.moonraker_connection_id}")
+            else:
+                logger.warning(f"Unexpected identify response: {data}")
+                self.moonraker_connection_id = 1
+                
+        except asyncio.TimeoutError:
+            logger.warning("Timeout waiting for identify response")
+            self.moonraker_connection_id = 1
+        except Exception as e:
+            logger.error(f"Error identifying with Moonraker: {e}")
+            self.moonraker_connection_id = 1
+    
+    async def moonraker_message_loop(self):
+        """Handle messages from Moonraker WebSocket"""
+        while self.running:
+            if not self.moonraker_connected:
+                if await self.connect_moonraker():
+                    pass  # Connected, continue to message loop
+                else:
+                    await asyncio.sleep(self.moonraker_reconnect_delay)
+                    self.moonraker_reconnect_delay = min(
+                        self.moonraker_reconnect_delay * 2, 30
+                    )
+                    continue
+            
+            try:
+                message = await self.moonraker_ws.recv()
+                await self.handle_moonraker_message(message)
+            except websockets.exceptions.ConnectionClosed as e:
+                logger.warning(f"Moonraker WebSocket closed: {e}")
+                self.moonraker_connected = False
+            except Exception as e:
+                logger.error(f"Moonraker message error: {e}")
+                self.moonraker_connected = False
+    
+    async def handle_moonraker_message(self, message: str):
+        """Handle incoming messages from Moonraker"""
+        try:
+            data = json.loads(message)
+            
+            # Check if it's a response to a request we sent
+            if "id" in data and data["id"] in self.pending_moonraker_requests:
+                fleet_id = self.pending_moonraker_requests.pop(data["id"])
+                await self.forward_moonraker_response(data, fleet_id)
+                
+            # Check if it's a notification (no id, has method)
+            elif "method" in data and "id" not in data:
+                await self.forward_moonraker_notification(data)
+                
+            else:
+                logger.debug(f"Unhandled Moonraker message: {data}")
+                
+        except json.JSONDecodeError:
+            logger.error("Invalid JSON from Moonraker")
+    
+    async def forward_moonraker_response(self, response: dict, fleet_id: str):
+        """Forward Moonraker response back to fleet manager"""
+        if self.websocket and self.connected:
+            try:
+                # Add fleet_id so fleet manager can route to the right client
+                response["_fleet_id"] = fleet_id
+                await self.websocket.send(json.dumps(response))
+                logger.debug(f"Forwarded response to fleet (fleet_id={fleet_id})")
+            except Exception as e:
+                logger.error(f"Failed to forward response to fleet: {e}")
+    
+    async def forward_moonraker_notification(self, notification: dict):
+        """Forward Moonraker notification to fleet manager"""
+        if self.websocket and self.connected:
+            try:
+                # Mark it as a proxy notification
+                notification["_proxy"] = True
+                await self.websocket.send(json.dumps(notification))
+                logger.debug(f"Forwarded notification to fleet: {notification.get('method')}")
+            except Exception as e:
+                logger.error(f"Failed to forward notification to fleet: {e}")
+    
+    async def forward_to_moonraker(self, jsonrpc_message: dict):
+        """Forward JSON-RPC message from fleet to Moonraker"""
+        method = jsonrpc_message.get("method", "")
+        fleet_id = jsonrpc_message.get("_fleet_id")
+        original_id = jsonrpc_message.get("id")
+        
+        # Handle server.connection.identify locally - Moonraker only allows one identify per connection
+        # Since we share one Moonraker connection, we fake success for additional identify calls
+        if method == "server.connection.identify":
+            logger.debug("Intercepting server.connection.identify - returning synthetic success")
+            if fleet_id and original_id is not None:
+                await self.websocket.send(json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": original_id,
+                    "_fleet_id": fleet_id,
+                    "result": {
+                        "connection_id": self.moonraker_connection_id or 1
+                    }
+                }))
+            return
+        
+        if not self.moonraker_ws or not self.moonraker_connected:
+            logger.warning("Cannot forward to Moonraker - not connected")
+            # Send error response back
+            if fleet_id and original_id is not None:
+                await self.websocket.send(json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": jsonrpc_message["id"],
+                    "_fleet_id": fleet_id,
+                    "error": {
+                        "code": -32000,
+                        "message": "Moonraker not connected"
+                    }
+                }))
+            return
+        
+        try:
+            # Extract and track fleet_id for response routing
+            fleet_id = jsonrpc_message.pop("_fleet_id", None)
+            
+            # Use our own request ID for Moonraker
+            original_id = jsonrpc_message.get("id")
+            if original_id is not None and fleet_id:
+                moonraker_id = self.moonraker_request_id
+                self.moonraker_request_id += 1
+                jsonrpc_message["id"] = moonraker_id
+                
+                # Map moonraker_id -> fleet_id for response routing
+                self.pending_moonraker_requests[moonraker_id] = fleet_id
+            
+            await self.moonraker_ws.send(json.dumps(jsonrpc_message))
+            logger.debug(f"Forwarded to Moonraker: {jsonrpc_message.get('method')}")
+            
+        except Exception as e:
+            logger.error(f"Failed to forward to Moonraker: {e}")
+            self.moonraker_connected = False
+
+    # ===== Fleet Server Methods =====
+    
+    async def send_heartbeat(self):
+        """Send heartbeat to fleet server"""
+        if self.websocket and self.connected:
+            try:
+                await self.websocket.send(json.dumps({
+                    "type": "heartbeat",
+                    "printer_id": self.printer_id,
+                    "timestamp": datetime.now().isoformat()
+                }))
+                logger.debug("Heartbeat sent")
+            except Exception as e:
+                logger.error(f"Failed to send heartbeat: {e}")
+                self.connected = False
+    
+    async def send_status_update(self):
+        """Send status update to fleet server"""
+        if self.websocket and self.connected:
+            try:
+                status = await self.get_printer_status()
+                await self.websocket.send(json.dumps({
+                    "type": "status_update",
+                    "printer_id": self.printer_id,
+                    "data": status
+                }))
+                logger.debug("Status update sent")
+            except Exception as e:
+                logger.error(f"Failed to send status update: {e}")
+                self.connected = False
+    
+    async def handle_message(self, message: str):
+        """Handle incoming messages from fleet server"""
+        try:
+            data = json.loads(message)
+            
+            # Check if it's a JSON-RPC message (has method and _fleet_id from proxy)
+            if "jsonrpc" in data or ("method" in data and "_fleet_id" in data):
+                # This is a proxied JSON-RPC request from Mainsail - forward to Moonraker
+                logger.debug(f"Received JSON-RPC from fleet: {data.get('method')}")
+                await self.forward_to_moonraker(data)
+                return
+            
+            msg_type = data.get("type")
+            
+            if msg_type == "registered":
+                logger.info(f"Registered with fleet: {data.get('message')}")
+                self.reconnect_delay = 5  # Reset reconnect delay on successful registration
+                
+            elif msg_type == "heartbeat_ack":
+                logger.debug("Heartbeat acknowledged")
+                
+            elif msg_type == "command":
+                await self.execute_command(data.get("command", {}))
+                
+            elif msg_type == "error":
+                logger.error(f"Fleet server error: {data.get('message')}")
+                
+            else:
+                logger.debug(f"Received message type: {msg_type}")
+                
+        except json.JSONDecodeError:
+            logger.error(f"Invalid JSON from fleet server")
+    
+    async def execute_command(self, command: dict):
+        """Execute a command from fleet server"""
+        cmd_type = command.get("type", command.get("action"))
+        logger.info(f"Executing command: {cmd_type}")
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                if cmd_type == "emergency_stop":
+                    await session.post(f"{self.moonraker_url}/printer/emergency_stop")
+                    logger.info("Emergency stop executed")
+                    
+                elif cmd_type in ("pause_print", "pause"):
+                    await session.post(f"{self.moonraker_url}/printer/print/pause")
+                    logger.info("Print paused")
+                    
+                elif cmd_type in ("resume_print", "resume"):
+                    await session.post(f"{self.moonraker_url}/printer/print/resume")
+                    logger.info("Print resumed")
+                    
+                elif cmd_type in ("cancel_print", "cancel"):
+                    await session.post(f"{self.moonraker_url}/printer/print/cancel")
+                    logger.info("Print cancelled")
+                    
+                elif cmd_type == "gcode":
+                    gcode = command.get("gcode", "")
+                    if gcode:
+                        await session.post(
+                            f"{self.moonraker_url}/printer/gcode/script",
+                            json={"script": gcode}
+                        )
+                        logger.info(f"Executed gcode: {gcode}")
+                    
+                elif cmd_type == "status_request":
+                    await self.send_status_update()
+                    
+                else:
+                    logger.warning(f"Unknown command: {cmd_type}")
+                    
+        except Exception as e:
+            logger.error(f"Failed to execute command {cmd_type}: {e}")
+    
+    async def connect(self) -> bool:
+        """Connect to fleet server"""
+        try:
+            logger.info(f"Connecting to {self.fleet_ws_url}")
+            
+            self.websocket = await websockets.connect(
+                self.fleet_ws_url,
+                ping_interval=30,
+                ping_timeout=10,
+                close_timeout=5
+            )
+            
+            # Send registration
+            await self.websocket.send(json.dumps({
+                "type": "register",
+                "printer_id": self.printer_id,
+                "name": self.printer_name,
+                "capabilities": ["status_reporting", "remote_control", "gcode", "jsonrpc_proxy", "ota_update"],
+                "version": CLIENT_VERSION
+            }))
+            
+            self.connected = True
+            logger.info("Connected to fleet server")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Connection failed: {e}")
+            self.connected = False
+            return False
+    
+    async def heartbeat_loop(self):
+        """Background heartbeat task"""
+        while self.running:
+            if self.connected:
+                await self.send_heartbeat()
+            await asyncio.sleep(30)
+    
+    async def status_loop(self):
+        """Background status update task"""
+        while self.running:
+            if self.connected:
+                await self.send_status_update()
+            await asyncio.sleep(60)
+    
+    async def update_check_loop(self):
+        """Background task to check for updates"""
+        # Wait a bit before first check
+        await asyncio.sleep(60)
+        
+        while self.running:
+            try:
+                await self.check_for_updates()
+            except Exception as e:
+                logger.error(f"Update check failed: {e}")
+            
+            await asyncio.sleep(UPDATE_CHECK_INTERVAL)
+    
+    async def check_for_updates(self):
+        """Check fleet-manager for available updates"""
+        # Extract base URL from WebSocket URL
+        ws_url = self.fleet_ws_url
+        if ws_url.startswith('wss://'):
+            base_url = 'https://' + ws_url[6:].split('/')[0]
+        elif ws_url.startswith('ws://'):
+            base_url = 'http://' + ws_url[5:].split('/')[0]
+        else:
+            logger.error(f"Invalid WebSocket URL format: {ws_url}")
+            return
+        
+        version_url = f"{base_url}/api/client/version"
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(version_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"Version check failed: HTTP {resp.status}")
+                        return
+                    
+                    version_info = await resp.json()
+                    remote_version = version_info.get('version', '0.0.0')
+                    min_version = version_info.get('min_version', '0.0.0')
+                    
+                    logger.info(f"Current version: {CLIENT_VERSION}, Remote version: {remote_version}")
+                    
+                    # Compare versions
+                    if self._version_compare(remote_version, CLIENT_VERSION) > 0:
+                        logger.info(f"Update available: {CLIENT_VERSION} -> {remote_version}")
+                        await self.perform_update(base_url, version_info)
+                    elif self._version_compare(CLIENT_VERSION, min_version) < 0:
+                        logger.warning(f"Client version {CLIENT_VERSION} is below minimum {min_version}, forcing update")
+                        await self.perform_update(base_url, version_info)
+                    else:
+                        logger.debug("Client is up to date")
+                        
+        except asyncio.TimeoutError:
+            logger.warning("Version check timed out")
+        except aiohttp.ClientError as e:
+            logger.warning(f"Version check network error: {e}")
+    
+    def _version_compare(self, v1: str, v2: str) -> int:
+        """Compare two version strings. Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if equal"""
+        def parse_version(v):
+            return [int(x) for x in v.split('.')]
+        
+        v1_parts = parse_version(v1)
+        v2_parts = parse_version(v2)
+        
+        # Pad with zeros
+        while len(v1_parts) < len(v2_parts):
+            v1_parts.append(0)
+        while len(v2_parts) < len(v1_parts):
+            v2_parts.append(0)
+        
+        for a, b in zip(v1_parts, v2_parts):
+            if a > b:
+                return 1
+            elif a < b:
+                return -1
+        return 0
+    
+    async def perform_update(self, base_url: str, version_info: dict):
+        """Download and install the update"""
+        download_url = f"{base_url}/api/client/download"
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(download_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                    if resp.status != 200:
+                        logger.error(f"Failed to download update: HTTP {resp.status}")
+                        return
+                    
+                    new_content = await resp.text()
+                    
+                    # Verify the downloaded file has the version constant
+                    if f'CLIENT_VERSION = "{version_info["version"]}"' not in new_content:
+                        logger.error("Downloaded file version mismatch, aborting update")
+                        return
+                    
+                    # Get current script path
+                    current_script = os.path.abspath(__file__)
+                    backup_script = current_script + '.backup'
+                    temp_script = current_script + '.new'
+                    
+                    logger.info(f"Updating {current_script}")
+                    
+                    # Write new content to temp file
+                    with open(temp_script, 'w') as f:
+                        f.write(new_content)
+                    
+                    # Make it executable
+                    os.chmod(temp_script, 0o755)
+                    
+                    # Backup current script
+                    if os.path.exists(current_script):
+                        shutil.copy2(current_script, backup_script)
+                    
+                    # Replace current with new
+                    shutil.move(temp_script, current_script)
+                    
+                    logger.info(f"Update installed successfully: {CLIENT_VERSION} -> {version_info['version']}")
+                    logger.info("Restarting service...")
+                    
+                    # Notify fleet-manager about the update
+                    if self.websocket and self.connected:
+                        try:
+                            await self.websocket.send(json.dumps({
+                                "type": "client_updated",
+                                "printer_id": self.printer_id,
+                                "old_version": CLIENT_VERSION,
+                                "new_version": version_info['version']
+                            }))
+                        except:
+                            pass
+                    
+                    # Restart the systemd service
+                    self.running = False
+                    subprocess.Popen(['sudo', 'systemctl', 'restart', 'fleet-client'])
+                    
+        except Exception as e:
+            logger.error(f"Update failed: {e}")
+            # Try to restore backup if exists
+            backup_script = os.path.abspath(__file__) + '.backup'
+            if os.path.exists(backup_script):
+                logger.info("Restoring backup...")
+                shutil.copy2(backup_script, os.path.abspath(__file__))
+
+    async def run(self):
+        """Main run loop"""
+        # Start background tasks
+        heartbeat_task = asyncio.create_task(self.heartbeat_loop())
+        status_task = asyncio.create_task(self.status_loop())
+        moonraker_task = asyncio.create_task(self.moonraker_message_loop())
+        update_task = asyncio.create_task(self.update_check_loop())
+        
+        try:
+            while self.running:
+                if await self.connect():
+                    try:
+                        async for message in self.websocket:
+                            await self.handle_message(message)
+                    except websockets.exceptions.ConnectionClosed as e:
+                        logger.warning(f"Connection closed: {e}")
+                    except Exception as e:
+                        logger.error(f"Error in message loop: {e}")
+                    
+                    self.connected = False
+                
+                if self.running:
+                    logger.info(f"Reconnecting in {self.reconnect_delay} seconds...")
+                    await asyncio.sleep(self.reconnect_delay)
+                    # Exponential backoff
+                    self.reconnect_delay = min(self.reconnect_delay * 2, self.max_reconnect_delay)
+                    
+        finally:
+            heartbeat_task.cancel()
+            status_task.cancel()
+            moonraker_task.cancel()
+            update_task.cancel()
+            try:
+                await heartbeat_task
+                await status_task
+                await moonraker_task
+                await update_task
+            except asyncio.CancelledError:
+                pass
+    
+    def stop(self):
+        """Stop the client"""
+        logger.info("Stopping fleet client...")
+        self.running = False
+        if self.websocket:
+            asyncio.create_task(self.websocket.close())
+        if self.moonraker_ws:
+            asyncio.create_task(self.moonraker_ws.close())
+
+
+def load_config(config_file: str) -> dict:
+    """Load configuration from file"""
+    if not os.path.exists(config_file):
+        logger.error(f"Config file not found: {config_file}")
+        logger.error("Please run fleet_register.py first to register this printer")
+        sys.exit(1)
+    
+    try:
+        with open(config_file, 'r') as f:
+            config = json.load(f)
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid config file: {e}")
+        sys.exit(1)
+    except PermissionError:
+        logger.error(f"Cannot read config file: {config_file}")
+        logger.error("Check file permissions or run as root")
+        sys.exit(1)
+    
+    # Validate required fields
+    if not config.get("printer_id"):
+        logger.error("Config file missing 'printer_id'")
+        logger.error("Please run fleet_register.py to register this printer")
+        sys.exit(1)
+    
+    if not config.get("fleet_ws_url"):
+        logger.error("Config file missing 'fleet_ws_url'")
+        sys.exit(1)
+    
+    return config
+
+
+def main():
+    """Main entry point"""
+    logger.info("Fleet Client starting...")
+    logger.info(f"Config file: {CONFIG_FILE}")
+    
+    # Load config
+    config = load_config(CONFIG_FILE)
+    
+    logger.info(f"Printer ID: {config['printer_id']}")
+    logger.info(f"Printer Name: {config.get('name', 'Unknown')}")
+    logger.info(f"Fleet URL: {config['fleet_ws_url']}")
+    logger.info(f"Moonraker URL: {config.get('moonraker_url', 'http://127.0.0.1:7125')}")
+    
+    # Create client
+    client = FleetClient(config)
+    
+    # Setup signal handlers
+    def handle_signal(signum, frame):
+        logger.info(f"Received signal {signum}")
+        client.stop()
+    
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+    
+    # Run
+    try:
+        asyncio.run(client.run())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        logger.info("Fleet client stopped")
+
+
+if __name__ == "__main__":
+    main()

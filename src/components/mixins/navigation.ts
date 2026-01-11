@@ -97,25 +97,23 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
     get visibleNaviPoints(): NaviPoint[] {
         const points = this.naviPoints.filter((entry) => entry.visible)
         
-        // If connected to the manager host (frontend served from the manager)
-        // and we have farm printers configured, treat this as the manager
-        // context. Use socket hostname === window.location.hostname to detect
-        // the manager host reliably instead of relying on the displayed
-        // printer name.
-        if (this.$store.state.socket.hostname === window.location.hostname) {
+        // If running in fleet mode, show fleet-relevant routes only
+        if (this.$store.state.instancesDB === 'fleet') {
+            const fleetAllowedTitles = [
+                'Fleet Dashboard',
+                'My Printers',
+                'Register Printer',
+                'All Printers',
+                'Printers',
+                'Farm',
+                'Files',
+                'G-Code Files',
+                'Machine',
+                'History',
+            ];
             return points.filter(entry => {
-                // Keep Files, Machine (config), History, and Farm (Printers)
-                // Hide Dashboard, Console etc.
-                // allow both the translated/short title and the full route title for files
-                const allowedTitles = ['Files', 'G-Code Files', 'Machine', 'Printers', 'Farm', 'History'];
-                // Check against orgTitle (e.g. 'Dashboard', 'Console') or the translated title if orgTitle missing
                 const titleToCheck = entry.orgTitle || entry.title;
-                
-                // Allow if it's in our allowed list
-                if (allowedTitles.includes(titleToCheck)) return true;
-                
-                // Also allow custom links if needed, but for now let's be strict
-                return false;
+                return fleetAllowedTitles.includes(titleToCheck);
             });
         }
         

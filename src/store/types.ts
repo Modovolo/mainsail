@@ -8,7 +8,7 @@ export interface RootState {
     packageVersion: string
     debugMode: boolean
     naviDrawer: boolean | null
-    instancesDB: 'moonraker' | 'browser' | 'json'
+    instancesDB: 'moonraker' | 'browser' | 'json' | 'fleet'
     configInstances: ConfigJsonInstance[]
 
     socket?: SocketState
@@ -29,7 +29,7 @@ export interface ConfigJson {
     hostname?: string | null
     port?: string | number | null
     path?: string | null
-    instancesDB?: 'moonraker' | 'browser' | 'json'
+    instancesDB?: 'moonraker' | 'browser' | 'json' | 'fleet'
     instances?: ConfigJsonInstance[]
 }
 

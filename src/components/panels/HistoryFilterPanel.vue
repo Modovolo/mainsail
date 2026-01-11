@@ -103,11 +103,8 @@ export default class HistoryFilterPanel extends Mixins(BaseMixin) {
         this.$store.dispatch('gui/saveSetting', { name: 'view.history.selectedPrinter', value: newVal })
 
         // trigger fetch according to selection
+        const isFleetMode = this.$store.state.instancesDB === 'fleet'
         const printersCount = this.$store.getters['farm/countPrinters'] ?? 0
-        const socketHostname = this.$store.state.socket.hostname ?? ''
-        const socketPort = this.$store.state.socket.port ? Number(this.$store.state.socket.port) : (window.location.protocol === 'https:' ? 443 : 80)
-        const locationHostname = window.location.hostname ?? ''
-        const locationPort = window.location.port ? Number(window.location.port) : (window.location.protocol === 'https:' ? 443 : 80)
 
         // Show loading indication for any fetch-type selection (local/remote/aggregate)
         try {
@@ -123,7 +120,7 @@ export default class HistoryFilterPanel extends Mixins(BaseMixin) {
         }
 
         // All: aggregated farm
-        if (newVal === 'all' && printersCount > 0 && socketHostname === locationHostname && socketPort === locationPort) {
+        if (newVal === 'all' && isFleetMode && printersCount > 0) {
             this.$store.dispatch('server/history/initFarmHistory')
             return
         }

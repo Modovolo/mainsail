@@ -1,5 +1,14 @@
 <template>
     <div>
+        <!-- Fleet Mode: Show back button when viewing a specific printer -->
+        <v-container v-if="isFleetMode && printerId" fluid class="pa-0">
+            <v-btn text class="mb-2 ml-2" to="/allPrinters">
+                <v-icon left>mdi-arrow-left</v-icon>
+                Back to All Printers
+            </v-btn>
+        </v-container>
+
+        <!-- Standard Dashboard Layout -->
         <v-row v-if="isMobile">
             <v-col>
                 <status-panel />
@@ -80,8 +89,9 @@
 </template>
 
 <script lang="ts">
+import Vue from 'vue'
 import Component from 'vue-class-component'
-import { Mixins } from 'vue-property-decorator'
+import { Mixins, Watch } from 'vue-property-decorator'
 import AfcPanel from '@/components/panels/AfcPanel.vue'
 import ExtruderControlPanel from '@/components/panels/ExtruderControlPanel.vue'
 import DashboardMixin from '@/components/mixins/dashboard'
@@ -119,6 +129,68 @@ import WebcamPanel from '@/components/panels/WebcamPanel.vue'
     },
 })
 export default class PageDashboard extends Mixins(DashboardMixin) {
+    private fleetConnected = false
+
+    get isFleetMode(): boolean {
+        return this.$store.state.instancesDB === 'fleet'
+    }
+
+    get printerId(): string {
+        return this.$route.params.id || ''
+    }
+
+    async mounted() {
+        if (this.isFleetMode && this.printerId) {
+            await this.connectToFleetPrinter()
+        }
+    }
+
+    beforeDestroy() {
+        // Disconnect when leaving the page in fleet mode
+        if (this.isFleetMode && this.fleetConnected) {
+            console.log('[Dashboard] Disconnecting fleet socket')
+            Vue.$socket.close()
+            this.fleetConnected = false
+            // Reset store state
+            this.$store.commit('socket/setDisconnected')
+        }
+    }
+
+    @Watch('$route.params.id')
+    async onPrinterIdChange(newId: string, oldId: string) {
+        if (this.isFleetMode && newId !== oldId) {
+            // Reconnect to new printer
+            if (this.fleetConnected) {
+                Vue.$socket.close()
+            }
+            await this.connectToFleetPrinter()
+        }
+    }
+
+    async connectToFleetPrinter() {
+        if (!this.printerId) return
+
+        // Build fleet proxy WebSocket URL
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+        const host = window.location.host
+        const fleetProxyUrl = `${protocol}://${host}/ws/client/${this.printerId}`
+
+        console.log(`[Fleet Dashboard] Connecting to fleet proxy: ${fleetProxyUrl}`)
+        console.log(`[Fleet Dashboard] Current socket URL: ${(Vue.$socket as any).url}`)
+        console.log(`[Fleet Dashboard] isFleetMode: ${this.isFleetMode}, printerId: ${this.printerId}`)
+
+        // Update socket URL and connect
+        Vue.$socket.setUrl(fleetProxyUrl)
+        console.log(`[Fleet Dashboard] URL set to: ${(Vue.$socket as any).url}`)
+        
+        await Vue.$socket.connect()
+        console.log(`[Fleet Dashboard] Connect called, readyState: ${(Vue.$socket as any).instance?.readyState}`)
+
+        this.fleetConnected = true
+        this.$store.commit('socket/setFleetPrinterId', this.printerId)
+        console.log(`[Fleet Dashboard] Connection complete, fleetConnected: ${this.fleetConnected}`)
+    }
+
     get mobileLayout() {
         return this.$store.getters['gui/getPanels']('mobile', 0, true)
     }

@@ -81,4 +81,17 @@ export const mutations: MutationTree<SocketState> = {
 
         Vue.set(state, 'initializationList', list)
     },
+
+    // Fleet socket mutations
+    setFleetSocketConnected(state, connected: boolean) {
+        Vue.set(state, 'fleetSocketConnected', connected)
+    },
+
+    setFleetPrinterId(state, printerId: string | null) {
+        Vue.set(state, 'fleetPrinterId', printerId)
+    },
+
+    setFleetPrinterName(state, printerName: string | null) {
+        Vue.set(state, 'fleetPrinterName', printerName)
+    },
 }

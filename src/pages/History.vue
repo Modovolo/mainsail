@@ -1,11 +1,8 @@
 <template>
     <div>
         <v-row>
-            <!-- Manager-only filter and aggregated statistics: only render when running as manager host
-                 (frontend served from manager) and farm printers are configured. When viewing an
-                 individual printer (connected) we intentionally hide manager-only controls to show
-                 the original printer-focused UI. -->
-            <template v-if="$store.state.socket.hostname === window.location.hostname && $store.getters['farm/countPrinters'] > 0 && !Object.keys($store.getters['farm/getPrinters'] ?? {}).some(ns => $store.getters[ns + '/isCurrentPrinter'] === true) && (($store.state.gui?.view?.history?.selectedPrinter ?? 'all') === 'all')">
+            <!-- Manager-only filter and aggregated statistics: only render when running in fleet mode -->
+            <template v-if="isFleetMode">
                 <v-col class="col-12 col-md-3">
                     <history-filter-panel />
                 </v-col>
@@ -40,10 +37,10 @@ import HistoryStatisticsPanel from '@/components/panels/HistoryStatisticsPanel.v
     components: { HistoryFilterPanel, HistoryListPanel, HistoryStatisticsPanel },
 })
 export default class PageHistory extends Mixins(BaseMixin) {
-    // NOTE: showing manager-only controls should only happen when we are on manager
-    // host and not currently viewing a single remote printer. The template uses an
-    // inline computed expression to evaluate that state so the template type
-    // checker picks it up consistently.
+    get isFleetMode(): boolean {
+        return this.$store.state.instancesDB === 'fleet'
+    }
+    
     mounted() {
         // If a printer query param exists, use it to initialize the history printer filter
         const printer = this.$route.query?.printer as string | undefined

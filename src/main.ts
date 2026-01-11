@@ -79,7 +79,17 @@ const initLoad = async () => {
         const locale = (file.defaultLocale ?? 'en') as string
         await setAndLoadLocale(locale)
 
-        if (store.state.instancesDB !== 'moonraker') {
+        // For fleet mode, skip remote printer initialization (printers come from fleet-manager API)
+        // For other non-moonraker modes, initialize from localStorage
+        if (store.state.instancesDB === 'fleet') {
+            store.commit('socket/setConnected')
+            await store.dispatch('socket/removeInitComponent', 'server')
+            // Clear any stale printer data from localStorage
+            localStorage.removeItem('printers')
+            // Reset remote printers store to prevent stale connections
+            await store.dispatch('gui/remoteprinters/reset')
+            // Don't load printers - they come from fleet-manager API
+        } else if (store.state.instancesDB !== 'moonraker') {
             store.commit('socket/setConnected')
             await store.dispatch('socket/removeInitComponent', 'server')
             await store.dispatch('gui/remoteprinters/initFromLocalstorage')
@@ -95,6 +105,8 @@ const initLoad = async () => {
 
     const url = store.getters['socket/getWebsocketUrl']
     Vue.use(WebSocketPlugin, { url, store })
+    // In fleet mode, socket connection is deferred until a printer is selected
+    // In moonraker mode, connect immediately
     if (store?.state?.instancesDB === 'moonraker') Vue.$socket.connect()
 }
 

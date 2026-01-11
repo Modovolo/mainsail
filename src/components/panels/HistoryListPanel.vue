@@ -297,14 +297,14 @@ export default class HistoryListPanel extends Mixins(BaseMixin, HistoryMixin, Hi
     ensureInitialFetch() {
         try {
             // Determine whether manager-only filter panel is visible - if yes, it will manage fetches
-            const isManagerHost = this.$store.state.socket.hostname === window.location.hostname
+            const isFleetMode = this.$store.state.instancesDB === 'fleet'
             const printersCount = this.$store.getters['farm/countPrinters'] ?? 0
             const printers = this.$store.getters['farm/getPrinters'] ?? {}
             const viewingRemotePrinter = Object.keys(printers).some((ns: string) => this.$store.getters[ns + '/isCurrentPrinter'] === true)
-            const selectedPrinter = this.$store.state.gui.view.history.selectedPrinter ?? 'all'
+            const selectedPrinter = this.$store.state.gui?.view?.history?.selectedPrinter ?? 'all'
 
-            // If manager mode and aggregated all view and filter panel is mounted, do not duplicate fetch
-            const filterPanelVisible = isManagerHost && printersCount > 0 && !viewingRemotePrinter && selectedPrinter === 'all'
+            // If fleet mode and aggregated all view and filter panel is mounted, do not duplicate fetch
+            const filterPanelVisible = isFleetMode && printersCount > 0 && !viewingRemotePrinter && selectedPrinter === 'all'
             if (filterPanelVisible) return
 
             // If we're here, the filter panel isn't going to fetch for us — do it here.
@@ -312,7 +312,7 @@ export default class HistoryListPanel extends Mixins(BaseMixin, HistoryMixin, Hi
             if (!this.loadings.includes('historyLoadAll')) this.$store.dispatch('socket/addLoading', { name: 'historyLoadAll' })
 
             // Case: local root server
-            if (selectedPrinter === 'local' || (!isManagerHost && selectedPrinter === 'all')) {
+            if (selectedPrinter === 'local' || (!isFleetMode && selectedPrinter === 'all')) {
                 this.$store.dispatch('server/history/reset')
                 this.$socket.emit('server.history.list', { start: 0, limit: 50 }, { action: 'server/history/getHistory' })
                 this.$socket.emit('server.history.totals', {}, { action: 'server/history/getTotals' })
@@ -618,14 +618,11 @@ export default class HistoryListPanel extends Mixins(BaseMixin, HistoryMixin, Hi
     refreshHistory() {
         this.$store.dispatch('socket/addLoading', { name: 'historyLoadAll' })
 
+        const isFleetMode = this.$store.state.instancesDB === 'fleet'
         const printersCount = this.$store.getters['farm/countPrinters'] ?? 0
-        const socketHostname = this.$store.state.socket.hostname ?? ''
-        const socketPort = this.$store.state.socket.port ? Number(this.$store.state.socket.port) : (window.location.protocol === 'https:' ? 443 : 80)
-        const locationHostname = window.location.hostname ?? ''
-        const locationPort = window.location.port ? Number(window.location.port) : (window.location.protocol === 'https:' ? 443 : 80)
 
-        // If we are the manager host and we have farm printers, request aggregated history
-        if (printersCount > 0 && socketHostname === locationHostname && socketPort === locationPort) {
+        // If we are in fleet mode and we have farm printers, request aggregated history
+        if (isFleetMode && printersCount > 0) {
             this.$store.dispatch('server/history/initFarmHistory')
             return
         }

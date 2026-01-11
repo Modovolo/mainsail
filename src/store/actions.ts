@@ -52,7 +52,7 @@ export const actions: ActionTree<RootState, RootState> = {
      * This function will parse the config.json content and config mainsail
      */
     async importConfigJson({ commit }, payload: ConfigJson) {
-        type RootStateInstancesDbType = 'moonraker' | 'browser' | 'json'
+        type RootStateInstancesDbType = 'moonraker' | 'browser' | 'json' | 'fleet'
         let instancesDB: RootStateInstancesDbType = payload.instancesDB ?? 'moonraker'
         if (import.meta.env.VUE_APP_INSTANCES_DB)
             instancesDB = import.meta.env.VUE_APP_INSTANCES_DB as RootStateInstancesDbType

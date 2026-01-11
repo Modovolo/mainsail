@@ -199,27 +199,46 @@ export default class FarmPrinterPanel extends Mixins(BaseMixin, ThemeMixin, Webc
         return url
     }
 
+    get isFleetMode(): boolean {
+        return this.$store.state.instancesDB === 'fleet'
+    }
+
     get isCurrentPrinter() {
+        if (this.isFleetMode) return false
         return this.$store.getters['farm/' + this.printer._namespace + '/isCurrentPrinter']
     }
 
     get currentCamName() {
+        if (this.isFleetMode) return 'off'
         return this.$store.getters['farm/' + this.printer._namespace + '/getSetting']('currentCamName', 'off')
     }
 
     set currentCamName(newVal) {
+        if (this.isFleetMode) return
         this.$store.dispatch('farm/' + this.printer._namespace + '/setSettings', { currentCamName: newVal })
     }
 
     get printer_name() {
+        // In fleet mode, check for direct printername on printer object
+        if (this.isFleetMode && this.printer.data?.gui?.general?.printername) {
+            return this.printer.data.gui.general.printername
+        }
         return this.$store.getters['farm/' + this.printer._namespace + '/getPrinterName']
     }
 
     get printer_status() {
+        // In fleet mode, derive status from socket connection
+        if (this.isFleetMode) {
+            if (this.printer.socket?.isConnected) return 'Online'
+            if (this.printer.socket?.isConnecting) return 'Connecting'
+            return 'Offline'
+        }
         return this.$store.getters['farm/' + this.printer._namespace + '/getStatus']
     }
 
     get printer_current_filename() {
+        // In fleet mode, return empty (no job tracking yet)
+        if (this.isFleetMode) return ''
         return this.$store.getters['farm/' + this.printer._namespace + '/getCurrentFilename']
     }
 
@@ -229,24 +248,29 @@ export default class FarmPrinterPanel extends Mixins(BaseMixin, ThemeMixin, Webc
     }
 
     get printer_image() {
+        if (this.isFleetMode) return this.sidebarBgImage
         if (this.currentWebcam) return this.sidebarBgImage
 
         return this.$store.getters['farm/' + this.printer._namespace + '/getImage'] ?? this.sidebarBgImage
     }
 
     get printer_logo() {
+        if (this.isFleetMode) return null
         return this.$store.getters['farm/' + this.printer._namespace + '/getLogo']
     }
 
     get printerLogoColor() {
+        if (this.isFleetMode) return '#ffffff'
         return this.$store.getters['farm/' + this.printer._namespace + '/getLogoColor']
     }
 
     get printer_position() {
+        if (this.isFleetMode) return 0
         return this.$store.getters['farm/' + this.printer._namespace + '/getPosition']
     }
 
     get printer_preview(): PrinterPreviewStat[] {
+        if (this.isFleetMode) return []
         return (
             (this.$store.getters['farm/' + this.printer._namespace + '/getPrinterPreview'] as PrinterPreviewStat[]) ?? []
         )
@@ -267,13 +291,15 @@ export default class FarmPrinterPanel extends Mixins(BaseMixin, ThemeMixin, Webc
     }
 
     get showWebcamSwitch() {
+        if (this.isFleetMode) return false
         if (this.printer_webcams.length == 0) return false
 
         return this.printer.socket.isConnected
     }
 
     get printer_webcams(): GuiWebcamStateWebcam[] {
-        return this.$store.getters['farm/' + this.printer._namespace + '/getPrinterWebcams']
+        if (this.isFleetMode) return []
+        return this.$store.getters['farm/' + this.printer._namespace + '/getPrinterWebcams'] || []
     }
 
     get currentWebcam(): GuiWebcamStateWebcam | null {
@@ -294,6 +320,12 @@ export default class FarmPrinterPanel extends Mixins(BaseMixin, ThemeMixin, Webc
     }
 
     clickPrinter() {
+        // In fleet mode, navigate to printer dashboard with printer ID
+        if (this.isFleetMode) {
+            this.$router.push(`/printer/${this.printer._namespace}`)
+            return
+        }
+
         // If this printer is the current connection, then clicking returns to manager
         if (this.isCurrentPrinter) {
             this.$store.dispatch('disconnectToManager')

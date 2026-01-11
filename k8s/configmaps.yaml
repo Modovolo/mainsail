@@ -12,23 +12,13 @@ data:
   config.json: |
     {
       "defaultLocale": "en",
-      "instancesDB": "json",
-      "title": "Modovolo Fleet Manager",
-      "instances": [
-        {
-          "hostname": "moonraker.fleet.svc.cluster.local",
-          "port": 7125,
-          "path": "/"
-        }
-      ],
-      "theme": {
-        "logo": {
-          "src": "/img/modovolo-logo-white.svg",
-          "width": "100%",
-          "backgroundColor": "transparent"
-        },
-        "favicon": "/img/modovolo-logo-black.svg"
-      }
+      "defaultMode": "dark",
+      "defaultTheme": "modovolo",
+      "instancesDB": "fleet",
+      "instances": [],
+      "hostname": null,
+      "port": null,
+      "path": null
     }
   modovolo-logo-black.svg: |
     <svg width="507" height="567" viewBox="0 0 507 567" fill="none" xmlns="http://www.w3.org/2000/svg">

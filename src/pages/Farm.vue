@@ -298,6 +298,10 @@ interface PrinterPanelGroup extends Omit<PrinterGroupDisplay, 'items'> {
     components: { FarmPrinterPanel, PrinterGroupTransferDialog },
 })
 class PageFarm extends Mixins(BaseMixin) {
+    // Fleet mode data
+    public fleetPrinters: any[] = []
+    public fleetLoading = false
+
     // File upload state
     public selectedFile: File | null = null
     public selectedPrinters: string[] = []
@@ -367,6 +371,20 @@ class PageFarm extends Mixins(BaseMixin) {
     }
 
     get tableItems(): PrinterTableItem[] {
+        // In fleet mode, use API-fetched printers
+        if (this.isFleetMode) {
+            return this.fleetPrinters.map((printer: any) => ({
+                id: printer.printerId || printer.id,
+                name: printer.name || 'Unknown Printer',
+                state: printer.isActive ? 'connected' : 'offline',
+                job_name: '',
+                group: null,
+            })).sort((a: PrinterTableItem, b: PrinterTableItem) => 
+                a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })
+            )
+        }
+
+        // Original logic for non-fleet mode
         const printersObj = this.printers
         const items: PrinterTableItem[] = Object.keys(printersObj).map((key) => {
             const printerState = printersObj[key] ?? {}
@@ -461,6 +479,30 @@ class PageFarm extends Mixins(BaseMixin) {
         return this.printerSelectionGroups.map((group): PrinterPanelGroup => {
             const printerItems: PrinterPanelGroupItem[] = group.items
                 .map((item) => {
+                    // In fleet mode, create a minimal printer object from fleet data
+                    if (this.isFleetMode) {
+                        const fleetPrinter = this.fleetPrinters.find(
+                            (p: any) => (p.printerId || p.id) === item.id
+                        )
+                        if (!fleetPrinter) return null
+                        
+                        // Create a minimal FarmPrinterState-like object
+                        const printer: any = {
+                            _namespace: item.id,
+                            socket: {
+                                isConnected: fleetPrinter.isActive,
+                                isConnecting: false,
+                                hostname: fleetPrinter.host || '',
+                                port: fleetPrinter.port || 7125,
+                            },
+                            server: { klippy_connected: fleetPrinter.isActive },
+                            data: { gui: { general: { printername: fleetPrinter.name } } },
+                            settings: {},
+                        }
+                        return { ...item, printer }
+                    }
+                    
+                    // Original logic for non-fleet mode
                     const printer = this.printers[item.id]
                     if (!printer) return null
                     return {
@@ -836,9 +878,41 @@ class PageFarm extends Mixins(BaseMixin) {
         return 'Unknown error'
     }
 
+    get isFleetMode(): boolean {
+        return this.$store.state.instancesDB === 'fleet'
+    }
+
+    async loadFleetPrinters() {
+        if (!this.isFleetMode) return
+        
+        this.fleetLoading = true
+        try {
+            const token = localStorage.getItem('fleet_token')
+            if (!token) return
+            
+            const response = await fetch('/api/printers', {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            
+            if (response.ok) {
+                const data = await response.json()
+                this.fleetPrinters = data.printers || []
+            }
+        } catch (error) {
+            console.error('Failed to load fleet printers:', error)
+        } finally {
+            this.fleetLoading = false
+        }
+    }
+
     mounted() {
         this.loadManualGroups()
         EventBus.$on(FARM_UPLOAD_DROP, this.farmDropListener)
+        
+        // In fleet mode, load printers from API
+        if (this.isFleetMode) {
+            this.loadFleetPrinters()
+        }
     }
 
     beforeDestroy() {

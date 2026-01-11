@@ -1,6 +1,6 @@
 <template>
     <v-app :style="cssVars">
-        <template v-if="socketIsConnected && guiIsReady">
+        <template v-if="showMainContent">
             <the-sidebar />
             <the-topbar />
             <v-main id="content" :style="mainStyle">
@@ -19,8 +19,16 @@
             <the-screws-tilt-adjust-dialog />
             <the-macro-prompt />
         </template>
-        <the-select-printer-dialog v-else-if="instancesDB !== 'moonraker' && instancesDB !== 'json'" />
-        <the-connecting-dialog v-else />
+        <the-select-printer-dialog v-else-if="instancesDB !== 'moonraker' && instancesDB !== 'json' && instancesDB !== 'fleet'" />
+        <the-connecting-dialog v-else-if="instancesDB !== 'fleet'" />
+        <!-- Fleet mode: Show minimal shell when not ready -->
+        <template v-else>
+            <v-main>
+                <v-container fluid>
+                    <router-view />
+                </v-container>
+            </v-main>
+        </template>
     </v-app>
 </template>
 
@@ -87,6 +95,15 @@ export default class App extends Mixins(BaseMixin, ThemeMixin) {
 
     get navigationStyle() {
         return this.$store.state.gui.uiSettings.navigationStyle
+    }
+
+    // In fleet mode, always show main content (router handles per-printer connection)
+    // In other modes, require socket connection and GUI ready
+    get showMainContent(): boolean {
+        if (this.instancesDB === 'fleet') {
+            return true
+        }
+        return this.socketIsConnected && this.guiIsReady
     }
 
     get mainStyle() {

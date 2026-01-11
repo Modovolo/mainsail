@@ -22,4 +22,20 @@ export const getters: GetterTree<SocketState, RootState> = {
     getWebsocketUrl: (state, getters) => {
         return state.protocol + ':' + getters['getUrl'] + '/websocket'
     },
+
+    /**
+     * Get the URL for the actual printer.
+     * In fleet mode, this uses the printer's hostname (e.g., bfp8)
+     * In normal mode, this returns the same as getHostUrl
+     */
+    getPrinterHostUrl: (state) => {
+        // In fleet mode, use the printer name as hostname
+        // Always use HTTP for direct printer access (local network)
+        if (state.fleetPrinterName) {
+            return `http://${state.fleetPrinterName}/`
+        }
+
+        const protocol = state.protocol === 'wss' ? 'https' : 'http'
+        return `${protocol}://${state.hostname}/`
+    },
 }

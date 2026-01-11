@@ -1,0 +1,6 @@
+{
+    "version": "3.2.0",
+    "min_version": "3.0.0",
+    "changelog": "Fixed server.connection.identify conflict - proxy now handles identify calls locally",
+    "released": "2026-01-10"
+}

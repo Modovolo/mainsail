@@ -91,31 +91,41 @@ export class WebSocketClient {
     }
 
     async connect() {
+        console.log(`[WebSocket] connect() called, URL: ${this.url}`)
+        console.trace('[WebSocket] Stack trace for connect()')
         this.store?.dispatch('socket/setData', {
             isConnecting: true,
         })
 
+        if (this.instance) {
+            console.log('[WebSocket] Closing existing instance before new connection')
+        }
         this.instance?.close()
         this.instance = new WebSocket(this.url)
+        console.log(`[WebSocket] WebSocket created to: ${this.url}`)
 
         this.instance.onopen = () => {
+            console.log(`[WebSocket] onopen triggered for: ${this.url}`)
             this.reconnects = 0
             this.store?.dispatch('socket/onOpen', event)
         }
 
         this.instance.onclose = (e) => {
+            console.log(`[WebSocket] onclose triggered for: ${this.url}, wasClean: ${e.wasClean}, code: ${e.code}, reason: ${e.reason}`)
             if (e.wasClean || this.reconnects >= this.maxReconnects) {
                 this.store?.dispatch('socket/onClose', e)
                 return
             }
 
             this.reconnects++
+            console.log(`[WebSocket] Reconnecting (attempt ${this.reconnects}/${this.maxReconnects})...`)
             setTimeout(() => {
                 this.connect()
             }, this.reconnectInterval)
         }
 
-        this.instance.onerror = () => {
+        this.instance.onerror = (e) => {
+            console.log(`[WebSocket] onerror triggered for: ${this.url}`, e)
             this.instance?.close()
         }
 
@@ -126,6 +136,7 @@ export class WebSocketClient {
             this.heartbeat()
 
             const data = JSON.parse(msg.data)
+            console.log(`[WebSocket] Message received:`, data.method || data.type || 'response')
             if (Array.isArray(data)) {
                 for (const message of data) {
                     this.handleMessage(message)
@@ -139,6 +150,8 @@ export class WebSocketClient {
     }
 
     close(): void {
+        console.log('[WebSocket] close() method called')
+        console.trace('[WebSocket] Stack trace for close()')
         this.instance?.close()
     }
 
@@ -238,11 +251,12 @@ export class WebSocketClient {
         if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
 
         this.heartbeatTimer = window.setTimeout(() => {
+            console.log(`[WebSocket] Heartbeat timeout - no message received for 30 seconds, closing connection`)
             if (this.instance?.readyState !== WebSocket.OPEN || !this.store) return
 
             this.close()
             this.store?.dispatch('socket/onClose')
-        }, 10000)
+        }, 30000)
     }
 }
 
