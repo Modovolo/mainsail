@@ -25,7 +25,7 @@ import websockets
 import aiohttp
 
 # Client version - update this when releasing new versions
-CLIENT_VERSION = "3.2.0"
+CLIENT_VERSION = "3.3.0"
 
 # Configuration
 CONFIG_FILE = os.environ.get("FLEET_CONFIG_FILE", "/etc/fleet-client/config.json")
@@ -354,6 +354,9 @@ class FleetClient:
             elif msg_type == "command":
                 await self.execute_command(data.get("command", {}))
                 
+            elif msg_type == "upload_file":
+                await self.handle_file_upload(data)
+                
             elif msg_type == "error":
                 logger.error(f"Fleet server error: {data.get('message')}")
                 
@@ -403,6 +406,75 @@ class FleetClient:
                     
         except Exception as e:
             logger.error(f"Failed to execute command {cmd_type}: {e}")
+    
+    async def handle_file_upload(self, data: dict):
+        """Handle file upload from fleet server"""
+        import base64
+        
+        filename = data.get("filename", "uploaded.gcode")
+        content_b64 = data.get("content", "")
+        file_id = data.get("file_id", "unknown")
+        
+        try:
+            # Decode base64 content
+            content = base64.b64decode(content_b64)
+            logger.info(f"Receiving file: {filename} ({len(content)} bytes)")
+            
+            # Upload to Moonraker using the file upload API
+            async with aiohttp.ClientSession() as session:
+                # Create multipart form data
+                form = aiohttp.FormData()
+                form.add_field(
+                    'file',
+                    content,
+                    filename=filename,
+                    content_type='application/octet-stream'
+                )
+                
+                # Upload to Moonraker's gcodes directory
+                upload_url = f"{self.moonraker_url}/server/files/upload"
+                async with session.post(upload_url, data=form) as resp:
+                    if resp.status == 201:
+                        result = await resp.json()
+                        logger.info(f"File uploaded successfully: {result}")
+                        
+                        # Send success response back to fleet
+                        if self.websocket:
+                            await self.websocket.send(json.dumps({
+                                "type": "file_upload_complete",
+                                "file_id": file_id,
+                                "filename": filename,
+                                "success": True,
+                                "printer_id": self.printer_id
+                            }))
+                    else:
+                        error_text = await resp.text()
+                        logger.error(f"Failed to upload file to Moonraker: {resp.status} - {error_text}")
+                        
+                        if self.websocket:
+                            await self.websocket.send(json.dumps({
+                                "type": "file_upload_complete",
+                                "file_id": file_id,
+                                "filename": filename,
+                                "success": False,
+                                "error": f"Moonraker error: {resp.status}",
+                                "printer_id": self.printer_id
+                            }))
+                            
+        except Exception as e:
+            logger.error(f"Failed to handle file upload: {e}")
+            if self.websocket:
+                try:
+                    await self.websocket.send(json.dumps({
+                        "type": "file_upload_complete",
+                        "file_id": file_id,
+                        "filename": filename,
+                        "success": False,
+                        "error": str(e),
+                        "printer_id": self.printer_id
+                    }))
+                except:
+                    pass
     
     async def connect(self) -> bool:
         """Connect to fleet server"""
@@ -643,9 +715,7 @@ class FleetClient:
 def load_config(config_file: str) -> dict:
     """Load configuration from file"""
     if not os.path.exists(config_file):
-        logger.error(f"Config file not found: {config_file}")
-        logger.error("Please run fleet_register.py first to register this printer")
-        sys.exit(1)
+        return None  # Return None to trigger pairing mode
     
     try:
         with open(config_file, 'r') as f:
@@ -660,9 +730,7 @@ def load_config(config_file: str) -> dict:
     
     # Validate required fields
     if not config.get("printer_id"):
-        logger.error("Config file missing 'printer_id'")
-        logger.error("Please run fleet_register.py to register this printer")
-        sys.exit(1)
+        return None  # Return None to trigger pairing mode
     
     if not config.get("fleet_ws_url"):
         logger.error("Config file missing 'fleet_ws_url'")
@@ -671,13 +739,200 @@ def load_config(config_file: str) -> dict:
     return config
 
 
+async def pairing_mode(fleet_url: str, printer_name: str = None, moonraker_url: str = "http://127.0.0.1:7125"):
+    """
+    Device-style pairing mode: Generate a 6-digit code, display it, and wait for user to claim it.
+    Once claimed, save the config and exit (systemd will restart us in normal mode).
+    """
+    import socket
+    
+    # Get printer name from Moonraker if not provided
+    if not printer_name:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{moonraker_url}/printer/info", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        info = await resp.json()
+                        printer_name = info.get("result", {}).get("hostname", socket.gethostname())
+                    else:
+                        printer_name = socket.gethostname()
+        except:
+            printer_name = socket.gethostname()
+    
+    # Get local IP
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except:
+        local_ip = "unknown"
+    
+    api_url = fleet_url.replace("wss://", "https://").replace("ws://", "http://")
+    if api_url.endswith("/ws/printer"):
+        api_url = api_url.replace("/ws/printer", "")
+    
+    logger.info("=" * 50)
+    logger.info("PAIRING MODE")
+    logger.info("=" * 50)
+    logger.info(f"Printer: {printer_name}")
+    logger.info(f"Local IP: {local_ip}")
+    logger.info("")
+    
+    # Request a pairing code from the server
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{api_url}/api/pairing/code",
+                json={
+                    "printerName": printer_name,
+                    "host": local_ip,
+                    "port": "7125"
+                },
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status != 201:
+                    error = await resp.text()
+                    logger.error(f"Failed to get pairing code: {error}")
+                    sys.exit(1)
+                
+                data = await resp.json()
+                pairing_code = data["code"]
+                expires_in = data.get("expiresInMinutes", 10)
+    except Exception as e:
+        logger.error(f"Failed to connect to fleet server: {e}")
+        sys.exit(1)
+    
+    # Display the code prominently
+    logger.info("=" * 50)
+    logger.info("")
+    logger.info(f"    PAIRING CODE:  {pairing_code[:3]} {pairing_code[3:]}")
+    logger.info("")
+    logger.info(f"    Enter this code at {api_url}")
+    logger.info(f"    Code expires in {expires_in} minutes")
+    logger.info("")
+    logger.info("=" * 50)
+    
+    # Also try to display via Moonraker console
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.post(
+                f"{moonraker_url}/printer/gcode/script",
+                json={"script": f"M117 PAIR: {pairing_code[:3]} {pairing_code[3:]}"}
+            )
+    except:
+        pass  # Non-critical
+    
+    # Poll for pairing status
+    poll_interval = 3  # seconds
+    start_time = time.time()
+    timeout = expires_in * 60  # Convert to seconds
+    
+    while time.time() - start_time < timeout:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{api_url}/api/pairing/status/{pairing_code}",
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning("Failed to check pairing status")
+                        await asyncio.sleep(poll_interval)
+                        continue
+                    
+                    data = await resp.json()
+                    status = data.get("status")
+                    
+                    if status == "paired":
+                        printer_id = data.get("printerId")
+                        ws_url = data.get("wsUrl")
+                        fleet_url_final = data.get("fleetUrl", api_url)
+                        
+                        logger.info("")
+                        logger.info("=" * 50)
+                        logger.info("PAIRING SUCCESSFUL!")
+                        logger.info("=" * 50)
+                        logger.info(f"Printer ID: {printer_id}")
+                        
+                        # Save config
+                        config = {
+                            "printer_id": printer_id,
+                            "name": printer_name,
+                            "fleet_url": fleet_url_final,
+                            "fleet_ws_url": ws_url,
+                            "moonraker_url": moonraker_url,
+                            "moonraker_ws_url": moonraker_url.replace("http://", "ws://") + "/websocket",
+                            "registered_at": datetime.now().isoformat()
+                        }
+                        
+                        config_dir = os.path.dirname(CONFIG_FILE)
+                        os.makedirs(config_dir, exist_ok=True)
+                        
+                        with open(CONFIG_FILE, 'w') as f:
+                            json.dump(config, f, indent=2)
+                        os.chmod(CONFIG_FILE, 0o600)
+                        
+                        logger.info(f"Config saved to {CONFIG_FILE}")
+                        logger.info("Restarting in normal mode...")
+                        
+                        # Clear LCD
+                        try:
+                            async with aiohttp.ClientSession() as session:
+                                await session.post(
+                                    f"{moonraker_url}/printer/gcode/script",
+                                    json={"script": "M117 Fleet Connected!"}
+                                )
+                        except:
+                            pass
+                        
+                        return True
+                    
+                    elif status == "expired":
+                        logger.error("Pairing code expired")
+                        return False
+                    
+                    # Still pending, continue polling
+                    
+        except Exception as e:
+            logger.warning(f"Error polling status: {e}")
+        
+        await asyncio.sleep(poll_interval)
+    
+    logger.error("Pairing timeout - code expired")
+    return False
+
+
 def main():
     """Main entry point"""
     logger.info("Fleet Client starting...")
+    logger.info(f"Version: {CLIENT_VERSION}")
     logger.info(f"Config file: {CONFIG_FILE}")
+    
+    # Check for --pair flag or missing config
+    import argparse
+    parser = argparse.ArgumentParser(description="Fleet Client")
+    parser.add_argument("--pair", action="store_true", help="Force pairing mode")
+    parser.add_argument("--fleet-url", default="https://fleet.modovolo.com", help="Fleet manager URL")
+    parser.add_argument("--printer-name", help="Printer name (auto-detected if not provided)")
+    parser.add_argument("--moonraker-url", default="http://127.0.0.1:7125", help="Local Moonraker URL")
+    args = parser.parse_args()
     
     # Load config
     config = load_config(CONFIG_FILE)
+    
+    # Enter pairing mode if no config or --pair flag
+    if config is None or args.pair:
+        logger.info("No configuration found - entering pairing mode")
+        fleet_ws_url = args.fleet_url.replace("https://", "wss://").replace("http://", "ws://") + "/ws/printer"
+        success = asyncio.run(pairing_mode(fleet_ws_url, args.printer_name, args.moonraker_url))
+        if success:
+            # Reload config after pairing
+            config = load_config(CONFIG_FILE)
+            if config is None:
+                logger.error("Config not found after pairing")
+                sys.exit(1)
+        else:
+            sys.exit(1)
     
     logger.info(f"Printer ID: {config['printer_id']}")
     logger.info(f"Printer Name: {config.get('name', 'Unknown')}")

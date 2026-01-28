@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: fleet-manager
-          image: jmarji/fleet-manager:v0.0.7
+          image: jmarji/fleet-manager:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

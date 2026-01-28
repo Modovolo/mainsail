@@ -191,7 +191,7 @@ class TestWebClientHandling:
         printer_ws = AsyncMock()
         fm.connected_printers["test-printer-001"] = printer_ws
         
-        await fm.handle_web_command(sample_web_command)
+        await fm.handle_web_command(mock_websocket, sample_web_command)
         
         # Verify command was forwarded to printer
         printer_ws.send.assert_called()
@@ -200,13 +200,13 @@ class TestWebClientHandling:
         assert sent_data["action"] == "pause"
 
     @pytest.mark.asyncio
-    async def test_web_command_unknown_printer(self, sample_web_command):
+    async def test_web_command_unknown_printer(self, mock_websocket, sample_web_command):
         """Test handling command for non-existent printer"""
         fm = FleetManager()
         sample_web_command["printer_id"] = "non-existent"
         
         # Should not raise exception
-        await fm.handle_web_command(sample_web_command)
+        await fm.handle_web_command(mock_websocket, sample_web_command)
 
 
 class TestBroadcasting:

@@ -57,7 +57,7 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
 
                 points.push({
                     type: 'route',
-                    title: this.$t(`Router.${element.title}`),
+                    title: element.title ?? 'Unknown',
                     orgTitle: element.title,
                     icon: element.icon,
                     to: element.path,
@@ -108,6 +108,7 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
                 'Farm',
                 'Files',
                 'G-Code Files',
+                'Central File Repository',
                 'Machine',
                 'History',
             ];

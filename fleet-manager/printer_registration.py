@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
 Printer Registration Service for Fleet Manager
-Handles printer registration keys and email notifications
+Handles printer registration keys, device pairing codes, and email notifications
 """
 import os
 import secrets
 import logging
 import json
+import random
+import string
 from datetime import datetime, timedelta
 from typing import Optional, List
 from dataclasses import dataclass
@@ -24,6 +26,7 @@ EMAIL_FROM = os.environ.get('EMAIL_FROM', 'Modovolo Fleet <noreply@modovolo.com>
 EMAIL_ENABLED = bool(RESEND_API_KEY)
 
 REGISTRATION_KEY_EXPIRE_HOURS = 24
+PAIRING_CODE_EXPIRE_MINUTES = 10  # Pairing codes expire in 10 minutes
 FLEET_URL = os.environ.get('FLEET_URL', 'https://fleet.modovolo.com')
 
 
@@ -47,6 +50,27 @@ class PrinterRegistrationKeyModel(Base):
     )
 
 
+class PairingCodeModel(Base):
+    """Device-style pairing code model - 6 digit codes displayed on printer"""
+    __tablename__ = 'pairing_codes'
+    
+    code = Column(String(6), primary_key=True)  # 6-digit code
+    printer_name = Column(String(255), nullable=False)
+    printer_host = Column(String(255))  # Local IP/hostname of printer
+    printer_port = Column(String(10))  # Moonraker port
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    status = Column(String(20), default='pending')  # pending, paired, expired
+    user_id = Column(String(32), ForeignKey('users.id'))  # Set when user claims the code
+    printer_id = Column(String(32))  # Set when pairing completes
+    
+    __table_args__ = (
+        Index('idx_pairing_code', 'code'),
+        Index('idx_pairing_status', 'status'),
+        Index('idx_pairing_expires_at', 'expires_at'),
+    )
+
+
 @dataclass
 class PrinterRegistrationKey:
     """Registration key data class"""
@@ -66,6 +90,33 @@ class PrinterRegistrationKey:
             'expiresAt': self.expires_at,
             'createdAt': self.created_at,
             'used': self.used,
+            'printerId': self.printer_id,
+        }
+
+
+@dataclass
+class PairingCode:
+    """Pairing code data class"""
+    code: str
+    printer_name: str
+    printer_host: Optional[str]
+    printer_port: Optional[str]
+    expires_at: str
+    created_at: str
+    status: str
+    user_id: Optional[str] = None
+    printer_id: Optional[str] = None
+
+    def to_dict(self):
+        return {
+            'code': self.code,
+            'printerName': self.printer_name,
+            'printerHost': self.printer_host,
+            'printerPort': self.printer_port,
+            'expiresAt': self.expires_at,
+            'createdAt': self.created_at,
+            'status': self.status,
+            'userId': self.user_id,
             'printerId': self.printer_id,
         }
 
@@ -162,6 +213,118 @@ class PrinterRegistrationDatabase:
                 )
                 for k in keys
             ]
+
+    # ===== Device-Style Pairing Methods =====
+
+    def _generate_pairing_code(self) -> str:
+        """Generate a unique 6-digit pairing code"""
+        for _ in range(10):  # Try up to 10 times to get a unique code
+            code = ''.join(random.choices(string.digits, k=6))
+            with self.db.get_session() as session:
+                existing = session.query(PairingCodeModel).filter_by(code=code, status='pending').first()
+                if not existing:
+                    return code
+        raise ValueError("Unable to generate unique pairing code")
+
+    def create_pairing_code(self, printer_name: str, printer_host: str = None, printer_port: str = None) -> PairingCode:
+        """Create a pairing code for a printer (called by printer client)"""
+        with self.db.get_session() as session:
+            # Clean up expired codes first
+            session.query(PairingCodeModel).filter(
+                PairingCodeModel.expires_at < datetime.utcnow(),
+                PairingCodeModel.status == 'pending'
+            ).update({'status': 'expired'})
+            session.commit()
+
+        code = self._generate_pairing_code()
+        expires_at = datetime.utcnow() + timedelta(minutes=PAIRING_CODE_EXPIRE_MINUTES)
+        created_at = datetime.utcnow()
+        
+        with self.db.get_session() as session:
+            code_model = PairingCodeModel(
+                code=code,
+                printer_name=printer_name,
+                printer_host=printer_host,
+                printer_port=printer_port,
+                expires_at=expires_at,
+                created_at=created_at,
+                status='pending'
+            )
+            session.add(code_model)
+            session.commit()
+            
+            return PairingCode(
+                code=code,
+                printer_name=printer_name,
+                printer_host=printer_host,
+                printer_port=printer_port,
+                expires_at=expires_at.isoformat(),
+                created_at=created_at.isoformat(),
+                status='pending'
+            )
+
+    def get_pairing_code(self, code: str) -> Optional[PairingCode]:
+        """Get a pairing code by code"""
+        with self.db.get_session() as session:
+            code_model = session.query(PairingCodeModel).filter_by(code=code).first()
+            if code_model:
+                return PairingCode(
+                    code=code_model.code,
+                    printer_name=code_model.printer_name,
+                    printer_host=code_model.printer_host,
+                    printer_port=code_model.printer_port,
+                    expires_at=code_model.expires_at.isoformat(),
+                    created_at=code_model.created_at.isoformat(),
+                    status=code_model.status,
+                    user_id=code_model.user_id,
+                    printer_id=code_model.printer_id
+                )
+        return None
+
+    def claim_pairing_code(self, code: str, user_id: str) -> Optional[dict]:
+        """User claims a pairing code (links it to their account)"""
+        with self.db.get_session() as session:
+            code_model = session.query(PairingCodeModel).filter_by(code=code, status='pending').first()
+            
+            if not code_model:
+                return None
+            
+            if code_model.expires_at < datetime.utcnow():
+                code_model.status = 'expired'
+                session.commit()
+                return None
+            
+            # Generate printer_id and mark as paired
+            printer_id = secrets.token_hex(16)
+            code_model.user_id = user_id
+            code_model.printer_id = printer_id
+            code_model.status = 'paired'
+            session.commit()
+            
+            return {
+                'printer_id': printer_id,
+                'printer_name': code_model.printer_name,
+                'user_id': user_id
+            }
+
+    def check_pairing_status(self, code: str) -> Optional[dict]:
+        """Check pairing status (called by printer client polling)"""
+        with self.db.get_session() as session:
+            code_model = session.query(PairingCodeModel).filter_by(code=code).first()
+            
+            if not code_model:
+                return None
+            
+            # Check if expired
+            if code_model.status == 'pending' and code_model.expires_at < datetime.utcnow():
+                code_model.status = 'expired'
+                session.commit()
+            
+            return {
+                'status': code_model.status,
+                'printer_id': code_model.printer_id,
+                'expires_at': code_model.expires_at.isoformat()
+            }
 
 
 class EmailService:
@@ -442,6 +605,106 @@ async def delete_printer(request: web.Request):
     return web.json_response({'message': 'Printer deleted'})
 
 
+# ===== Device-Style Pairing Endpoints =====
+
+async def create_pairing_code_endpoint(request: web.Request):
+    """Create a pairing code (called by printer client, no auth required)"""
+    try:
+        data = await request.json()
+    except:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    
+    printer_name = data.get('printerName', 'Unknown Printer')
+    printer_host = data.get('host')
+    printer_port = data.get('port')
+    
+    reg_db: PrinterRegistrationDatabase = request.app['reg_db']
+    
+    try:
+        pairing_code = reg_db.create_pairing_code(printer_name, printer_host, printer_port)
+        logger.info(f"Pairing code created: {pairing_code.code} for {printer_name}")
+        
+        return web.json_response({
+            'code': pairing_code.code,
+            'expiresAt': pairing_code.expires_at,
+            'expiresInMinutes': PAIRING_CODE_EXPIRE_MINUTES
+        }, status=201)
+    except Exception as e:
+        logger.error(f"Failed to create pairing code: {e}")
+        return web.json_response({'error': 'Failed to create pairing code'}, status=500)
+
+
+async def check_pairing_status_endpoint(request: web.Request):
+    """Check pairing status (called by printer client polling, no auth required)"""
+    code = request.match_info.get('code')
+    if not code:
+        return web.json_response({'error': 'Code required'}, status=400)
+    
+    reg_db: PrinterRegistrationDatabase = request.app['reg_db']
+    db: AuthDatabase = request.app['auth_db']
+    
+    status_info = reg_db.check_pairing_status(code)
+    if not status_info:
+        return web.json_response({'error': 'Invalid code'}, status=404)
+    
+    response = {
+        'status': status_info['status'],
+        'expiresAt': status_info['expires_at']
+    }
+    
+    # If paired, include the printer_id and WebSocket URL
+    if status_info['status'] == 'paired' and status_info['printer_id']:
+        response['printerId'] = status_info['printer_id']
+        response['fleetUrl'] = FLEET_URL
+        response['wsUrl'] = f"{FLEET_URL.replace('https://', 'wss://').replace('http://', 'ws://')}/ws/printer"
+    
+    return web.json_response(response)
+
+
+@require_auth
+async def claim_pairing_code_endpoint(request: web.Request):
+    """User claims a pairing code (links printer to their account)"""
+    try:
+        data = await request.json()
+    except:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    
+    code = data.get('code')
+    if not code:
+        return web.json_response({'error': 'Pairing code required'}, status=400)
+    
+    # Validate code format (6 digits)
+    if not code.isdigit() or len(code) != 6:
+        return web.json_response({'error': 'Invalid code format. Enter 6 digits.'}, status=400)
+    
+    user_id = request['user']['sub']
+    db: AuthDatabase = request.app['auth_db']
+    reg_db: PrinterRegistrationDatabase = request.app['reg_db']
+    
+    # Claim the code
+    claim_result = reg_db.claim_pairing_code(code, user_id)
+    if not claim_result:
+        return web.json_response({'error': 'Invalid or expired pairing code'}, status=400)
+    
+    try:
+        # Create the printer in the database
+        printer = db.create_printer(
+            owner_id=claim_result['user_id'],
+            printer_id=claim_result['printer_id'],
+            name=claim_result['printer_name']
+        )
+        
+        logger.info(f"Printer paired via code: {claim_result['printer_id']} for user {user_id}")
+        
+        return web.json_response({
+            'message': 'Printer paired successfully!',
+            'printer': printer.to_dict()
+        }, status=201)
+    except Exception as e:
+        logger.error(f"Failed to create printer after pairing: {e}")
+        return web.json_response({'error': 'Failed to complete pairing'}, status=500)
+
+
 def setup_printer_registration_routes(app: web.Application):
     """Setup printer registration routes"""
     db: AuthDatabase = app['auth_db']
@@ -460,5 +723,10 @@ def setup_printer_registration_routes(app: web.Application):
     app.router.add_post('/api/printer-registration/validate', validate_registration_key_endpoint)
     app.router.add_post('/api/printer-registration/register', register_printer_with_key)
     app.router.add_delete('/api/printers/{printer_id}', delete_printer)
+    
+    # Device-style pairing routes
+    app.router.add_post('/api/pairing/code', create_pairing_code_endpoint)
+    app.router.add_get('/api/pairing/status/{code}', check_pairing_status_endpoint)
+    app.router.add_post('/api/pairing/claim', claim_pairing_code_endpoint)
     
     logger.info("Printer registration routes configured")

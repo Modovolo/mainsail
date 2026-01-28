@@ -1,97 +1,21 @@
 <template>
     <div>
-        <!-- GCode Upload Zone -->
-        <v-card class="mb-6">
-            <v-card-title>Upload GCode to Printers</v-card-title>
-            <v-card-text>
-                <v-row>
-                    <v-col cols="12" md="6">
-                        <div
-                            :class="['drop-zone', { 'drop-zone-active': isDragging }]"
-                            style="border: 2px dashed #0000FF; border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.3s;"
-                            @drop.prevent="onFileDrop"
-                            @dragover.prevent="isDragging = true"
-                            @dragleave.prevent="isDragging = false"
-                            @click="triggerFileDialog">
-                            <v-icon x-large color="primary">mdi-cloud-upload</v-icon>
-                            <p v-if="!selectedFile" class="mt-3 mb-0">Drop GCode file here or click to browse</p>
-                            <p v-else class="mt-3 mb-0"><strong>{{ selectedFile.name }}</strong> ({{ formatFileSize(selectedFile.size) }})</p>
-                            <div v-if="thumbnailUrl" class="drop-zone-preview">
-                                <img :src="thumbnailUrl" alt="GCode Thumbnail preview" />
-                            </div>
-                        </div>
-                        <input
-                            ref="fileInput"
-                            type="file"
-                            accept=".gcode,.g,.gc"
-                            style="display: none"
-                            @change="onFileSelected" />
-                    </v-col>
-                    <v-col cols="12" md="6">
-                        <div style="max-height: 300px; overflow-y: auto; border: 1px solid #0000FF; border-radius: 4px; padding: 12px;">
-                            <p class="mb-2"><strong>Select Printers:</strong></p>
-                            <div v-for="group in printerSelectionGroups" :key="group.key" class="mb-2">
-                                <p
-                                    v-if="group.label || hasNamedGroups"
-                                    class="mb-1 font-weight-bold text-uppercase group-heading">
-                                    {{ group.label || 'Ungrouped' }}
-                                </p>
-                                <v-checkbox
-                                    v-for="item in group.items"
-                                    :key="item.id"
-                                    v-model="selectedPrinters"
-                                    :value="item.id"
-                                    :label="`${item.name} (${item.state})`"
-                                    dense
-                                    hide-details
-                                    class="mt-1"></v-checkbox>
-                            </div>
-                            <v-checkbox
-                                v-if="tableItems.length > 0"
-                                v-model="selectAll"
-                                label="Select All"
-                                dense
-                                hide-details
-                                class="mt-3 font-weight-bold"
-                                @change="toggleSelectAll"></v-checkbox>
-                        </div>
-                    </v-col>
-                </v-row>
-                <v-row class="mt-2">
-                    <v-col>
-                        <v-btn
-                            color="primary"
-                            large
-                            :disabled="!selectedFile || selectedPrinters.length === 0"
-                            :loading="isUploading"
-                            @click="enqueueToSelectedPrinters()">
-                            <v-icon left>mdi-send</v-icon>
-                            Enqueue to {{ selectedPrinters.length }} Printer(s)
-                        </v-btn>
-                        <v-btn
-                            text
-                            class="ml-2"
-                            @click="clearSelection">
-                            Clear
-                        </v-btn>
-                        <v-btn
-                            text
-                            class="ml-2"
-                            @click="toggleSelectionMode">
-                            <v-icon left>{{ isSelectionMode ? mdiSelectOff : mdiCheckboxMultipleOutline }}</v-icon>
-                            {{ isSelectionMode ? 'Exit Selection Mode' : 'Select Printers on Panels' }}
-                        </v-btn>
-                        <v-btn
-                            text
-                            class="ml-2"
-                            @click="isTransferDialogOpen = true">
-                            <v-icon left>{{ mdiCogTransfer }}</v-icon>
-                            Manage Groups
-                        </v-btn>
-                    </v-col>
-                </v-row>
-            </v-card-text>
-        </v-card>
+        <!-- Action Buttons -->
+        <div class="mb-4 d-flex align-center">
+            <v-btn
+                color="primary"
+                @click="isTransferDialogOpen = true">
+                <v-icon left>{{ mdiCogTransfer }}</v-icon>
+                Manage Groups
+            </v-btn>
+            <v-btn
+                text
+                class="ml-2"
+                @click="toggleSelectionMode">
+                <v-icon left>{{ isSelectionMode ? mdiSelectOff : mdiCheckboxMultipleOutline }}</v-icon>
+                {{ isSelectionMode ? 'Exit Selection Mode' : 'Select Printers' }}
+            </v-btn>
+        </div>
         <printer-group-transfer-dialog
             v-model="isTransferDialogOpen"
             :all-printers="tableItems"
@@ -155,8 +79,8 @@
             </v-card>
         </v-dialog>
         <!-- Printer Panels -->
-        <v-expansion-panels multiple class="group-panels">
-            <v-expansion-panel v-for="group in groupedPrinters" :key="group.key">
+        <v-expansion-panels v-model="openPanels" multiple class="group-panels">
+            <v-expansion-panel v-for="(group, index) in groupedPrinters" :key="group.key">
                 <v-expansion-panel-header>
                     <div class="group-header-content">
                         <template v-if="isEditingGroup(group.key)">
@@ -186,6 +110,25 @@
                         <template v-else>
                             <span class="group-title">{{ group.label || 'Ungrouped' }}</span>
                             <v-spacer></v-spacer>
+                            <v-btn-toggle
+                                :value="getGroupViewMode(group.key)"
+                                mandatory
+                                dense
+                                class="mr-2"
+                                @click.stop>
+                                <v-btn
+                                    small
+                                    :value="'cards'"
+                                    @click.stop="groupViewModes[group.key] = 'cards'">
+                                    <v-icon small>{{ mdiViewGrid }}</v-icon>
+                                </v-btn>
+                                <v-btn
+                                    small
+                                    :value="'table'"
+                                    @click.stop="groupViewModes[group.key] = 'table'">
+                                    <v-icon small>{{ mdiTable }}</v-icon>
+                                </v-btn>
+                            </v-btn-toggle>
                             <v-btn icon small @click.stop="startEditingGroup(group)">
                                 <v-icon small>{{ mdiPencil }}</v-icon>
                             </v-btn>
@@ -204,35 +147,99 @@
                         @dragleave="handleDragLeave(group, $event)"
                         @drop.prevent="handleDrop(group, $event)">
                         <div class="group-body-heading">{{ group.label || 'Ungrouped' }}</div>
-                        <div v-if="group.items.length > 0" class="group-panel-list">
-                            <div
-                                v-for="printerEntry in group.items"
-                                :key="printerEntry.id"
-                                class="group-panel-item"
-                                :class="{
-                                    'group-panel-item--dragging': draggedPrinterId === printerEntry.id,
-                                    'group-panel-item--selection': isSelectionMode,
-                                }"
-                                :draggable="!isSelectionMode"
-                                @dragstart="startDrag(printerEntry.id, group, $event)"
-                                @dragend="endDrag"
-                                @click="onPanelClick(printerEntry.id, $event)">
-                                <div v-if="isSelectionMode" class="panel-selection" @click.stop>
-                                    <v-checkbox
-                                        v-model="selectedPrinters"
-                                        :value="printerEntry.id"
-                                        dense
-                                        hide-details
-                                        color="primary"
-                                        @change.stop
-                                        @click.stop></v-checkbox>
+                        
+                        <!-- Card View -->
+                        <template v-if="getGroupViewMode(group.key) === 'cards'">
+                            <div v-if="group.items.length > 0" class="group-panel-list">
+                                <div
+                                    v-for="printerEntry in group.items"
+                                    :key="printerEntry.id"
+                                    class="group-panel-item"
+                                    :class="{
+                                        'group-panel-item--dragging': draggedPrinterId === printerEntry.id,
+                                        'group-panel-item--selection': isSelectionMode,
+                                    }"
+                                    :draggable="!isSelectionMode"
+                                    @dragstart="startDrag(printerEntry.id, group, $event)"
+                                    @dragend="endDrag"
+                                    @click="onPanelClick(printerEntry.id, $event)">
+                                    <div v-if="isSelectionMode" class="panel-selection" @click.stop>
+                                        <v-checkbox
+                                            v-model="selectedPrinters"
+                                            :value="printerEntry.id"
+                                            dense
+                                            hide-details
+                                            color="primary"
+                                            @change.stop
+                                            @click.stop></v-checkbox>
+                                    </div>
+                                    <farm-printer-panel :printer="printerEntry.printer"></farm-printer-panel>
                                 </div>
-                                <farm-printer-panel :printer="printerEntry.printer"></farm-printer-panel>
                             </div>
-                        </div>
-                        <div v-else class="empty-group-placeholder">
-                            No printers assigned to this group yet.
-                        </div>
+                            <div v-else class="empty-group-placeholder">
+                                No printers assigned to this group yet.
+                            </div>
+                        </template>
+                        
+                        <!-- Table View -->
+                        <template v-else>
+                            <v-simple-table v-if="group.items.length > 0" class="printer-table">
+                                <thead>
+                                    <tr>
+                                        <th v-if="isSelectionMode" style="width: 50px;"></th>
+                                        <th>Name</th>
+                                        <th>Status</th>
+                                        <th>Current Job</th>
+                                        <th style="width: 100px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr
+                                        v-for="printerEntry in group.items"
+                                        :key="printerEntry.id"
+                                        :class="{ 'printer-row--offline': printerEntry.state === 'offline' }"
+                                        :draggable="!isSelectionMode"
+                                        @dragstart="startDrag(printerEntry.id, group, $event)"
+                                        @dragend="endDrag"
+                                        @click="onPanelClick(printerEntry.id, $event)"
+                                        style="cursor: pointer;">
+                                        <td v-if="isSelectionMode" @click.stop>
+                                            <v-checkbox
+                                                v-model="selectedPrinters"
+                                                :value="printerEntry.id"
+                                                dense
+                                                hide-details
+                                                color="primary"
+                                                @change.stop
+                                                @click.stop></v-checkbox>
+                                        </td>
+                                        <td>
+                                            <v-icon small class="mr-2" :color="printerEntry.state === 'offline' ? 'grey' : 'success'">
+                                                mdi-printer-3d
+                                            </v-icon>
+                                            {{ printerEntry.name }}
+                                        </td>
+                                        <td>
+                                            <v-chip
+                                                x-small
+                                                :color="getStatusColor(printerEntry.state)"
+                                                text-color="white">
+                                                {{ printerEntry.state }}
+                                            </v-chip>
+                                        </td>
+                                        <td>{{ printerEntry.job_name || '—' }}</td>
+                                        <td>
+                                            <v-btn icon x-small @click.stop="navigateToPrinter(printerEntry.id)">
+                                                <v-icon small>mdi-open-in-new</v-icon>
+                                            </v-btn>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </v-simple-table>
+                            <div v-else class="empty-group-placeholder">
+                                No printers assigned to this group yet.
+                            </div>
+                        </template>
                     </div>
                 </v-expansion-panel-content>
             </v-expansion-panel>
@@ -263,6 +270,8 @@ import {
     mdiSwapHorizontal,
     mdiDelete,
     mdiCogTransfer,
+    mdiViewGrid,
+    mdiTable,
 } from '@mdi/js'
 
 interface PrinterTableItem {
@@ -328,6 +337,10 @@ class PageFarm extends Mixins(BaseMixin) {
     public mdiSwapHorizontal = mdiSwapHorizontal
     public mdiDelete = mdiDelete
     public mdiCogTransfer = mdiCogTransfer
+    public mdiViewGrid = mdiViewGrid
+    public mdiTable = mdiTable
+    public groupViewModes: Record<string, 'cards' | 'table'> = {}
+    public openPanels: number[] = []
     public draggedPrinterId: string | null = null
     private dragSourceGroupKey: string | null = null
     public dragOverGroupKey: string | null = null
@@ -913,6 +926,46 @@ class PageFarm extends Mixins(BaseMixin) {
         if (this.isFleetMode) {
             this.loadFleetPrinters()
         }
+        
+        // Default all panels to open
+        this.$nextTick(() => {
+            this.openPanels = this.groupedPrinters.map((_, index) => index)
+        })
+    }
+
+    getGroupViewMode(groupKey: string): 'cards' | 'table' {
+        return this.groupViewModes[groupKey] || 'cards'
+    }
+
+    toggleGroupViewMode(groupKey: string): void {
+        const current = this.getGroupViewMode(groupKey)
+        this.$set(this.groupViewModes, groupKey, current === 'cards' ? 'table' : 'cards')
+    }
+
+    getStatusColor(state: string): string {
+        const colors: Record<string, string> = {
+            'printing': 'success',
+            'complete': 'success',
+            'standby': 'info',
+            'idle': 'info',
+            'ready': 'info',
+            'paused': 'warning',
+            'error': 'error',
+            'offline': 'grey',
+            'disconnected': 'grey',
+            'connected': 'success',
+        }
+        return colors[state?.toLowerCase()] || 'grey'
+    }
+
+    navigateToPrinter(printerId: string): void {
+        // In fleet mode, navigate to the printer's dashboard
+        if (this.isFleetMode) {
+            this.$router.push({ path: `/printer/${printerId}` })
+        } else {
+            // For local printers, switch to that printer
+            this.$store.dispatch('changePrinter', { printer: printerId })
+        }
     }
 
     beforeDestroy() {
@@ -1352,6 +1405,27 @@ export default PageFarm
     text-align: center;
     color: rgba(255, 255, 255, 0.6);
     font-style: italic;
+}
+
+.printer-table {
+    width: 100%;
+    margin-top: 8px;
+}
+
+.printer-table th {
+    text-align: left !important;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+}
+
+.printer-table tr:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.printer-row--offline {
+    opacity: 0.6;
 }
 
 .add-group-btn-wrapper {

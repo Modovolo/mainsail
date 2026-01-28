@@ -98,6 +98,38 @@ spec:
                 name: fleet-manager
                 port:
                   number: 9081
+          # Device pairing API endpoints
+          - path: /api/pairing
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
+          # Central file repository API endpoints
+          - path: /api/files
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
+          # Client download endpoints
+          - path: /api/client
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
+          # Install script
+          - path: /install.sh
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
           # All other traffic goes through nginx-proxy which handles routing
           - path: /
             pathType: Prefix

@@ -1,12 +1,39 @@
 <template>
     <div>
         <v-app-bar app elevate-on-scroll :height="topbarHeight" class="topbar pa-0" clipped-left>
-            <v-app-bar-nav-icon tile @click.stop="naviDrawer = !naviDrawer" />
+            <v-app-bar-nav-icon 
+                tile 
+                :disabled="viewMode !== 'devices'" 
+                @click.stop="naviDrawer = !naviDrawer" />
             <router-link to="/">
                 <img src="/img/modovolo-logo-logomark-white.svg" :class="logoClasses" alt="Modovolo Logo" />
             </router-link>
             <v-toolbar-title class="text-no-wrap ml-0 pl-2 mr-2">{{ printerName }}</v-toolbar-title>
             <printer-selector v-if="countPrinters" />
+            <v-spacer />
+            <v-btn-toggle
+                v-model="viewMode"
+                mandatory
+                dense
+                class="view-mode-toggle"
+                color="primary">
+                <v-btn small value="prepare">
+                    <v-icon small class="mr-1">{{ mdiWrench }}</v-icon>
+                    <span class="d-none d-md-inline">Prepare</span>
+                </v-btn>
+                <v-btn small value="preview">
+                    <v-icon small class="mr-1">{{ mdiEye }}</v-icon>
+                    <span class="d-none d-md-inline">Preview</span>
+                </v-btn>
+                <v-btn small value="devices">
+                    <v-icon small class="mr-1">{{ mdiDevices }}</v-icon>
+                    <span class="d-none d-md-inline">Devices</span>
+                </v-btn>
+                <v-btn small value="monitoring">
+                    <v-icon small class="mr-1">{{ mdiMonitor }}</v-icon>
+                    <span class="d-none d-md-inline">Monitoring</span>
+                </v-btn>
+            </v-btn-toggle>
             <v-spacer />
             <input
                 ref="fileUploadAndStart"
@@ -83,7 +110,7 @@
 </template>
 
 <script lang="ts">
-import { Mixins } from 'vue-property-decorator'
+import { Mixins, Watch } from 'vue-property-decorator'
 import BaseMixin from '@/components/mixins/base'
 import { validGcodeExtensions } from '@/store/variables'
 import Component from 'vue-class-component'
@@ -96,7 +123,7 @@ import PrinterSelector from '@/components/ui/PrinterSelector.vue'
 import MainsailLogo from '@/components/ui/MainsailLogo.vue'
 import TheNotificationMenu from '@/components/notifications/TheNotificationMenu.vue'
 import { topbarHeight } from '@/store/variables'
-import { mdiAlertOctagonOutline, mdiContentSave, mdiFileUpload, mdiClose, mdiCloseThick, mdiLogout } from '@mdi/js'
+import { mdiAlertOctagonOutline, mdiContentSave, mdiFileUpload, mdiClose, mdiCloseThick, mdiLogout, mdiWrench, mdiEye, mdiDevices, mdiMonitor } from '@mdi/js'
 import EmergencyStopDialog from '@/components/dialogs/EmergencyStopDialog.vue'
 import InlineSvg from 'vue-inline-svg'
 import ThemeMixin from '@/components/mixins/theme'
@@ -129,10 +156,16 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
     mdiClose = mdiClose
     mdiLogout = mdiLogout
     mdiCloseThick = mdiCloseThick
+    mdiWrench = mdiWrench
+    mdiEye = mdiEye
+    mdiDevices = mdiDevices
+    mdiMonitor = mdiMonitor
 
     topbarHeight = topbarHeight
 
     showEmergencyStopDialog = false
+
+    viewMode: string = 'devices'
 
     uploadSnackbar: uploadSnackbar = {
         status: false,
@@ -251,6 +284,41 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
 
             default:
                 this.naviDrawer = this.$vuetify.breakpoint.lgAndUp
+        }
+        
+        // Initialize view mode - show sidebar only for devices tab
+        this.updateNaviDrawerForViewMode(this.viewMode)
+    }
+
+    @Watch('viewMode')
+    onViewModeChange(newMode: string) {
+        this.updateNaviDrawerForViewMode(newMode)
+        this.navigateToViewMode(newMode)
+    }
+
+    updateNaviDrawerForViewMode(mode: string) {
+        // Show sidebar only when "devices" tab is selected
+        if (mode === 'devices') {
+            this.naviDrawer = true
+        } else {
+            this.naviDrawer = false
+        }
+    }
+
+    navigateToViewMode(mode: string) {
+        // Navigate to the appropriate route based on view mode
+        const routeMap: { [key: string]: string } = {
+            'prepare': '/prepare',
+            'preview': '/preview',
+            'devices': '/',
+            'monitoring': '/monitoring'
+        }
+        
+        const targetPath = routeMap[mode]
+        if (targetPath && this.$route.path !== targetPath) {
+            this.$router.push(targetPath).catch(() => {
+                // Ignore navigation duplicates
+            })
         }
     }
 
@@ -384,5 +452,14 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
     header.topbar {
         z-index: 8 !important;
     }
+}
+
+.view-mode-toggle {
+    height: 32px !important;
+}
+
+.view-mode-toggle .v-btn {
+    height: 32px !important;
+    text-transform: none !important;
 }
 </style>

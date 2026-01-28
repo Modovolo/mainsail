@@ -24,7 +24,7 @@ spec:
         - name: dockerhub-creds
       containers:
         - name: mainsail
-          image: jmarji/mainsail:v0.0.7
+          image: jmarji/mainsail:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 80
@@ -110,7 +110,7 @@ spec:
               mountPath: /printer_data
       containers:
         - name: moonraker
-          image: jmarji/moonraker:v0.0.1
+          image: jmarji/moonraker:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 7125

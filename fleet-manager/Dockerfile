@@ -11,6 +11,7 @@ COPY fleet_manager.py .
 COPY auth_postgres.py .
 COPY printer_registration.py .
 COPY models.py .
+COPY file_repository.py .
 
 # Copy OTA update files
 COPY client_version.json .

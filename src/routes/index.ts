@@ -9,6 +9,10 @@ import Timelapse from '../pages/Timelapse.vue'
 import Machine from '../pages/Machine.vue'
 import Login from '../pages/Login.vue'
 import MyPrinters from '../pages/MyPrinters.vue'
+import CentralFiles from '../pages/CentralFiles.vue'
+import PreparePage from '../pages/PreparePage.vue'
+import PreviewPage from '../pages/PreviewPage.vue'
+import MonitoringPage from '../pages/MonitoringPage.vue'
 import { AsyncComponent, Component } from 'vue'
 
 import {
@@ -18,6 +22,7 @@ import {
     mdiConsoleLine,
     mdiGrid,
     mdiFileDocumentMultipleOutline,
+    mdiFolderNetwork,
     mdiVideo3d,
     mdiHistory,
     mdiTimelapse,
@@ -39,6 +44,36 @@ const routes: AppRoute[] = [
         meta: { requiresAuth: false, isPublic: true },
     },
     {
+        name: 'prepare',
+        title: 'Prepare',
+        path: '/prepare',
+        icon: mdiWrench,
+        component: PreparePage,
+        alwaysShow: true,
+        showInNavi: false,
+        meta: { requiresAuth: true },
+    },
+    {
+        name: 'preview',
+        title: 'Preview',
+        path: '/preview',
+        icon: mdiWebcam,
+        component: PreviewPage,
+        alwaysShow: true,
+        showInNavi: false,
+        meta: { requiresAuth: true },
+    },
+    {
+        name: 'monitoring',
+        title: 'Monitoring',
+        path: '/monitoring',
+        icon: mdiMonitorDashboard,
+        component: MonitoringPage,
+        alwaysShow: true,
+        showInNavi: false,
+        meta: { requiresAuth: true },
+    },
+    {
         name: 'fleet-dashboard',
         title: 'Fleet Dashboard',
         path: '/',
@@ -56,7 +91,7 @@ const routes: AppRoute[] = [
         icon: mdiPrinter3d,
         component: MyPrinters,
         alwaysShow: true,
-        showInNavi: true,
+        showInNavi: false,
         position: 5,
         meta: { requiresAuth: true },
     },
@@ -69,6 +104,17 @@ const routes: AppRoute[] = [
         alwaysShow: true,
         showInNavi: true,
         position: 6,
+        meta: { requiresAuth: true },
+    },
+    {
+        name: 'central-files',
+        title: 'Central File Repository',
+        path: '/central-files',
+        icon: mdiFolderNetwork,
+        component: CentralFiles,
+        alwaysShow: true,
+        showInNavi: true,
+        position: 8,
         meta: { requiresAuth: true },
     },
     {

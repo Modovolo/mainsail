@@ -413,6 +413,7 @@ class FleetManager:
         from aiohttp import web
         from auth_postgres import setup_auth_routes, require_auth, AuthDatabase
         from printer_registration import setup_printer_registration_routes
+        from file_repository import setup_file_routes
         
         # Initialize database
         auth_db = AuthDatabase()
@@ -422,6 +423,7 @@ class FleetManager:
         app = web.Application()
         setup_auth_routes(app)
         setup_printer_registration_routes(app)
+        setup_file_routes(app, fleet_manager=self)
         
         # Add health check endpoint
         async def health_check(request):
@@ -480,6 +482,68 @@ class FleetManager:
         
         app.router.add_get('/api/client/version', get_client_version)
         app.router.add_get('/api/client/download', download_client)
+        
+        # Serve install script
+        async def serve_install_script(request):
+            """Serve the fleet client install script"""
+            try:
+                install_file = os.path.join(os.path.dirname(__file__), 'printer_client', 'install.sh')
+                if not os.path.exists(install_file):
+                    return web.Response(
+                        text='#!/bin/bash\necho "Install script not found on server"\nexit 1\n',
+                        content_type='text/x-shellscript',
+                        status=404
+                    )
+                
+                with open(install_file, 'r') as f:
+                    content = f.read()
+                
+                return web.Response(
+                    text=content,
+                    content_type='text/x-shellscript',
+                    headers={
+                        'Content-Disposition': 'inline; filename="install.sh"'
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Error serving install script: {e}")
+                return web.Response(
+                    text=f'#!/bin/bash\necho "Error: {e}"\nexit 1\n',
+                    content_type='text/x-shellscript',
+                    status=500
+                )
+        
+        async def serve_fleet_client(request):
+            """Serve the fleet client Python script"""
+            try:
+                client_file = os.path.join(os.path.dirname(__file__), 'printer_client', 'fleet_client.py')
+                if not os.path.exists(client_file):
+                    return web.Response(
+                        text='# Fleet client not found on server\nimport sys; sys.exit(1)',
+                        content_type='text/x-python',
+                        status=404
+                    )
+                
+                with open(client_file, 'r') as f:
+                    content = f.read()
+                
+                return web.Response(
+                    text=content,
+                    content_type='text/x-python',
+                    headers={
+                        'Content-Disposition': 'inline; filename="fleet_client.py"'
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Error serving fleet client: {e}")
+                return web.Response(
+                    text=f'# Error: {e}\nimport sys; sys.exit(1)',
+                    content_type='text/x-python',
+                    status=500
+                )
+        
+        app.router.add_get('/install.sh', serve_install_script)
+        app.router.add_get('/api/client/fleet_client.py', serve_fleet_client)
         
         # Start HTTP server
         runner = web.AppRunner(app)
