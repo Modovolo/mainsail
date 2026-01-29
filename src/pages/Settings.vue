@@ -337,21 +337,29 @@
                             <div class="py-4">
                                 <div v-if="ownedPrinters.length > 0" class="mb-4">
                                     <v-select
-                                        v-model="printerToAssign"
+                                        v-model="printersToAssign"
                                         :items="ownedPrinters"
                                         item-text="name"
                                         item-value="id"
-                                        label="Assign a printer to this group"
+                                        label="Select printers to assign to this group"
                                         outlined
                                         dense
                                         clearable
+                                        multiple
+                                        chips
+                                        deletable-chips
+                                        small-chips
+                                    />
+                                    <v-btn
+                                        color="primary"
+                                        :disabled="printersToAssign.length === 0"
+                                        :loading="assigningPrinters"
+                                        class="mt-2"
+                                        @click="assignPrinters"
                                     >
-                                        <template #append-outer>
-                                            <v-btn icon color="primary" :disabled="!printerToAssign" @click="assignPrinter">
-                                                <v-icon>mdi-plus</v-icon>
-                                            </v-btn>
-                                        </template>
-                                    </v-select>
+                                        <v-icon left>mdi-plus</v-icon>
+                                        Assign {{ printersToAssign.length }} Printer{{ printersToAssign.length !== 1 ? 's' : '' }}
+                                    </v-btn>
                                 </div>
                                 
                                 <v-list v-if="selectedGroup.printers && selectedGroup.printers.length > 0">
@@ -479,7 +487,8 @@ class PageSettings extends Mixins(BaseMixin) {
     detailsTab = 0
 
     inviteEmail = ''
-    printerToAssign = ''
+    printersToAssign: string[] = []
+    assigningPrinters = false
     ownedPrinters: OwnedPrinter[] = []
     
     profile: UserProfile = {
@@ -658,23 +667,43 @@ class PageSettings extends Mixins(BaseMixin) {
         }
     }
 
-    async assignPrinter(): Promise<void> {
-        if (!this.printerToAssign || !this.selectedGroup) return
+    async assignPrinters(): Promise<void> {
+        if (this.printersToAssign.length === 0 || !this.selectedGroup) return
 
         const token = localStorage.getItem('fleet_token')
+        this.assigningPrinters = true
 
         try {
-            await axios.post(`/api/groups/${this.selectedGroup.id}/printers`, {
-                printerId: this.printerToAssign
-            }, {
-                headers: { Authorization: `Bearer ${token}` }
-            })
-            this.$toast.success('Printer assigned to group')
-            this.printerToAssign = ''
+            let successCount = 0
+            let failCount = 0
+            
+            for (const printerId of this.printersToAssign) {
+                try {
+                    await axios.post(`/api/groups/${this.selectedGroup.id}/printers`, {
+                        printerId
+                    }, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    })
+                    successCount++
+                } catch {
+                    failCount++
+                }
+            }
+            
+            if (successCount > 0) {
+                this.$toast.success(`${successCount} printer${successCount !== 1 ? 's' : ''} assigned to group`)
+            }
+            if (failCount > 0) {
+                this.$toast.error(`Failed to assign ${failCount} printer${failCount !== 1 ? 's' : ''}`)
+            }
+            
+            this.printersToAssign = []
             await this.loadOwnedPrinters()
             await this.openGroupDetails(this.selectedGroup)
         } catch (error: any) {
-            this.$toast.error(error.response?.data?.error || 'Failed to assign printer')
+            this.$toast.error(error.response?.data?.error || 'Failed to assign printers')
+        } finally {
+            this.assigningPrinters = false
         }
     }
 
