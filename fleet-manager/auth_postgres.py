@@ -73,12 +73,55 @@ class UserModel(Base):
     )
 
 
+class GroupModel(Base):
+    """Group model - groups that can own printers and have members"""
+    __tablename__ = 'groups'
+    
+    id = Column(String(32), primary_key=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+    created_by = Column(String(32), ForeignKey('users.id'), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    is_active = Column(Boolean, default=True)
+    
+    # Relationships
+    creator = relationship('UserModel', foreign_keys=[created_by])
+    members = relationship('GroupMemberModel', back_populates='group', cascade='all, delete-orphan')
+    printers = relationship('PrinterModel', back_populates='group')
+    
+    __table_args__ = (
+        Index('idx_group_created_by', 'created_by'),
+        Index('idx_group_name', 'name'),
+    )
+
+
+class GroupMemberModel(Base):
+    """Group member model - users belonging to groups"""
+    __tablename__ = 'group_members'
+    
+    id = Column(String(32), primary_key=True)
+    group_id = Column(String(32), ForeignKey('groups.id'), nullable=False, index=True)
+    user_id = Column(String(32), ForeignKey('users.id'), nullable=False, index=True)
+    role = Column(String(50), default='member')  # 'owner', 'admin', 'member'
+    joined_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    group = relationship('GroupModel', back_populates='members')
+    user = relationship('UserModel')
+    
+    __table_args__ = (
+        Index('idx_gm_group_id', 'group_id'),
+        Index('idx_gm_user_id', 'user_id'),
+    )
+
+
 class PrinterModel(Base):
-    """Printer model - printers owned by users"""
+    """Printer model - printers owned by users or groups"""
     __tablename__ = 'printers'
     
     id = Column(String(32), primary_key=True)
     owner_id = Column(String(32), ForeignKey('users.id'), nullable=False, index=True)
+    group_id = Column(String(32), ForeignKey('groups.id'), nullable=True, index=True)  # Optional group ownership
     printer_id = Column(String(255), nullable=False, unique=True, index=True)  # Unique printer identifier
     name = Column(String(255), nullable=False)
     host = Column(String(255))
@@ -90,10 +133,12 @@ class PrinterModel(Base):
     
     # Relationships
     owner = relationship('UserModel', back_populates='printers')
+    group = relationship('GroupModel', back_populates='printers')
     
     __table_args__ = (
         Index('idx_owner_id', 'owner_id'),
         Index('idx_printer_id', 'printer_id'),
+        Index('idx_group_id', 'group_id'),
     )
 
 
@@ -154,6 +199,7 @@ class Printer:
     created_at: str
     last_connected: Optional[str]
     is_active: bool
+    group_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -166,6 +212,49 @@ class Printer:
             'createdAt': self.created_at,
             'lastConnected': self.last_connected,
             'isActive': self.is_active,
+            'groupId': self.group_id,
+        }
+
+
+@dataclass
+class Group:
+    """Group data class"""
+    id: str
+    name: str
+    description: Optional[str]
+    created_by: str
+    created_at: str
+    is_active: bool = True
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'createdBy': self.created_by,
+            'createdAt': self.created_at,
+            'isActive': self.is_active,
+        }
+
+
+@dataclass
+class GroupMember:
+    """Group member data class"""
+    id: str
+    group_id: str
+    user_id: str
+    role: str
+    joined_at: str
+    username: Optional[str] = None  # For display purposes
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'groupId': self.group_id,
+            'userId': self.user_id,
+            'role': self.role,
+            'joinedAt': self.joined_at,
+            'username': self.username,
         }
 
 
@@ -426,8 +515,263 @@ class AuthDatabase:
             port=model.port,
             created_at=model.created_at.isoformat(),
             last_connected=model.last_connected.isoformat() if model.last_connected else None,
+            is_active=model.is_active,
+            group_id=model.group_id
+        )
+
+    @staticmethod
+    def _model_to_group(model: GroupModel) -> Group:
+        """Convert GroupModel to Group"""
+        return Group(
+            id=model.id,
+            name=model.name,
+            description=model.description,
+            created_by=model.created_by,
+            created_at=model.created_at.isoformat(),
             is_active=model.is_active
         )
+
+    @staticmethod
+    def _model_to_group_member(model: GroupMemberModel, username: Optional[str] = None) -> GroupMember:
+        """Convert GroupMemberModel to GroupMember"""
+        return GroupMember(
+            id=model.id,
+            group_id=model.group_id,
+            user_id=model.user_id,
+            role=model.role,
+            joined_at=model.joined_at.isoformat(),
+            username=username
+        )
+
+    # ==================== Group Methods ====================
+
+    def create_group(self, name: str, created_by: str, description: Optional[str] = None) -> Group:
+        """Create a new group and add creator as owner"""
+        with self.get_session() as session:
+            group_id = secrets.token_hex(16)
+            group_model = GroupModel(
+                id=group_id,
+                name=name,
+                description=description,
+                created_by=created_by,
+                created_at=datetime.utcnow(),
+                is_active=True
+            )
+            session.add(group_model)
+            
+            # Add creator as owner
+            member_model = GroupMemberModel(
+                id=secrets.token_hex(16),
+                group_id=group_id,
+                user_id=created_by,
+                role='owner',
+                joined_at=datetime.utcnow()
+            )
+            session.add(member_model)
+            session.commit()
+            
+            return self._model_to_group(group_model)
+
+    def get_user_groups(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get all groups a user belongs to with their role"""
+        with self.get_session() as session:
+            memberships = session.query(GroupMemberModel, GroupModel).join(
+                GroupModel, GroupMemberModel.group_id == GroupModel.id
+            ).filter(
+                GroupMemberModel.user_id == user_id,
+                GroupModel.is_active == True
+            ).all()
+            
+            result = []
+            for member, group in memberships:
+                group_dict = self._model_to_group(group).to_dict()
+                group_dict['memberRole'] = member.role
+                group_dict['joinedAt'] = member.joined_at.isoformat()
+                result.append(group_dict)
+            return result
+
+    def get_group_by_id(self, group_id: str) -> Optional[Group]:
+        """Get a group by ID"""
+        with self.get_session() as session:
+            group = session.query(GroupModel).filter_by(id=group_id, is_active=True).first()
+            if group:
+                return self._model_to_group(group)
+        return None
+
+    def get_group_members(self, group_id: str) -> List[GroupMember]:
+        """Get all members of a group with their usernames"""
+        with self.get_session() as session:
+            members = session.query(GroupMemberModel, UserModel).join(
+                UserModel, GroupMemberModel.user_id == UserModel.id
+            ).filter(
+                GroupMemberModel.group_id == group_id
+            ).all()
+            
+            return [self._model_to_group_member(m, u.username) for m, u in members]
+
+    def get_user_group_role(self, user_id: str, group_id: str) -> Optional[str]:
+        """Get a user's role in a group (or None if not a member)"""
+        with self.get_session() as session:
+            member = session.query(GroupMemberModel).filter_by(
+                user_id=user_id,
+                group_id=group_id
+            ).first()
+            return member.role if member else None
+
+    def add_group_member(self, group_id: str, user_id: str, role: str = 'member') -> Optional[GroupMember]:
+        """Add a user to a group"""
+        with self.get_session() as session:
+            # Check if already a member
+            existing = session.query(GroupMemberModel).filter_by(
+                group_id=group_id,
+                user_id=user_id
+            ).first()
+            if existing:
+                return None  # Already a member
+            
+            member_model = GroupMemberModel(
+                id=secrets.token_hex(16),
+                group_id=group_id,
+                user_id=user_id,
+                role=role,
+                joined_at=datetime.utcnow()
+            )
+            session.add(member_model)
+            session.commit()
+            
+            # Get username for response
+            user = session.query(UserModel).filter_by(id=user_id).first()
+            return self._model_to_group_member(member_model, user.username if user else None)
+
+    def remove_group_member(self, group_id: str, user_id: str) -> bool:
+        """Remove a user from a group"""
+        with self.get_session() as session:
+            deleted = session.query(GroupMemberModel).filter_by(
+                group_id=group_id,
+                user_id=user_id
+            ).delete()
+            session.commit()
+            return deleted > 0
+
+    def update_member_role(self, group_id: str, user_id: str, new_role: str) -> bool:
+        """Update a member's role in a group"""
+        with self.get_session() as session:
+            updated = session.query(GroupMemberModel).filter_by(
+                group_id=group_id,
+                user_id=user_id
+            ).update({'role': new_role})
+            session.commit()
+            return updated > 0
+
+    def assign_printer_to_group(self, printer_id: str, group_id: str, user_id: str) -> bool:
+        """Assign a printer to a group (user must own the printer)"""
+        with self.get_session() as session:
+            updated = session.query(PrinterModel).filter_by(
+                printer_id=printer_id,
+                owner_id=user_id
+            ).update({'group_id': group_id})
+            session.commit()
+            return updated > 0
+
+    def remove_printer_from_group(self, printer_id: str, user_id: str) -> bool:
+        """Remove a printer from its group (user must own the printer)"""
+        with self.get_session() as session:
+            updated = session.query(PrinterModel).filter_by(
+                printer_id=printer_id,
+                owner_id=user_id
+            ).update({'group_id': None})
+            session.commit()
+            return updated > 0
+
+    def get_group_printers(self, group_id: str) -> List[Printer]:
+        """Get all printers assigned to a group"""
+        with self.get_session() as session:
+            printers = session.query(PrinterModel).filter_by(
+                group_id=group_id,
+                is_active=True
+            ).all()
+            return [self._model_to_printer(p) for p in printers]
+
+    def get_user_accessible_printers(self, user_id: str) -> List[Printer]:
+        """Get all printers a user can access (owned + group printers)"""
+        with self.get_session() as session:
+            # Get user's own printers
+            own_printers = session.query(PrinterModel).filter_by(
+                owner_id=user_id,
+                is_active=True
+            ).all()
+            
+            # Get printers from groups user belongs to
+            group_ids = session.query(GroupMemberModel.group_id).filter_by(
+                user_id=user_id
+            ).subquery()
+            
+            group_printers = session.query(PrinterModel).filter(
+                PrinterModel.group_id.in_(group_ids),
+                PrinterModel.is_active == True
+            ).all()
+            
+            # Combine and deduplicate (in case user owns a printer that's also in their group)
+            seen_ids = set()
+            result = []
+            for p in own_printers + group_printers:
+                if p.printer_id not in seen_ids:
+                    seen_ids.add(p.printer_id)
+                    result.append(self._model_to_printer(p))
+            
+            return result
+
+    def delete_group(self, group_id: str, user_id: str) -> bool:
+        """Delete a group (soft delete, user must be owner)"""
+        with self.get_session() as session:
+            # Check if user is owner
+            member = session.query(GroupMemberModel).filter_by(
+                group_id=group_id,
+                user_id=user_id,
+                role='owner'
+            ).first()
+            if not member:
+                return False
+            
+            # Remove printers from group
+            session.query(PrinterModel).filter_by(group_id=group_id).update({'group_id': None})
+            
+            # Soft delete group
+            session.query(GroupModel).filter_by(id=group_id).update({'is_active': False})
+            session.commit()
+            return True
+
+    def update_group(self, group_id: str, user_id: str, name: Optional[str] = None, description: Optional[str] = None) -> bool:
+        """Update group details (user must be owner or admin)"""
+        with self.get_session() as session:
+            # Check if user has permission
+            member = session.query(GroupMemberModel).filter_by(
+                group_id=group_id,
+                user_id=user_id
+            ).first()
+            if not member or member.role not in ['owner', 'admin']:
+                return False
+            
+            updates = {}
+            if name is not None:
+                updates['name'] = name
+            if description is not None:
+                updates['description'] = description
+            
+            if updates:
+                session.query(GroupModel).filter_by(id=group_id).update(updates)
+                session.commit()
+            return True
+
+    def get_user_by_username_or_email(self, identifier: str) -> Optional[User]:
+        """Get user by username or email (for inviting to groups)"""
+        with self.get_session() as session:
+            user = session.query(UserModel).filter(
+                (UserModel.username == identifier) | (UserModel.email == identifier)
+            ).first()
+            if user:
+                return self._model_to_user(user)
+        return None
 
 
 class JWTAuth:
@@ -709,6 +1053,248 @@ async def get_user_printers(request: web.Request):
     })
 
 
+# ==================== Group API Endpoints ====================
+
+@require_auth
+async def create_group(request: web.Request):
+    """Create a new group"""
+    user_id = request['user']['sub']
+    db: AuthDatabase = request.app['auth_db']
+    
+    try:
+        data = await request.json()
+        name = data.get('name')
+        description = data.get('description')
+        
+        if not name:
+            return web.json_response({'error': 'Group name is required'}, status=400)
+        
+        group = db.create_group(name, user_id, description)
+        return web.json_response({'group': group.to_dict()}, status=201)
+    except Exception as e:
+        logger.error(f"Error creating group: {e}")
+        return web.json_response({'error': str(e)}, status=500)
+
+
+@require_auth
+async def list_user_groups(request: web.Request):
+    """List all groups the user belongs to"""
+    user_id = request['user']['sub']
+    db: AuthDatabase = request.app['auth_db']
+    
+    groups = db.get_user_groups(user_id)
+    return web.json_response({'groups': groups})
+
+
+@require_auth
+async def get_group(request: web.Request):
+    """Get group details including members and printers"""
+    user_id = request['user']['sub']
+    group_id = request.match_info['group_id']
+    db: AuthDatabase = request.app['auth_db']
+    
+    # Check if user is a member
+    role = db.get_user_group_role(user_id, group_id)
+    if not role:
+        return web.json_response({'error': 'Not a member of this group'}, status=403)
+    
+    group = db.get_group_by_id(group_id)
+    if not group:
+        return web.json_response({'error': 'Group not found'}, status=404)
+    
+    members = db.get_group_members(group_id)
+    printers = db.get_group_printers(group_id)
+    
+    result = group.to_dict()
+    result['members'] = [m.to_dict() for m in members]
+    result['printers'] = [p.to_dict() for p in printers]
+    result['userRole'] = role
+    
+    return web.json_response({'group': result})
+
+
+@require_auth
+async def update_group(request: web.Request):
+    """Update group name or description"""
+    user_id = request['user']['sub']
+    group_id = request.match_info['group_id']
+    db: AuthDatabase = request.app['auth_db']
+    
+    try:
+        data = await request.json()
+        name = data.get('name')
+        description = data.get('description')
+        
+        if not db.update_group(group_id, user_id, name, description):
+            return web.json_response({'error': 'Not authorized to update this group'}, status=403)
+        
+        return web.json_response({'message': 'Group updated successfully'})
+    except Exception as e:
+        logger.error(f"Error updating group: {e}")
+        return web.json_response({'error': str(e)}, status=500)
+
+
+@require_auth
+async def delete_group(request: web.Request):
+    """Delete a group (owner only)"""
+    user_id = request['user']['sub']
+    group_id = request.match_info['group_id']
+    db: AuthDatabase = request.app['auth_db']
+    
+    if not db.delete_group(group_id, user_id):
+        return web.json_response({'error': 'Not authorized to delete this group'}, status=403)
+    
+    return web.json_response({'message': 'Group deleted successfully'})
+
+
+@require_auth
+async def add_group_member(request: web.Request):
+    """Add a member to a group (owner/admin only)"""
+    user_id = request['user']['sub']
+    group_id = request.match_info['group_id']
+    db: AuthDatabase = request.app['auth_db']
+    
+    # Check if user has permission
+    role = db.get_user_group_role(user_id, group_id)
+    if role not in ['owner', 'admin']:
+        return web.json_response({'error': 'Not authorized to add members'}, status=403)
+    
+    try:
+        data = await request.json()
+        username_or_email = data.get('user')
+        member_role = data.get('role', 'member')
+        
+        if not username_or_email:
+            return web.json_response({'error': 'User identifier is required'}, status=400)
+        
+        if member_role not in ['admin', 'member']:
+            return web.json_response({'error': 'Invalid role. Must be admin or member'}, status=400)
+        
+        # Find the user
+        target_user = db.get_user_by_username_or_email(username_or_email)
+        if not target_user:
+            return web.json_response({'error': 'User not found'}, status=404)
+        
+        member = db.add_group_member(group_id, target_user.id, member_role)
+        if not member:
+            return web.json_response({'error': 'User is already a member of this group'}, status=400)
+        
+        return web.json_response({'member': member.to_dict()}, status=201)
+    except Exception as e:
+        logger.error(f"Error adding group member: {e}")
+        return web.json_response({'error': str(e)}, status=500)
+
+
+@require_auth
+async def remove_group_member(request: web.Request):
+    """Remove a member from a group"""
+    user_id = request['user']['sub']
+    group_id = request.match_info['group_id']
+    member_user_id = request.match_info['user_id']
+    db: AuthDatabase = request.app['auth_db']
+    
+    # Check if user has permission (owner/admin can remove others, anyone can remove themselves)
+    role = db.get_user_group_role(user_id, group_id)
+    if user_id != member_user_id and role not in ['owner', 'admin']:
+        return web.json_response({'error': 'Not authorized to remove members'}, status=403)
+    
+    # Don't allow removing the owner
+    target_role = db.get_user_group_role(member_user_id, group_id)
+    if target_role == 'owner' and user_id != member_user_id:
+        return web.json_response({'error': 'Cannot remove the group owner'}, status=400)
+    
+    if not db.remove_group_member(group_id, member_user_id):
+        return web.json_response({'error': 'Member not found'}, status=404)
+    
+    return web.json_response({'message': 'Member removed successfully'})
+
+
+@require_auth
+async def update_member_role(request: web.Request):
+    """Update a member's role (owner only)"""
+    user_id = request['user']['sub']
+    group_id = request.match_info['group_id']
+    member_user_id = request.match_info['user_id']
+    db: AuthDatabase = request.app['auth_db']
+    
+    # Only owner can change roles
+    role = db.get_user_group_role(user_id, group_id)
+    if role != 'owner':
+        return web.json_response({'error': 'Only the group owner can change roles'}, status=403)
+    
+    try:
+        data = await request.json()
+        new_role = data.get('role')
+        
+        if new_role not in ['admin', 'member']:
+            return web.json_response({'error': 'Invalid role. Must be admin or member'}, status=400)
+        
+        # Can't change own role as owner
+        if user_id == member_user_id:
+            return web.json_response({'error': 'Cannot change your own role as owner'}, status=400)
+        
+        if not db.update_member_role(group_id, member_user_id, new_role):
+            return web.json_response({'error': 'Member not found'}, status=404)
+        
+        return web.json_response({'message': 'Role updated successfully'})
+    except Exception as e:
+        logger.error(f"Error updating member role: {e}")
+        return web.json_response({'error': str(e)}, status=500)
+
+
+@require_auth
+async def assign_printer_to_group(request: web.Request):
+    """Assign a printer to a group (printer owner only)"""
+    user_id = request['user']['sub']
+    group_id = request.match_info['group_id']
+    db: AuthDatabase = request.app['auth_db']
+    
+    # Check if user is a member of the group
+    role = db.get_user_group_role(user_id, group_id)
+    if not role:
+        return web.json_response({'error': 'Not a member of this group'}, status=403)
+    
+    try:
+        data = await request.json()
+        printer_id = data.get('printerId')
+        
+        if not printer_id:
+            return web.json_response({'error': 'Printer ID is required'}, status=400)
+        
+        if not db.assign_printer_to_group(printer_id, group_id, user_id):
+            return web.json_response({'error': 'Printer not found or you are not the owner'}, status=404)
+        
+        return web.json_response({'message': 'Printer assigned to group successfully'})
+    except Exception as e:
+        logger.error(f"Error assigning printer to group: {e}")
+        return web.json_response({'error': str(e)}, status=500)
+
+
+@require_auth
+async def remove_printer_from_group(request: web.Request):
+    """Remove a printer from a group (printer owner only)"""
+    user_id = request['user']['sub']
+    printer_id = request.match_info['printer_id']
+    db: AuthDatabase = request.app['auth_db']
+    
+    if not db.remove_printer_from_group(printer_id, user_id):
+        return web.json_response({'error': 'Printer not found or you are not the owner'}, status=404)
+    
+    return web.json_response({'message': 'Printer removed from group successfully'})
+
+
+@require_auth
+async def get_accessible_printers(request: web.Request):
+    """Get all printers the user can access (owned + group printers)"""
+    user_id = request['user']['sub']
+    db: AuthDatabase = request.app['auth_db']
+    
+    printers = db.get_user_accessible_printers(user_id)
+    return web.json_response({
+        'printers': [p.to_dict() for p in printers]
+    })
+
+
 def setup_auth_routes(app: web.Application):
     """Setup authentication routes"""
     # Initialize database and JWT auth
@@ -728,6 +1314,19 @@ def setup_auth_routes(app: web.Application):
     
     # Printer routes
     app.router.add_get('/api/printers', get_user_printers)
+    app.router.add_get('/api/printers/accessible', get_accessible_printers)
+    app.router.add_delete('/api/printers/{printer_id}/group', remove_printer_from_group)
+    
+    # Group routes
+    app.router.add_post('/api/groups', create_group)
+    app.router.add_get('/api/groups', list_user_groups)
+    app.router.add_get('/api/groups/{group_id}', get_group)
+    app.router.add_put('/api/groups/{group_id}', update_group)
+    app.router.add_delete('/api/groups/{group_id}', delete_group)
+    app.router.add_post('/api/groups/{group_id}/members', add_group_member)
+    app.router.add_delete('/api/groups/{group_id}/members/{user_id}', remove_group_member)
+    app.router.add_put('/api/groups/{group_id}/members/{user_id}', update_member_role)
+    app.router.add_post('/api/groups/{group_id}/printers', assign_printer_to_group)
     
     logger.info("Auth routes configured")
 

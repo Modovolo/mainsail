@@ -15,4 +15,5 @@ export interface SocketState {
     fleetSocketConnected: boolean
     fleetPrinterId: string | null
     fleetPrinterName: string | null
+    fleetPrinterConnected: boolean | null  // null = unknown, true = printer online, false = printer offline
 }

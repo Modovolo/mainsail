@@ -28,6 +28,7 @@ export const getDefaultState = (): SocketState => {
         fleetSocketConnected: false,
         fleetPrinterId: null,
         fleetPrinterName: null,
+        fleetPrinterConnected: null,
     }
 }
 

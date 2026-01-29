@@ -8,6 +8,26 @@
             </v-btn>
         </v-container>
 
+        <!-- Fleet Mode: Show offline message when printer is not connected -->
+        <v-alert
+            v-if="isFleetMode && printerId && fleetPrinterConnected === false"
+            type="warning"
+            prominent
+            class="mx-4 mb-4">
+            <v-row align="center">
+                <v-col class="grow">
+                    <strong>Printer Offline</strong><br />
+                    This printer is currently not connected to the fleet. It may be powered off or have network issues.
+                </v-col>
+                <v-col class="shrink">
+                    <v-btn outlined @click="refreshConnection">
+                        <v-icon left>mdi-refresh</v-icon>
+                        Retry
+                    </v-btn>
+                </v-col>
+            </v-row>
+        </v-alert>
+
         <!-- Standard Dashboard Layout -->
         <v-row v-if="isMobile">
             <v-col>
@@ -139,8 +159,23 @@ export default class PageDashboard extends Mixins(DashboardMixin) {
         return this.$route.params.id || ''
     }
 
+    get fleetPrinterConnected(): boolean | null {
+        return this.$store.state.socket.fleetPrinterConnected
+    }
+
+    async refreshConnection() {
+        // Reset state and try again
+        this.$store.commit('socket/setFleetPrinterConnected', null)
+        if (this.fleetConnected) {
+            Vue.$socket.close()
+        }
+        await this.connectToFleetPrinter()
+    }
+
     async mounted() {
         if (this.isFleetMode && this.printerId) {
+            // Reset printer connected state before attempting connection
+            this.$store.commit('socket/setFleetPrinterConnected', null)
             await this.connectToFleetPrinter()
         }
     }

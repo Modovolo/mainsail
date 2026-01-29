@@ -30,7 +30,6 @@
             </v-list>
         </overlay-scrollbars>
         <template #append>
-            <sidebar-user-profile />
             <v-list-item class="small-list-item mb-2">
                 <v-list-item-icon class="menu-item-icon">
                     <about-dialog />
@@ -49,14 +48,12 @@ import AboutDialog from '@/components/dialogs/AboutDialog.vue'
 import { navigationWidth, topbarHeight } from '@/store/variables'
 
 import SidebarItem from '@/components/ui/SidebarItem.vue'
-import SidebarUserProfile from '@/components/TheSidebarUserProfile.vue'
 import NavigationMixin from '@/components/mixins/navigation'
 import ThemeMixin from '@/components/mixins/theme'
 
 @Component({
     components: {
         SidebarItem,
-        SidebarUserProfile,
         TheSelectPrinterDialog,
         AboutDialog,
 

@@ -189,6 +189,8 @@
                                         <th v-if="isSelectionMode" style="width: 50px;"></th>
                                         <th>Name</th>
                                         <th>Status</th>
+                                        <th>Progress</th>
+                                        <th>ETA</th>
                                         <th>Current Job</th>
                                         <th style="width: 100px;">Actions</th>
                                     </tr>
@@ -214,7 +216,7 @@
                                                 @click.stop></v-checkbox>
                                         </td>
                                         <td>
-                                            <v-icon small class="mr-2" :color="printerEntry.state === 'offline' ? 'grey' : 'success'">
+                                            <v-icon small class="mr-2" :color="getPrinterIconColor(printerEntry)">
                                                 mdi-printer-3d
                                             </v-icon>
                                             {{ printerEntry.name }}
@@ -222,10 +224,31 @@
                                         <td>
                                             <v-chip
                                                 x-small
-                                                :color="getStatusColor(printerEntry.state)"
+                                                :color="getStatusColor(getPrinterState(printerEntry))"
                                                 text-color="white">
-                                                {{ printerEntry.state }}
+                                                {{ getPrinterState(printerEntry) }}
                                             </v-chip>
+                                        </td>
+                                        <td>
+                                            <template v-if="getPrinterState(printerEntry) === 'printing'">
+                                                <v-progress-linear
+                                                    :value="getPrintProgress(printerEntry)"
+                                                    height="18"
+                                                    rounded
+                                                    color="success"
+                                                    class="progress-bar">
+                                                    <template #default>
+                                                        <span class="progress-text">{{ getPrintProgress(printerEntry) }}%</span>
+                                                    </template>
+                                                </v-progress-linear>
+                                            </template>
+                                            <span v-else class="text--disabled">—</span>
+                                        </td>
+                                        <td>
+                                            <template v-if="getPrinterState(printerEntry) === 'printing'">
+                                                {{ getPrintEta(printerEntry) }}
+                                            </template>
+                                            <span v-else class="text--disabled">—</span>
                                         </td>
                                         <td>{{ printerEntry.job_name || '—' }}</td>
                                         <td>
@@ -310,6 +333,8 @@ class PageFarm extends Mixins(BaseMixin) {
     // Fleet mode data
     public fleetPrinters: any[] = []
     public fleetLoading = false
+    private fleetWebSocket: WebSocket | null = null
+    private fleetWsReconnectTimer: ReturnType<typeof setTimeout> | null = null
 
     // File upload state
     public selectedFile: File | null = null
@@ -389,8 +414,8 @@ class PageFarm extends Mixins(BaseMixin) {
             return this.fleetPrinters.map((printer: any) => ({
                 id: printer.printerId || printer.id,
                 name: printer.name || 'Unknown Printer',
-                state: printer.isActive ? 'connected' : 'offline',
-                job_name: '',
+                state: printer.state || (printer.isActive ? 'standby' : 'offline'),
+                job_name: printer.filename || '',
                 group: null,
             })).sort((a: PrinterTableItem, b: PrinterTableItem) => 
                 a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })
@@ -616,10 +641,13 @@ class PageFarm extends Mixins(BaseMixin) {
     }
 
     onPanelClick(printerId: string, event: MouseEvent): void {
-        if (!this.isSelectionMode) return
-
-        event.stopPropagation()
-        this.togglePrinterSelection(printerId)
+        if (this.isSelectionMode) {
+            event.stopPropagation()
+            this.togglePrinterSelection(printerId)
+        } else {
+            // Navigate to the printer dashboard
+            this.navigateToPrinter(printerId)
+        }
     }
 
     private togglePrinterSelection(printerId: string): void {
@@ -909,7 +937,16 @@ class PageFarm extends Mixins(BaseMixin) {
             
             if (response.ok) {
                 const data = await response.json()
-                this.fleetPrinters = data.printers || []
+                // The API now returns full status data
+                this.fleetPrinters = (data.printers || []).map((p: any) => ({
+                    ...p,
+                    printerId: p.id,
+                    isActive: p.online,
+                    state: p.state || (p.online ? 'standby' : 'offline'),
+                    progress: p.progress || 0,
+                    eta: p.eta || null,
+                    filename: p.filename || '',
+                }))
             }
         } catch (error) {
             console.error('Failed to load fleet printers:', error)
@@ -922,15 +959,105 @@ class PageFarm extends Mixins(BaseMixin) {
         this.loadManualGroups()
         EventBus.$on(FARM_UPLOAD_DROP, this.farmDropListener)
         
-        // In fleet mode, load printers from API
+        // In fleet mode, load printers from API and connect WebSocket
         if (this.isFleetMode) {
             this.loadFleetPrinters()
+            this.connectFleetWebSocket()
         }
         
         // Default all panels to open
         this.$nextTick(() => {
             this.openPanels = this.groupedPrinters.map((_, index) => index)
         })
+    }
+
+    connectFleetWebSocket(): void {
+        if (!this.isFleetMode) return
+        
+        const token = localStorage.getItem('fleet_token')
+        if (!token) return
+        
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+        const wsUrl = `${protocol}//${window.location.host}/ws/web?token=${token}`
+        
+        try {
+            this.fleetWebSocket = new WebSocket(wsUrl)
+            
+            this.fleetWebSocket.onopen = () => {
+                console.log('Fleet WebSocket connected')
+            }
+            
+            this.fleetWebSocket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data)
+                    this.handleFleetMessage(data)
+                } catch (e) {
+                    console.error('Error parsing fleet message:', e)
+                }
+            }
+            
+            this.fleetWebSocket.onclose = () => {
+                console.log('Fleet WebSocket disconnected, reconnecting...')
+                this.fleetWsReconnectTimer = setTimeout(() => {
+                    this.connectFleetWebSocket()
+                }, 5000)
+            }
+            
+            this.fleetWebSocket.onerror = (error) => {
+                console.error('Fleet WebSocket error:', error)
+            }
+        } catch (error) {
+            console.error('Failed to connect Fleet WebSocket:', error)
+        }
+    }
+
+    handleFleetMessage(data: any): void {
+        // Handle printer status updates
+        if (data.type === 'printer_status' || data.type === 'fleet_status') {
+            const printerId = data.printer_id
+            const printerData = data.data || {}
+            
+            // Update the printer in fleetPrinters array
+            const index = this.fleetPrinters.findIndex(
+                (p: any) => (p.printerId || p.id) === printerId
+            )
+            
+            if (index !== -1) {
+                const print_stats = printerData.print_stats || {}
+                const display_status = printerData.display_status || {}
+                
+                this.$set(this.fleetPrinters, index, {
+                    ...this.fleetPrinters[index],
+                    state: print_stats.state || this.fleetPrinters[index].state,
+                    progress: display_status.progress || 0,
+                    filename: print_stats.filename || '',
+                    isActive: true,
+                })
+            }
+        }
+        
+        // Handle initial fleet status (all printers)
+        if (data.type === 'fleet_status' && data.printers) {
+            // Merge status data into existing printers
+            Object.entries(data.printers).forEach(([printerId, status]: [string, any]) => {
+                const index = this.fleetPrinters.findIndex(
+                    (p: any) => (p.printerId || p.id) === printerId
+                )
+                if (index !== -1) {
+                    const printerData = status.printer_data || {}
+                    const print_stats = printerData.print_stats || {}
+                    const display_status = printerData.display_status || {}
+                    
+                    this.$set(this.fleetPrinters, index, {
+                        ...this.fleetPrinters[index],
+                        state: print_stats.state || 'standby',
+                        progress: display_status.progress || 0,
+                        filename: print_stats.filename || '',
+                        isActive: true,
+                    })
+                }
+            })
+        }
     }
 
     getGroupViewMode(groupKey: string): 'cards' | 'table' {
@@ -968,8 +1095,92 @@ class PageFarm extends Mixins(BaseMixin) {
         }
     }
 
+    getPrinterState(printerEntry: PrinterPanelGroupItem): string {
+        if (this.isFleetMode) {
+            // In fleet mode, use the basic state from entry
+            return printerEntry.state
+        }
+        // Get detailed print state from store
+        const printState = this.$store.state.farm[printerEntry.id]?.data?.print_stats?.state
+        if (printState) return printState
+        return printerEntry.state
+    }
+
+    getPrinterIconColor(printerEntry: PrinterPanelGroupItem): string {
+        const state = this.getPrinterState(printerEntry)
+        if (state === 'offline' || state === 'disconnected') return 'grey'
+        if (state === 'printing') return 'success'
+        if (state === 'paused') return 'warning'
+        if (state === 'error') return 'error'
+        return 'info'
+    }
+
+    getPrintProgress(printerEntry: PrinterPanelGroupItem): number {
+        if (this.isFleetMode) {
+            // Fleet mode - check if we have progress data
+            const fleetPrinter = this.fleetPrinters.find((p: any) => (p.printerId || p.id) === printerEntry.id)
+            if (fleetPrinter?.progress !== undefined) {
+                return Math.round(fleetPrinter.progress * 100)
+            }
+            return 0
+        }
+        // Get progress from store
+        const progress = this.$store.getters['farm/' + printerEntry.id + '/getPrintPercent']
+        if (typeof progress === 'number') {
+            return Math.round(progress * 100)
+        }
+        return 0
+    }
+
+    getPrintEta(printerEntry: PrinterPanelGroupItem): string {
+        if (this.isFleetMode) {
+            // Fleet mode - check if we have ETA data
+            const fleetPrinter = this.fleetPrinters.find((p: any) => (p.printerId || p.id) === printerEntry.id)
+            if (fleetPrinter?.eta) {
+                return this.formatEta(fleetPrinter.eta)
+            }
+            return '—'
+        }
+        // Get ETA from store
+        const etaTimestamp = this.$store.getters['farm/' + printerEntry.id + '/estimated_time_eta']
+        if (etaTimestamp && etaTimestamp > 0) {
+            return this.formatEta(etaTimestamp)
+        }
+        return '—'
+    }
+
+    formatEta(etaTimestamp: number): string {
+        const eta = new Date(etaTimestamp)
+        const now = new Date()
+        const diff = eta.getTime() - now.getTime()
+        
+        if (diff <= 0) return 'Soon'
+        
+        const hours = Math.floor(diff / (1000 * 60 * 60))
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+        
+        if (hours > 24) {
+            const days = Math.floor(hours / 24)
+            const remainingHours = hours % 24
+            return `${days}d ${remainingHours}h`
+        }
+        if (hours > 0) {
+            return `${hours}h ${minutes}m`
+        }
+        return `${minutes}m`
+    }
+
     beforeDestroy() {
         EventBus.$off(FARM_UPLOAD_DROP, this.farmDropListener)
+        
+        // Clean up fleet WebSocket
+        if (this.fleetWsReconnectTimer) {
+            clearTimeout(this.fleetWsReconnectTimer)
+        }
+        if (this.fleetWebSocket) {
+            this.fleetWebSocket.close()
+            this.fleetWebSocket = null
+        }
     }
 
     addManualGroup(): void {
@@ -1426,6 +1637,18 @@ export default PageFarm
 
 .printer-row--offline {
     opacity: 0.6;
+}
+
+.progress-bar {
+    min-width: 80px;
+    max-width: 120px;
+}
+
+.progress-text {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .add-group-btn-wrapper {

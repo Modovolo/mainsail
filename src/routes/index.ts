@@ -10,6 +10,7 @@ import Machine from '../pages/Machine.vue'
 import Login from '../pages/Login.vue'
 import MyPrinters from '../pages/MyPrinters.vue'
 import CentralFiles from '../pages/CentralFiles.vue'
+import Settings from '../pages/Settings.vue'
 import PreparePage from '../pages/PreparePage.vue'
 import PreviewPage from '../pages/PreviewPage.vue'
 import MonitoringPage from '../pages/MonitoringPage.vue'
@@ -23,6 +24,7 @@ import {
     mdiGrid,
     mdiFileDocumentMultipleOutline,
     mdiFolderNetwork,
+    mdiCog,
     mdiVideo3d,
     mdiHistory,
     mdiTimelapse,
@@ -107,6 +109,17 @@ const routes: AppRoute[] = [
         meta: { requiresAuth: true },
     },
     {
+        name: 'settings',
+        title: 'Settings',
+        path: '/settings',
+        icon: mdiCog,
+        component: Settings,
+        alwaysShow: true,
+        showInNavi: false,
+        position: 7,
+        meta: { requiresAuth: true },
+    },
+    {
         name: 'central-files',
         title: 'Central File Repository',
         path: '/central-files',
@@ -136,7 +149,7 @@ const routes: AppRoute[] = [
         component: Farm,
         alwaysShow: true,
         showInNavi: true,
-        position: 7,
+        position: 9,
         meta: { requiresAuth: true },
     },
     {

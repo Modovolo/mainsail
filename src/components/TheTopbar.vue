@@ -89,6 +89,7 @@
                 <v-icon class="mr-md-2">{{ mdiLogout }}</v-icon>
                 <span class="d-none d-md-inline">{{ $t('App.TopBar.ReturnToManager') }}</span>
             </v-btn>
+            <the-topbar-user-menu />
             <the-notification-menu />
             <the-settings-menu />
             <the-top-corner-menu />
@@ -118,6 +119,7 @@ import axios, { AxiosProgressEvent } from 'axios'
 import { formatFilesize } from '@/plugins/helpers'
 import TheTopCornerMenu from '@/components/TheTopCornerMenu.vue'
 import TheSettingsMenu from '@/components/TheSettingsMenu.vue'
+import TheTopbarUserMenu from '@/components/TheTopbarUserMenu.vue'
 import Panel from '@/components/ui/Panel.vue'
 import PrinterSelector from '@/components/ui/PrinterSelector.vue'
 import MainsailLogo from '@/components/ui/MainsailLogo.vue'
@@ -144,6 +146,7 @@ type uploadSnackbar = {
         Panel,
         TheSettingsMenu,
         TheTopCornerMenu,
+        TheTopbarUserMenu,
         PrinterSelector,
         MainsailLogo,
         TheNotificationMenu,

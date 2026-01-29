@@ -292,27 +292,68 @@ def setup_file_routes(app: web.Application, fleet_manager=None):
     
     @require_auth
     async def list_printers(request: web.Request):
-        """GET /api/printers - List available printers"""
+        """GET /api/printers - List available printers with status"""
         user = request['user']
         user_id = user.get('user_id', user.get('sub', 'unknown'))
         
         try:
-            # Get printers from database
+            # Get printers from database (includes group printers)
             auth_db = AuthDatabase()
-            printers = auth_db.get_user_printers(user_id)
+            printers = auth_db.get_user_accessible_printers(user_id)
             
-            # Add online status from fleet manager
+            # Add online status and print data from fleet manager
             printers_with_status = []
             for p in printers:
+                printer_id = p.printer_id if hasattr(p, 'printer_id') else p.get('printer_id') or p.get('id')
+                printer_name = p.name if hasattr(p, 'name') else p.get('name', 'Unknown')
+                printer_group_id = p.group_id if hasattr(p, 'group_id') else p.get('group_id')
                 printer_data = {
-                    'id': p.get('printer_id') or p.get('id'),
-                    'name': p.get('name', 'Unknown'),
-                    'online': False
+                    'id': printer_id,
+                    'name': printer_name,
+                    'groupId': printer_group_id,
+                    'online': False,
+                    'state': 'offline',
+                    'progress': 0,
+                    'eta': None,
+                    'filename': None,
                 }
                 
-                # Check if connected
+                # Check if connected and get status
                 if fleet_manager:
-                    printer_data['online'] = printer_data['id'] in fleet_manager.connected_printers
+                    is_online = printer_id in fleet_manager.connected_printers
+                    printer_data['online'] = is_online
+                    
+                    if is_online and printer_id in fleet_manager.printer_status:
+                        status = fleet_manager.printer_status[printer_id]
+                        printer_data_info = status.get('printer_data', {})
+                        print_stats = printer_data_info.get('print_stats', {})
+                        display_status = printer_data_info.get('display_status', {})
+                        
+                        # Get print state
+                        state = print_stats.get('state', 'standby')
+                        printer_data['state'] = state
+                        
+                        # Get filename
+                        printer_data['filename'] = print_stats.get('filename', '')
+                        
+                        # Get progress (from display_status or calculate from print_stats)
+                        if 'progress' in display_status:
+                            printer_data['progress'] = display_status['progress']
+                        elif print_stats.get('print_duration', 0) > 0:
+                            # Can calculate from file position if available
+                            pass
+                        
+                        # Calculate ETA
+                        if state == 'printing' and printer_data['progress'] > 0:
+                            print_duration = print_stats.get('print_duration', 0)
+                            if print_duration > 0 and printer_data['progress'] > 0:
+                                total_time = print_duration / printer_data['progress']
+                                remaining = total_time - print_duration
+                                # ETA as Unix timestamp
+                                import time
+                                printer_data['eta'] = int(time.time() + remaining) * 1000
+                    else:
+                        printer_data['state'] = 'offline'
                 
                 printers_with_status.append(printer_data)
             

@@ -39,29 +39,6 @@
                     </v-card-text>
                 </v-card>
             </v-col>
-
-            <!-- Register Printer Card -->
-            <v-col cols="12" md="6">
-                <v-card class="dashboard-card" elevation="2" color="green lighten-5">
-                    <v-card-title class="green darken-1 white--text">
-                        <v-icon large class="mr-3" color="white">mdi-plus-circle</v-icon>
-                        <span>Register Printer</span>
-                    </v-card-title>
-                    <v-card-text class="pa-6">
-                        <div class="text-body-1 mb-4">
-                            Add a new printer to your fleet by generating a registration key.
-                        </div>
-                        <div class="text-body-2 grey--text mb-6">
-                            <v-icon small class="mr-1">mdi-email</v-icon>
-                            A registration key will be sent to your email address
-                        </div>
-                        <v-btn block color="green darken-1" dark large to="/register-printer">
-                            <v-icon left>mdi-printer-3d-nozzle-plus</v-icon>
-                            Register New Printer
-                        </v-btn>
-                    </v-card-text>
-                </v-card>
-            </v-col>
         </v-row>
 
         <!-- Loading State -->
@@ -69,43 +46,6 @@
             <v-col cols="12" class="text-center">
                 <v-progress-circular indeterminate color="primary" size="64"></v-progress-circular>
                 <div class="mt-4 text-subtitle-1 grey--text">Loading your printers...</div>
-            </v-col>
-        </v-row>
-
-        <!-- Recent Printers -->
-        <v-row v-if="!loading && printers.length > 0" class="mt-6">
-            <v-col cols="12">
-                <v-card>
-                    <v-card-title>
-                        <v-icon class="mr-2">mdi-history</v-icon>
-                        Recent Printers
-                    </v-card-title>
-                    <v-divider></v-divider>
-                    <v-list>
-                        <v-list-item
-                            v-for="printer in recentPrinters"
-                            :key="printer.printerId"
-                            :to="`/?printer=${printer.printerId}`"
-                        >
-                            <v-list-item-avatar>
-                                <v-icon :color="printer.isActive ? 'success' : 'grey'">
-                                    mdi-printer-3d
-                                </v-icon>
-                            </v-list-item-avatar>
-                            <v-list-item-content>
-                                <v-list-item-title>{{ printer.name }}</v-list-item-title>
-                                <v-list-item-subtitle>
-                                    Added {{ formatDate(printer.createdAt) }}
-                                </v-list-item-subtitle>
-                            </v-list-item-content>
-                            <v-list-item-action>
-                                <v-chip :color="printer.isActive ? 'success' : 'grey'" small>
-                                    {{ printer.isActive ? 'Active' : 'Inactive' }}
-                                </v-chip>
-                            </v-list-item-action>
-                        </v-list-item>
-                    </v-list>
-                </v-card>
             </v-col>
         </v-row>
     </v-container>

@@ -114,6 +114,14 @@ spec:
                 name: fleet-manager
                 port:
                   number: 8080
+          # Groups API endpoints
+          - path: /api/groups
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
           # Client download endpoints
           - path: /api/client
             pathType: Prefix

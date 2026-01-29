@@ -158,11 +158,19 @@ export class FleetSocketClient {
             // Handle connection status messages from fleet-manager
             if (parsed.type === 'connection_status') {
                 console.log('[FleetSocket] Connection status:', parsed)
-                // Store the printer hostname for use with webcam URLs
-                // The hostname is in printer_data.printer_info.result.hostname
-                const hostname = parsed.status?.printer_data?.printer_info?.result?.hostname ?? null
-                console.log('[FleetSocket] Setting printer hostname for webcam URLs:', hostname)
-                this.store?.commit('socket/setFleetPrinterName', hostname)
+                
+                // Update printer connected state
+                const isConnected = parsed.connected === true
+                this.store?.commit('socket/setFleetPrinterConnected', isConnected)
+                console.log('[FleetSocket] Printer connected:', isConnected)
+                
+                // Store the printer hostname for use with webcam URLs (only if connected)
+                if (isConnected) {
+                    // The hostname is in printer_data.printer_info.result.hostname
+                    const hostname = parsed.status?.printer_data?.printer_info?.result?.hostname ?? null
+                    console.log('[FleetSocket] Setting printer hostname for webcam URLs:', hostname)
+                    this.store?.commit('socket/setFleetPrinterName', hostname)
+                }
                 return
             }
 
