@@ -21,6 +21,13 @@ spec:
         app.kubernetes.io/name: fleet-manager
         app.kubernetes.io/component: websocket
     spec:
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.36
+          command: ['sh', '-c', 'chown -R 1000:1000 /data/files']
+          volumeMounts:
+            - name: fleet-files
+              mountPath: /data/files
       containers:
         - name: fleet-manager
           image: jmarji/fleet-manager:latest
@@ -78,6 +85,9 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          volumeMounts:
+            - name: fleet-files
+              mountPath: /data/files
           livenessProbe:
             httpGet:
               path: /api/health
@@ -92,6 +102,10 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 3
+      volumes:
+        - name: fleet-files
+          persistentVolumeClaim:
+            claimName: fleet-files-data
 
 ---
 # Fleet Manager Service

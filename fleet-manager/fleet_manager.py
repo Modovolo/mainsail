@@ -32,13 +32,23 @@ from websockets.server import serve
 import signal
 import sys
 
-from auth_postgres import setup_auth_routes, AuthDatabase
+# Import new modular structure
+from services.database import DatabaseService
+from services.auth import JWTAuth
+from routes import (
+    setup_auth_routes,
+    setup_printer_routes,
+    setup_group_routes,
+    setup_print_queue_routes,
+    setup_webcam_proxy_routes,
+)
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Global database instance (initialized in start_servers)
-auth_db: Optional[AuthDatabase] = None
+# Global database service instance (initialized in start_servers)
+db_service: Optional[DatabaseService] = None
+jwt_auth: Optional[JWTAuth] = None
 
 
 class FleetManager:
@@ -57,7 +67,7 @@ class FleetManager:
 
     async def register_printer(self, websocket, printer_data):
         """Register a printer connection - validates printer_id against database"""
-        global auth_db
+        global db_service
         
         printer_id = printer_data.get('printer_id')
         if not printer_id:
@@ -68,8 +78,8 @@ class FleetManager:
             return False
 
         # Validate printer_id against the database
-        if auth_db:
-            printer = auth_db.validate_printer_credential(printer_id)
+        if db_service:
+            printer = db_service.validate_printer_credential(printer_id)
             if not printer:
                 logger.warning(f"Invalid printer_id: {printer_id}")
                 await websocket.send(json.dumps({
@@ -79,6 +89,39 @@ class FleetManager:
                 return False
             printer_name = printer.name
             owner_id = printer.owner_id
+            
+            # Update printer host for webcam proxy access
+            # Priority: 1) hostname from client, 2) local_ip from client, 3) remote IP from connection
+            try:
+                new_host = None
+                
+                # First, try to use the hostname reported by the printer client
+                client_hostname = printer_data.get('hostname')
+                if client_hostname:
+                    new_host = client_hostname
+                    logger.debug(f"Using client-provided hostname: {client_hostname}")
+                
+                # If no hostname, try local_ip from the client
+                if not new_host:
+                    client_local_ip = printer_data.get('local_ip')
+                    if client_local_ip:
+                        new_host = client_local_ip
+                        logger.debug(f"Using client-provided local_ip: {client_local_ip}")
+                
+                # Fallback to extracting from WebSocket connection (less reliable behind NAT)
+                if not new_host:
+                    if hasattr(websocket, 'remote_address') and websocket.remote_address:
+                        new_host = websocket.remote_address[0]
+                    if hasattr(websocket, 'request_headers'):
+                        real_ip = websocket.request_headers.get('X-Real-IP', '')
+                        if real_ip:
+                            new_host = real_ip.strip()
+                
+                if new_host and new_host != printer.host:
+                    logger.info(f"Updating printer {printer_id} host from {printer.host} to {new_host}")
+                    db_service.update_printer_host(printer_id, new_host)
+            except Exception as e:
+                logger.warning(f"Failed to update printer host: {e}")
         else:
             # Fallback if db not available (shouldn't happen in production)
             logger.warning("Database not available for printer validation")
@@ -176,6 +219,11 @@ class FleetManager:
             elif message_type == 'heartbeat':
                 self.printer_status[printer_id]['last_seen'] = datetime.now().isoformat()
                 await websocket.send(json.dumps({'type': 'heartbeat_ack'}))
+
+            elif message_type == 'webcam_response':
+                # Handle webcam relay response from printer
+                from routes.webcam_proxy import handle_webcam_response
+                handle_webcam_response(data)
 
             else:
                 logger.warning(f"Unknown message type from {printer_id}: {message_type}")
@@ -408,20 +456,32 @@ class FleetManager:
 
     async def start_servers(self):
         """Start WebSocket servers and HTTP API"""
-        global auth_db
+        global db_service, jwt_auth
         
         from aiohttp import web
-        from auth_postgres import setup_auth_routes, require_auth, AuthDatabase
         from printer_registration import setup_printer_registration_routes
         from file_repository import setup_file_routes
+        from routes.common import require_auth
         
-        # Initialize database
-        auth_db = AuthDatabase()
-        logger.info("Database initialized for printer validation")
+        # Initialize services
+        db_service = DatabaseService()
+        jwt_auth = JWTAuth(db_service)
+        logger.info("Database and JWT services initialized")
         
         # Setup HTTP API server with auth
         app = web.Application()
+        
+        # Store services in app for route handlers
+        app['db'] = db_service
+        app['jwt_auth'] = jwt_auth
+        app['fleet_manager'] = self  # For webcam proxy and other routes that need fleet_manager access
+        
+        # Setup all routes using new modular structure
         setup_auth_routes(app)
+        setup_printer_routes(app)
+        setup_group_routes(app)
+        setup_print_queue_routes(app)
+        setup_webcam_proxy_routes(app)
         setup_printer_registration_routes(app)
         setup_file_routes(app, fleet_manager=self)
         
@@ -436,8 +496,6 @@ class FleetManager:
         app.router.add_get('/api/health', health_check)
         
         # Add fleet status endpoint (authenticated)
-        from auth_postgres import require_auth
-        
         @require_auth
         async def get_fleet_status(request):
             return web.json_response({

@@ -16,7 +16,9 @@ from dataclasses import dataclass
 from sqlalchemy import Column, String, DateTime, ForeignKey, Boolean, Index
 from aiohttp import web
 
-from auth_postgres import Base, require_auth, AuthDatabase
+from models.base import Base
+from routes.common import require_auth
+from services.database import DatabaseService
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +126,7 @@ class PairingCode:
 class PrinterRegistrationDatabase:
     """Database operations for printer registration"""
     
-    def __init__(self, db: AuthDatabase):
+    def __init__(self, db: DatabaseService):
         self.db = db
 
     def create_registration_key(self, user_id: str, printer_name: str) -> PrinterRegistrationKey:
@@ -446,7 +448,7 @@ async def create_registration_key(request: web.Request):
         return web.json_response({'error': 'Printer name must be at least 2 characters'}, status=400)
     
     user_id = request['user']['sub']
-    db: AuthDatabase = request.app['auth_db']
+    db: DatabaseService = request.app['db']
     reg_db: PrinterRegistrationDatabase = request.app['reg_db']
     
     # Get user to get their email
@@ -537,7 +539,7 @@ async def register_printer_with_key(request: web.Request):
     if not registration_key:
         return web.json_response({'error': 'Registration key required'}, status=400)
     
-    db: AuthDatabase = request.app['auth_db']
+    db: DatabaseService = request.app['db']
     reg_db: PrinterRegistrationDatabase = request.app['reg_db']
     
     # Validate the key
@@ -589,7 +591,7 @@ async def delete_printer(request: web.Request):
         return web.json_response({'error': 'Printer ID required'}, status=400)
     
     user_id = request['user']['sub']
-    db: AuthDatabase = request.app['auth_db']
+    db: DatabaseService = request.app['db']
     
     # Verify ownership
     printer = db.get_printer_by_id(printer_id, user_id)
@@ -598,7 +600,7 @@ async def delete_printer(request: web.Request):
     
     # Delete the printer
     with db.get_session() as session:
-        from auth_postgres import PrinterModel
+        from models.printer import PrinterModel
         session.query(PrinterModel).filter_by(printer_id=printer_id, owner_id=user_id).delete()
         session.commit()
     
@@ -641,7 +643,7 @@ async def check_pairing_status_endpoint(request: web.Request):
         return web.json_response({'error': 'Code required'}, status=400)
     
     reg_db: PrinterRegistrationDatabase = request.app['reg_db']
-    db: AuthDatabase = request.app['auth_db']
+    db: DatabaseService = request.app['db']
     
     status_info = reg_db.check_pairing_status(code)
     if not status_info:
@@ -678,7 +680,7 @@ async def claim_pairing_code_endpoint(request: web.Request):
         return web.json_response({'error': 'Invalid code format. Enter 6 digits.'}, status=400)
     
     user_id = request['user']['sub']
-    db: AuthDatabase = request.app['auth_db']
+    db: DatabaseService = request.app['db']
     reg_db: PrinterRegistrationDatabase = request.app['reg_db']
     
     # Claim the code
@@ -707,14 +709,14 @@ async def claim_pairing_code_endpoint(request: web.Request):
 
 def setup_printer_registration_routes(app: web.Application):
     """Setup printer registration routes"""
-    db: AuthDatabase = app['auth_db']
+    db: DatabaseService = app['db']
     
     # Initialize registration database
     reg_db = PrinterRegistrationDatabase(db)
     app['reg_db'] = reg_db
     
     # Create the registration key table
-    from auth_postgres import Base
+    from models.base import Base
     Base.metadata.create_all(db.engine)
     
     # Add routes

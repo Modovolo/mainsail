@@ -12,6 +12,80 @@
             </v-col>
         </v-row>
 
+        <!-- Featured Files Grid -->
+        <v-row v-if="featuredParts.length > 0">
+            <v-col cols="12">
+                <h2 class="text-h5 mb-4">
+                    <v-icon class="mr-2">mdi-star</v-icon>
+                    Featured Parts
+                </h2>
+            </v-col>
+            <v-col v-for="part in featuredParts" :key="part.id" cols="12" sm="6" md="4">
+                <v-card elevation="3" class="part-tile" hover>
+                    <div class="thumbnail-container">
+                        <v-img
+                            :src="getCategoryThumbnail(part.category)"
+                            height="180"
+                            class="part-thumbnail"
+                            gradient="to bottom, rgba(0,0,0,0) 60%, rgba(0,0,0,0.7) 100%"
+                        >
+                            <template #placeholder>
+                                <v-row class="fill-height ma-0" align="center" justify="center">
+                                    <v-icon size="64" color="grey lighten-1">{{ getCategoryIcon(part.category) }}</v-icon>
+                                </v-row>
+                            </template>
+                            <div class="version-badge">
+                                <v-chip small color="primary" class="ma-2">
+                                    v{{ part.version || '1.0' }}
+                                </v-chip>
+                            </div>
+                        </v-img>
+                    </div>
+                    <v-card-title class="pb-1">
+                        <v-icon class="mr-2" color="blue">mdi-file-document</v-icon>
+                        {{ getCategoryDisplayName(part.category) }}
+                    </v-card-title>
+                    <v-card-subtitle class="pb-2">
+                        {{ part.name }}
+                    </v-card-subtitle>
+                    <v-divider></v-divider>
+                    <v-card-text class="py-2">
+                        <div class="d-flex justify-space-between text-body-2">
+                            <span class="grey--text">
+                                <v-icon small class="mr-1">mdi-clock-outline</v-icon>
+                                Uploaded
+                            </span>
+                            <span>{{ formatUploadDate(part.uploadedAt) }}</span>
+                        </div>
+                        <div class="d-flex justify-space-between text-body-2 mt-1">
+                            <span class="grey--text">
+                                <v-icon small class="mr-1">mdi-file-outline</v-icon>
+                                Size
+                            </span>
+                            <span>{{ formatFileSize(part.size) }}</span>
+                        </div>
+                        <div v-if="part.printTime" class="d-flex justify-space-between text-body-2 mt-1">
+                            <span class="grey--text">
+                                <v-icon small class="mr-1">mdi-printer-3d</v-icon>
+                                Print Time
+                            </span>
+                            <span>{{ part.printTime }}</span>
+                        </div>
+                    </v-card-text>
+                    <v-card-actions>
+                        <v-btn text color="primary" small @click="sendToPrinter(part)">
+                            <v-icon left small>mdi-send</v-icon>
+                            Send to Printer
+                        </v-btn>
+                        <v-spacer></v-spacer>
+                        <v-btn icon small @click="downloadFile(part)">
+                            <v-icon small>mdi-download</v-icon>
+                        </v-btn>
+                    </v-card-actions>
+                </v-card>
+            </v-col>
+        </v-row>
+
         <!-- Upload Section -->
         <v-row>
             <v-col cols="12">
@@ -21,26 +95,96 @@
                         Upload Files
                     </v-card-title>
                     <v-card-text class="pa-6">
-                        <v-file-input
-                            v-model="selectedFiles"
+                        <input
+                            ref="fileInput"
+                            type="file"
                             multiple
-                            chips
-                            show-size
-                            label="Select G-Code files to upload"
                             accept=".gcode,.g,.gc,.gco"
-                            prepend-icon="mdi-file-document-multiple"
-                            :loading="uploading"
+                            style="display: none"
                             @change="onFilesSelected"
-                        ></v-file-input>
-                        <v-btn
-                            color="primary"
-                            :disabled="!selectedFiles.length || uploading"
-                            :loading="uploading"
-                            @click="uploadFiles"
-                        >
-                            <v-icon left>mdi-upload</v-icon>
-                            Upload to Repository
-                        </v-btn>
+                        />
+                        
+                        <!-- File Selection -->
+                        <div class="d-flex align-center flex-wrap gap-2 mb-4">
+                            <v-btn
+                                color="secondary"
+                                outlined
+                                :disabled="uploading"
+                                @click="$refs.fileInput.click()"
+                            >
+                                <v-icon left>mdi-file-document-multiple</v-icon>
+                                Select Files
+                            </v-btn>
+                        </div>
+                        
+                        <div v-if="selectedFiles.length" class="mb-4">
+                            <v-chip
+                                v-for="(file, index) in selectedFiles"
+                                :key="index"
+                                class="mr-2 mb-2"
+                                close
+                                @click:close="removeFile(index)"
+                            >
+                                <v-icon left small>mdi-file-document</v-icon>
+                                {{ file.name }} ({{ formatFileSize(file.size) }})
+                            </v-chip>
+                        </div>
+                        
+                        <!-- Metadata Fields -->
+                        <v-row v-if="selectedFiles.length">
+                            <v-col cols="12" sm="4">
+                                <v-text-field
+                                    v-model="uploadVersion"
+                                    label="Version"
+                                    placeholder="e.g., 1.0, 2.1, 3.2"
+                                    outlined
+                                    dense
+                                    prepend-icon="mdi-tag"
+                                    hint="Version number for this file"
+                                    persistent-hint
+                                ></v-text-field>
+                            </v-col>
+                            <v-col cols="12" sm="4">
+                                <v-select
+                                    v-model="uploadCategory"
+                                    :items="categoryOptions"
+                                    item-text="text"
+                                    item-value="value"
+                                    label="Part Category (Optional)"
+                                    outlined
+                                    dense
+                                    clearable
+                                    prepend-icon="mdi-shape"
+                                    hint="Featured parts appear in the grid above"
+                                    persistent-hint
+                                ></v-select>
+                            </v-col>
+                            <v-col cols="12" sm="4">
+                                <v-text-field
+                                    v-model="uploadPrintTime"
+                                    label="Estimated Print Time (Optional)"
+                                    placeholder="e.g., 2h 30m"
+                                    outlined
+                                    dense
+                                    prepend-icon="mdi-clock-outline"
+                                    hint="Displayed on featured parts"
+                                    persistent-hint
+                                ></v-text-field>
+                            </v-col>
+                        </v-row>
+                        
+                        <!-- Upload Button -->
+                        <div v-if="selectedFiles.length" class="mt-4">
+                            <v-btn
+                                color="primary"
+                                :disabled="!selectedFiles.length || uploading"
+                                :loading="uploading"
+                                @click="uploadFiles"
+                            >
+                                <v-icon left>mdi-upload</v-icon>
+                                Upload to Repository
+                            </v-btn>
+                        </div>
                     </v-card-text>
                 </v-card>
             </v-col>
@@ -97,6 +241,20 @@
                                 <v-icon class="mr-2" color="blue">mdi-file-document</v-icon>
                                 {{ item.name }}
                             </div>
+                        </template>
+
+                        <template #item.version="{ item }">
+                            <v-chip small color="primary" outlined>
+                                v{{ item.version || '1.0' }}
+                            </v-chip>
+                        </template>
+
+                        <template #item.category="{ item }">
+                            <v-chip v-if="item.category" small color="secondary" outlined>
+                                <v-icon left x-small>{{ getCategoryIcon(item.category) }}</v-icon>
+                                {{ formatCategory(item.category) }}
+                            </v-chip>
+                            <span v-else class="grey--text">—</span>
                         </template>
 
                         <template #item.size="{ item }">
@@ -240,6 +398,10 @@ interface RepositoryFile {
     size: number
     uploadedAt: string
     uploadedBy: string
+    version?: string
+    category?: string
+    printTime?: string
+    featured?: boolean
 }
 
 interface Printer {
@@ -260,6 +422,21 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     sending = false
     deleting = false
 
+    // Upload metadata
+    uploadVersion = '1.0'
+    uploadCategory: string | null = null
+    uploadPrintTime = ''
+
+    // Category options for dropdown
+    categoryOptions = [
+        { text: 'Propeller', value: 'propeller' },
+        { text: 'Truss', value: 'truss' },
+        { text: 'Control Box', value: 'control-box' },
+    ]
+
+    // Featured parts data - loaded from API
+    featuredParts: RepositoryFile[] = []
+
     // Dialogs
     sendDialog = false
     deleteDialog = false
@@ -273,6 +450,8 @@ export default class CentralFiles extends Mixins(BaseMixin) {
 
     headers = [
         { text: 'Name', value: 'name', sortable: true },
+        { text: 'Version', value: 'version', sortable: true },
+        { text: 'Category', value: 'category', sortable: true },
         { text: 'Size', value: 'size', sortable: true },
         { text: 'Uploaded', value: 'uploadedAt', sortable: true },
         { text: 'Uploaded By', value: 'uploadedBy', sortable: true },
@@ -288,6 +467,25 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     mounted() {
         this.refreshFiles()
         this.loadPrinters()
+        this.loadFeaturedParts()
+    }
+
+    async loadFeaturedParts() {
+        try {
+            const token = localStorage.getItem('fleet_token')
+            const response = await fetch('/api/files', {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            })
+            if (response.ok) {
+                const data = await response.json()
+                // Filter to only featured files (those with a category)
+                this.featuredParts = (data.files || []).filter((f: RepositoryFile) => f.featured || f.category)
+            }
+        } catch (error) {
+            console.error('Error loading featured parts:', error)
+        }
     }
 
     async refreshFiles() {
@@ -330,8 +528,15 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         }
     }
 
-    onFilesSelected() {
-        // File input change handler
+    onFilesSelected(event: Event) {
+        const input = event.target as HTMLInputElement
+        if (input.files) {
+            this.selectedFiles = Array.from(input.files)
+        }
+    }
+
+    removeFile(index: number) {
+        this.selectedFiles.splice(index, 1)
     }
 
     async uploadFiles() {
@@ -342,6 +547,18 @@ export default class CentralFiles extends Mixins(BaseMixin) {
             const token = localStorage.getItem('fleet_token')
             const formData = new FormData()
 
+            // Add metadata fields first (before files for multipart parsing)
+            if (this.uploadVersion) {
+                formData.append('version', this.uploadVersion)
+            }
+            if (this.uploadCategory) {
+                formData.append('category', this.uploadCategory)
+            }
+            if (this.uploadPrintTime) {
+                formData.append('printTime', this.uploadPrintTime)
+            }
+
+            // Add files
             for (const file of this.selectedFiles) {
                 formData.append('files', file)
             }
@@ -357,7 +574,12 @@ export default class CentralFiles extends Mixins(BaseMixin) {
             if (response.ok) {
                 this.showSuccess('Files uploaded successfully')
                 this.selectedFiles = []
+                // Reset form fields
+                this.uploadVersion = '1.0'
+                this.uploadCategory = null
+                this.uploadPrintTime = ''
                 await this.refreshFiles()
+                await this.loadFeaturedParts()
             } else {
                 const data = await response.json()
                 this.showError(data.error || 'Failed to upload files')
@@ -501,6 +723,37 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         this.snackbarColor = 'error'
         this.snackbar = true
     }
+
+    getCategoryDisplayName(category: string | undefined): string {
+        const names: Record<string, string> = {
+            'propeller': 'Propeller',
+            'truss': 'Truss',
+            'control-box': 'Control Box',
+        }
+        return category ? names[category] || category : 'Uncategorized'
+    }
+
+    getCategoryIcon(category: string | undefined): string {
+        const icons: Record<string, string> = {
+            'propeller': 'mdi-fan',
+            'truss': 'mdi-bridge',
+            'control-box': 'mdi-cube-outline',
+        }
+        return category ? icons[category] || 'mdi-file-document' : 'mdi-file-document'
+    }
+
+    getCategoryThumbnail(category: string | undefined): string {
+        const thumbnails: Record<string, string> = {
+            'propeller': '/img/parts/propeller-thumb.png',
+            'truss': '/img/parts/truss-thumb.png',
+            'control-box': '/img/parts/control-box-thumb.png',
+        }
+        return category ? thumbnails[category] || '' : ''
+    }
+
+    formatCategory(category: string | undefined): string {
+        return this.getCategoryDisplayName(category)
+    }
 }
 </script>
 
@@ -515,5 +768,32 @@ export default class CentralFiles extends Mixins(BaseMixin) {
 
 .opacity-20 {
     opacity: 0.2;
+}
+
+.gap-2 {
+    gap: 8px;
+}
+
+.part-tile {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.part-tile:hover {
+    transform: translateY(-4px);
+}
+
+.thumbnail-container {
+    position: relative;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+.part-thumbnail {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.version-badge {
+    position: absolute;
+    top: 0;
+    right: 0;
 }
 </style>

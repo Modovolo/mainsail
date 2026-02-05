@@ -5,7 +5,7 @@ import asyncio
 import json
 import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import sys
 from pathlib import Path
@@ -184,7 +184,8 @@ class TestWebClientInteraction:
             "action": "pause"
         }
         
-        await fm.handle_web_command(command)
+        web_client_ws = MagicMock()
+        await fm.handle_web_command(web_client_ws, command)
         
         # Verify only target printer received command
         printers["printer-0"].send.assert_called()  # Registration confirmation

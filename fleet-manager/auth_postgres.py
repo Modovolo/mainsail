@@ -24,7 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from contextlib import contextmanager
 
 # Import Pydantic models
-from models import (
+from schemas import (
     LoginRequest, RegisterRequest, RefreshTokenRequest, ChangePasswordRequest,
     UserResponse, LoginResponse, TokenResponse, MessageResponse, ErrorResponse
 )
@@ -160,6 +160,35 @@ class RefreshTokenModel(Base):
     )
 
 
+class PrintQueueJobModel(Base):
+    """Print queue job model"""
+    __tablename__ = 'print_queue_jobs'
+    
+    id = Column(String(32), primary_key=True)
+    user_id = Column(String(32), ForeignKey('users.id'), nullable=False, index=True)
+    file_id = Column(String(255), nullable=False)
+    file_name = Column(String(255), nullable=False)
+    position = Column(Integer, nullable=False, index=True)
+    priority = Column(String(50), default='Normal')
+    status = Column(String(50), default='queued', index=True)  # queued, printing, completed, cancelled
+    printer_id = Column(String(32), nullable=True, index=True)
+    printer_name = Column(String(255), nullable=True)
+    progress = Column(Integer, default=0)
+    time_remaining = Column(String(50), nullable=True)
+    added_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    
+    # Relationships
+    user = relationship('UserModel')
+    
+    __table_args__ = (
+        Index('idx_pqj_user_id', 'user_id'),
+        Index('idx_pqj_status', 'status'),
+        Index('idx_pqj_position', 'position'),
+    )
+
+
 @dataclass
 class User:
     """User data class"""
@@ -203,7 +232,8 @@ class Printer:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            'id': self.id,
+            'id': self.printer_id,  # Use printer_id as id for frontend WebSocket connections
+            'internalId': self.id,  # Keep internal DB id available if needed
             'ownerId': self.owner_id,
             'printerId': self.printer_id,
             'name': self.name,
@@ -766,8 +796,10 @@ class AuthDatabase:
     def get_user_by_username_or_email(self, identifier: str) -> Optional[User]:
         """Get user by username or email (for inviting to groups)"""
         with self.get_session() as session:
+            from sqlalchemy import func
             user = session.query(UserModel).filter(
-                (UserModel.username == identifier) | (UserModel.email == identifier)
+                (func.lower(UserModel.username) == identifier.lower()) | 
+                (func.lower(UserModel.email) == identifier.lower())
             ).first()
             if user:
                 return self._model_to_user(user)
@@ -1295,6 +1327,248 @@ async def get_accessible_printers(request: web.Request):
     })
 
 
+# ============ Print Queue Endpoints ============
+
+@require_auth
+async def get_print_queue(request: web.Request):
+    """Get the print queue status"""
+    user_id = request['user']['sub']
+    db: AuthDatabase = request.app['auth_db']
+    
+    with db.get_session() as session:
+        # Get queued jobs
+        queued_jobs = session.query(PrintQueueJobModel).filter(
+            PrintQueueJobModel.status == 'queued'
+        ).order_by(PrintQueueJobModel.position).all()
+        
+        # Get printing jobs
+        printing_jobs = session.query(PrintQueueJobModel).filter(
+            PrintQueueJobModel.status == 'printing'
+        ).all()
+        
+        # Get completed today
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        completed_today = session.query(PrintQueueJobModel).filter(
+            PrintQueueJobModel.status == 'completed',
+            PrintQueueJobModel.completed_at >= today_start
+        ).count()
+        
+        # Get printer statuses from user's printers
+        printers = db.get_user_accessible_printers(user_id)
+        printer_statuses = []
+        for p in printers:
+            # Check if printer is currently printing
+            printing_job = next(
+                (j for j in printing_jobs if j.printer_id == p.printer_id),
+                None
+            )
+            printer_statuses.append({
+                'id': p.printer_id,
+                'name': p.name,
+                'status': 'printing' if printing_job else 'idle',
+                'currentJob': printing_job.file_name if printing_job else None
+            })
+        
+        return web.json_response({
+            'queued': [{
+                'id': j.id,
+                'fileId': j.file_id,
+                'fileName': j.file_name,
+                'position': j.position,
+                'priority': j.priority,
+                'addedAt': j.added_at.isoformat() if j.added_at else None,
+                'addedBy': j.user_id,
+                'estimatedStart': None,
+                'status': j.status,
+            } for j in queued_jobs],
+            'printing': [{
+                'id': j.id,
+                'fileId': j.file_id,
+                'fileName': j.file_name,
+                'printerName': j.printer_name,
+                'printerId': j.printer_id,
+                'progress': j.progress or 0,
+                'timeRemaining': j.time_remaining or 'Calculating...',
+                'status': j.status,
+            } for j in printing_jobs],
+            'printers': printer_statuses,
+            'completedToday': completed_today,
+        })
+
+
+@require_auth
+async def add_job_to_queue(request: web.Request):
+    """Add a job to the print queue"""
+    user_id = request['user']['sub']
+    db: AuthDatabase = request.app['auth_db']
+    
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    
+    file_id = data.get('fileId')
+    copies = data.get('copies', 1)
+    priority = data.get('priority', 'Normal')
+    
+    if not file_id:
+        return web.json_response({'error': 'fileId is required'}, status=400)
+    
+    # Get file name (for now use fileId as name, could be fetched from file repository)
+    file_name = data.get('fileName', f'file_{file_id[:8]}')
+    
+    with db.get_session() as session:
+        # Get the next position
+        max_position = session.query(PrintQueueJobModel).filter(
+            PrintQueueJobModel.status == 'queued'
+        ).count()
+        
+        # Create jobs for each copy
+        for i in range(copies):
+            job_id = secrets.token_hex(16)
+            position = max_position + i + 1
+            
+            # Adjust position based on priority
+            if priority == 'Urgent':
+                position = 1
+                # Shift other jobs down
+                session.query(PrintQueueJobModel).filter(
+                    PrintQueueJobModel.status == 'queued'
+                ).update({PrintQueueJobModel.position: PrintQueueJobModel.position + 1})
+            elif priority == 'High':
+                # Find first normal/low priority job
+                first_normal = session.query(PrintQueueJobModel).filter(
+                    PrintQueueJobModel.status == 'queued',
+                    PrintQueueJobModel.priority.in_(['Normal', 'Low'])
+                ).order_by(PrintQueueJobModel.position).first()
+                if first_normal:
+                    position = first_normal.position
+                    session.query(PrintQueueJobModel).filter(
+                        PrintQueueJobModel.status == 'queued',
+                        PrintQueueJobModel.position >= position
+                    ).update({PrintQueueJobModel.position: PrintQueueJobModel.position + 1})
+            
+            job = PrintQueueJobModel(
+                id=job_id,
+                user_id=user_id,
+                file_id=file_id,
+                file_name=file_name,
+                position=position,
+                priority=priority,
+                status='queued',
+            )
+            session.add(job)
+        
+        session.commit()
+    
+    return web.json_response({'message': f'Added {copies} job(s) to queue'})
+
+
+@require_auth
+async def update_job_position(request: web.Request):
+    """Update a job's position in the queue"""
+    user_id = request['user']['sub']
+    job_id = request.match_info['job_id']
+    db: AuthDatabase = request.app['auth_db']
+    
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    
+    new_position = data.get('position')
+    if new_position is None or new_position < 1:
+        return web.json_response({'error': 'Valid position is required'}, status=400)
+    
+    with db.get_session() as session:
+        job = session.query(PrintQueueJobModel).filter(
+            PrintQueueJobModel.id == job_id,
+            PrintQueueJobModel.status == 'queued'
+        ).first()
+        
+        if not job:
+            return web.json_response({'error': 'Job not found'}, status=404)
+        
+        old_position = job.position
+        
+        if new_position < old_position:
+            # Moving up - shift jobs down
+            session.query(PrintQueueJobModel).filter(
+                PrintQueueJobModel.status == 'queued',
+                PrintQueueJobModel.position >= new_position,
+                PrintQueueJobModel.position < old_position,
+                PrintQueueJobModel.id != job_id
+            ).update({PrintQueueJobModel.position: PrintQueueJobModel.position + 1})
+        else:
+            # Moving down - shift jobs up
+            session.query(PrintQueueJobModel).filter(
+                PrintQueueJobModel.status == 'queued',
+                PrintQueueJobModel.position > old_position,
+                PrintQueueJobModel.position <= new_position,
+                PrintQueueJobModel.id != job_id
+            ).update({PrintQueueJobModel.position: PrintQueueJobModel.position - 1})
+        
+        job.position = new_position
+        session.commit()
+    
+    return web.json_response({'message': 'Position updated'})
+
+
+@require_auth
+async def remove_job_from_queue(request: web.Request):
+    """Remove a job from the queue"""
+    user_id = request['user']['sub']
+    job_id = request.match_info['job_id']
+    db: AuthDatabase = request.app['auth_db']
+    
+    with db.get_session() as session:
+        job = session.query(PrintQueueJobModel).filter(
+            PrintQueueJobModel.id == job_id,
+            PrintQueueJobModel.status == 'queued'
+        ).first()
+        
+        if not job:
+            return web.json_response({'error': 'Job not found'}, status=404)
+        
+        old_position = job.position
+        
+        # Shift jobs up to fill the gap
+        session.query(PrintQueueJobModel).filter(
+            PrintQueueJobModel.status == 'queued',
+            PrintQueueJobModel.position > old_position
+        ).update({PrintQueueJobModel.position: PrintQueueJobModel.position - 1})
+        
+        session.delete(job)
+        session.commit()
+    
+    return web.json_response({'message': 'Job removed from queue'})
+
+
+@require_auth
+async def cancel_print_job(request: web.Request):
+    """Cancel an active print job"""
+    user_id = request['user']['sub']
+    job_id = request.match_info['job_id']
+    db: AuthDatabase = request.app['auth_db']
+    
+    with db.get_session() as session:
+        job = session.query(PrintQueueJobModel).filter(
+            PrintQueueJobModel.id == job_id,
+            PrintQueueJobModel.status == 'printing'
+        ).first()
+        
+        if not job:
+            return web.json_response({'error': 'Active print job not found'}, status=404)
+        
+        job.status = 'cancelled'
+        job.completed_at = datetime.utcnow()
+        session.commit()
+    
+    # TODO: Send cancel command to the actual printer via WebSocket
+    
+    return web.json_response({'message': 'Print cancelled'})
+
+
 def setup_auth_routes(app: web.Application):
     """Setup authentication routes"""
     # Initialize database and JWT auth
@@ -1327,6 +1601,13 @@ def setup_auth_routes(app: web.Application):
     app.router.add_delete('/api/groups/{group_id}/members/{user_id}', remove_group_member)
     app.router.add_put('/api/groups/{group_id}/members/{user_id}', update_member_role)
     app.router.add_post('/api/groups/{group_id}/printers', assign_printer_to_group)
+    
+    # Print Queue routes
+    app.router.add_get('/api/print-queue', get_print_queue)
+    app.router.add_post('/api/print-queue/add', add_job_to_queue)
+    app.router.add_put('/api/print-queue/{job_id}/position', update_job_position)
+    app.router.add_delete('/api/print-queue/{job_id}', remove_job_from_queue)
+    app.router.add_post('/api/print-queue/{job_id}/cancel', cancel_print_job)
     
     logger.info("Auth routes configured")
 

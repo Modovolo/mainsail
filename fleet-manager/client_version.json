@@ -1,6 +1,6 @@
 {
-    "version": "3.3.0",
+    "version": "3.5.0",
     "min_version": "3.0.0",
-    "changelog": "Added file upload support - receive files from Central File Repository",
-    "released": "2026-01-28"
+    "changelog": "Added webcam relay through WebSocket for camera streaming support",
+    "released": "2026-02-05"
 }

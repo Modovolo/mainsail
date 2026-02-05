@@ -58,7 +58,8 @@ class FileRepository:
         except Exception as e:
             logger.error(f"Error saving metadata: {e}")
     
-    def add_file(self, filename: str, size: int, user_id: str, username: str) -> Dict[str, Any]:
+    def add_file(self, filename: str, size: int, user_id: str, username: str, 
+                 version: str = None, category: str = None, print_time: str = None) -> Dict[str, Any]:
         """Add a file to the repository"""
         file_id = str(uuid.uuid4())
         file_info = {
@@ -68,6 +69,10 @@ class FileRepository:
             'uploadedAt': datetime.now().isoformat(),
             'uploadedBy': username,
             'userId': user_id,
+            'version': version or '1.0',
+            'category': category,  # e.g., 'propeller', 'truss', 'control-box', or None
+            'printTime': print_time,
+            'featured': category is not None,  # Auto-feature if category is set
             'storagePath': os.path.join(self.storage_dir, file_id)
         }
         self.files[file_id] = file_info
@@ -127,7 +132,8 @@ def get_file_repository() -> FileRepository:
 
 def setup_file_routes(app: web.Application, fleet_manager=None):
     """Setup file repository routes"""
-    from auth_postgres import require_auth, AuthDatabase
+    from routes.common import require_auth
+    from services.database import DatabaseService
     
     repo = get_file_repository()
     
@@ -148,8 +154,20 @@ def setup_file_routes(app: web.Application, fleet_manager=None):
             reader = await request.multipart()
             uploaded_files = []
             
+            # Metadata fields from form
+            version = None
+            category = None
+            print_time = None
+            file_contents = []  # Store files temporarily until we have all metadata
+            
             async for field in reader:
-                if field.name == 'files':
+                if field.name == 'version':
+                    version = (await field.read()).decode('utf-8').strip() or None
+                elif field.name == 'category':
+                    category = (await field.read()).decode('utf-8').strip() or None
+                elif field.name == 'printTime':
+                    print_time = (await field.read()).decode('utf-8').strip() or None
+                elif field.name == 'files':
                     filename = field.filename
                     if not filename:
                         continue
@@ -161,21 +179,39 @@ def setup_file_routes(app: web.Application, fleet_manager=None):
                     content = await field.read()
                     size = len(content)
                     
-                    # Add to repository
-                    file_info = repo.add_file(safe_filename, size, user_id, username)
-                    
-                    # Save file to storage
-                    storage_path = file_info['storagePath']
-                    with open(storage_path, 'wb') as f:
-                        f.write(content)
-                    
-                    uploaded_files.append({
-                        'id': file_info['id'],
-                        'name': file_info['name'],
-                        'size': file_info['size']
+                    file_contents.append({
+                        'filename': safe_filename,
+                        'content': content,
+                        'size': size
                     })
-                    
-                    logger.info(f"File uploaded: {safe_filename} by {username}")
+            
+            # Now process all files with the collected metadata
+            for file_data in file_contents:
+                # Add to repository with metadata
+                file_info = repo.add_file(
+                    file_data['filename'], 
+                    file_data['size'], 
+                    user_id, 
+                    username,
+                    version=version,
+                    category=category,
+                    print_time=print_time
+                )
+                
+                # Save file to storage
+                storage_path = file_info['storagePath']
+                with open(storage_path, 'wb') as f:
+                    f.write(file_data['content'])
+                
+                uploaded_files.append({
+                    'id': file_info['id'],
+                    'name': file_info['name'],
+                    'size': file_info['size'],
+                    'version': file_info['version'],
+                    'category': file_info['category']
+                })
+                
+                logger.info(f"File uploaded: {file_data['filename']} v{version} ({category}) by {username}")
             
             return web.json_response({
                 'success': True,
@@ -298,8 +334,8 @@ def setup_file_routes(app: web.Application, fleet_manager=None):
         
         try:
             # Get printers from database (includes group printers)
-            auth_db = AuthDatabase()
-            printers = auth_db.get_user_accessible_printers(user_id)
+            db: DatabaseService = request.app['db']
+            printers = db.get_user_accessible_printers(user_id)
             
             # Add online status and print data from fleet manager
             printers_with_status = []

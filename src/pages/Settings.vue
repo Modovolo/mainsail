@@ -620,7 +620,7 @@ class PageSettings extends Mixins(BaseMixin) {
 
         try {
             await axios.post(`/api/groups/${this.selectedGroup.id}/members`, {
-                identifier: this.inviteEmail,
+                user: this.inviteEmail,
                 role: 'member'
             }, {
                 headers: { Authorization: `Bearer ${token}` }

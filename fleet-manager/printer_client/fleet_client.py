@@ -19,13 +19,14 @@ import os
 import hashlib
 import shutil
 import subprocess
+import socket
 from datetime import datetime
 from typing import Optional, Dict, Any
 import websockets
 import aiohttp
 
 # Client version - update this when releasing new versions
-CLIENT_VERSION = "3.3.0"
+CLIENT_VERSION = "3.5.0"
 
 # Configuration
 CONFIG_FILE = os.environ.get("FLEET_CONFIG_FILE", "/etc/fleet-client/config.json")
@@ -38,6 +39,30 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+def get_local_hostname():
+    """Get the local hostname for webcam access"""
+    try:
+        return socket.gethostname()
+    except Exception:
+        return None
+
+
+def get_local_ip():
+    """Get the local IP address that can be used to reach this machine"""
+    try:
+        # Create a socket to determine the local IP
+        # This works even if we can't actually connect
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0)
+        # Use a non-routable address to find the interface IP
+        s.connect(('10.255.255.255', 1))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
 
 
 class FleetClient:
@@ -357,6 +382,9 @@ class FleetClient:
             elif msg_type == "upload_file":
                 await self.handle_file_upload(data)
                 
+            elif msg_type == "webcam_request":
+                await self.handle_webcam_request(data)
+                
             elif msg_type == "error":
                 logger.error(f"Fleet server error: {data.get('message')}")
                 
@@ -476,6 +504,92 @@ class FleetClient:
                 except:
                     pass
     
+    async def handle_webcam_request(self, data: dict):
+        """
+        Handle webcam request from fleet server.
+        
+        This fetches webcam data from the local camera-streamer and relays
+        the response back through the WebSocket connection.
+        """
+        import base64
+        
+        request_id = data.get("request_id", "unknown")
+        method = data.get("method", "GET")
+        path = data.get("path", "/webcam/webrtc")
+        headers = data.get("headers", {})
+        body_b64 = data.get("body")
+        query_string = data.get("query_string", "")
+        
+        # Local webcam URL (camera-streamer runs on port 8080 or via reverse proxy at /webcam)
+        # The path already includes /webcam prefix
+        webcam_base = "http://127.0.0.1"
+        url = f"{webcam_base}{path}"
+        if query_string:
+            url = f"{url}?{query_string}"
+        
+        logger.debug(f"Webcam request {request_id}: {method} {url}")
+        
+        try:
+            # Decode body if present
+            body = None
+            if body_b64:
+                body = base64.b64decode(body_b64)
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    data=body,
+                    timeout=aiohttp.ClientTimeout(total=25)
+                ) as resp:
+                    # Read response
+                    response_body = await resp.read()
+                    
+                    # Build response headers
+                    response_headers = {}
+                    for key, value in resp.headers.items():
+                        # Skip hop-by-hop headers
+                        if key.lower() not in ['content-length', 'transfer-encoding', 'connection', 'content-encoding']:
+                            response_headers[key] = value
+                    
+                    # Send response back to fleet
+                    if self.websocket:
+                        await self.websocket.send(json.dumps({
+                            "type": "webcam_response",
+                            "request_id": request_id,
+                            "status": resp.status,
+                            "headers": response_headers,
+                            "body": base64.b64encode(response_body).decode('utf-8')
+                        }))
+                        logger.debug(f"Webcam response {request_id}: status {resp.status}, {len(response_body)} bytes")
+                        
+        except aiohttp.ClientError as e:
+            logger.error(f"Webcam request failed: {e}")
+            if self.websocket:
+                try:
+                    await self.websocket.send(json.dumps({
+                        "type": "webcam_response",
+                        "request_id": request_id,
+                        "error": f"Failed to connect to webcam: {str(e)}",
+                        "status": 502
+                    }))
+                except:
+                    pass
+                    
+        except Exception as e:
+            logger.error(f"Webcam request error: {e}")
+            if self.websocket:
+                try:
+                    await self.websocket.send(json.dumps({
+                        "type": "webcam_response",
+                        "request_id": request_id,
+                        "error": str(e),
+                        "status": 500
+                    }))
+                except:
+                    pass
+
     async def connect(self) -> bool:
         """Connect to fleet server"""
         try:
@@ -488,11 +602,18 @@ class FleetClient:
                 close_timeout=5
             )
             
-            # Send registration
+            # Get local network info for webcam access
+            local_hostname = get_local_hostname()
+            local_ip = get_local_ip()
+            logger.info(f"Local hostname: {local_hostname}, Local IP: {local_ip}")
+            
+            # Send registration with local host info
             await self.websocket.send(json.dumps({
                 "type": "register",
                 "printer_id": self.printer_id,
                 "name": self.printer_name,
+                "hostname": local_hostname,
+                "local_ip": local_ip,
                 "capabilities": ["status_reporting", "remote_control", "gcode", "jsonrpc_proxy", "ota_update"],
                 "version": CLIENT_VERSION
             }))

@@ -2,7 +2,7 @@
     <div>
         <!-- Fleet Mode: Show back button when viewing a specific printer -->
         <v-container v-if="isFleetMode && printerId" fluid class="pa-0">
-            <v-btn text class="mb-2 ml-2" to="/allPrinters">
+            <v-btn text class="mb-2 ml-2" @click="disconnectAndGoBack">
                 <v-icon left>mdi-arrow-left</v-icon>
                 Back to All Printers
             </v-btn>
@@ -172,6 +172,31 @@ export default class PageDashboard extends Mixins(DashboardMixin) {
         await this.connectToFleetPrinter()
     }
 
+    disconnectAndGoBack() {
+        // Disconnect from the current printer before navigating to all printers
+        console.log('[Dashboard] Disconnecting fleet socket before navigating to all printers')
+        
+        // Close the WebSocket connection
+        Vue.$socket.close()
+        this.fleetConnected = false
+        
+        // Reset all store states (files, gui, printer, server, socket)
+        // This clears the printer name from topbar/sidebar
+        this.$store.dispatch('files/reset')
+        this.$store.dispatch('gui/reset')
+        this.$store.dispatch('printer/reset')
+        this.$store.dispatch('server/reset')
+        this.$store.dispatch('socket/reset')
+        
+        // Reset fleet-specific state
+        this.$store.commit('socket/setDisconnected')
+        this.$store.commit('socket/setFleetPrinterConnected', null)
+        this.$store.commit('socket/setFleetPrinterId', null)
+        this.$store.commit('socket/setFleetPrinterName', null)
+        
+        this.$router.push('/allPrinters')
+    }
+
     async mounted() {
         if (this.isFleetMode && this.printerId) {
             // Reset printer connected state before attempting connection
@@ -186,8 +211,19 @@ export default class PageDashboard extends Mixins(DashboardMixin) {
             console.log('[Dashboard] Disconnecting fleet socket')
             Vue.$socket.close()
             this.fleetConnected = false
-            // Reset store state
+            
+            // Reset all store states to clear printer data from topbar/sidebar
+            this.$store.dispatch('files/reset')
+            this.$store.dispatch('gui/reset')
+            this.$store.dispatch('printer/reset')
+            this.$store.dispatch('server/reset')
+            this.$store.dispatch('socket/reset')
+            
+            // Reset fleet-specific state
             this.$store.commit('socket/setDisconnected')
+            this.$store.commit('socket/setFleetPrinterConnected', null)
+            this.$store.commit('socket/setFleetPrinterId', null)
+            this.$store.commit('socket/setFleetPrinterName', null)
         }
     }
 

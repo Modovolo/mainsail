@@ -10,8 +10,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY fleet_manager.py .
 COPY auth_postgres.py .
 COPY printer_registration.py .
-COPY models.py .
+COPY schemas.py .
 COPY file_repository.py .
+
+# Copy new modular structure
+COPY models/ ./models/
+COPY services/ ./services/
+COPY routes/ ./routes/
 
 # Copy OTA update files
 COPY client_version.json .

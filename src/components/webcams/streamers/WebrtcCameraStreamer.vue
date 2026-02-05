@@ -48,6 +48,16 @@ export default class WebrtcCameraStreamer extends Mixins(BaseMixin, WebcamMixin)
     @Prop({ type: String, default: null }) readonly page!: string | null
     @Ref() declare stream: HTMLVideoElement
 
+    /**
+     * Get auth headers for fleet mode webcam requests
+     */
+    get authHeaders(): Record<string, string> {
+        if (this.$store.state.instancesDB !== 'fleet') return {}
+        const token = this.$store.state.auth?.token
+        if (!token) return {}
+        return { Authorization: `Bearer ${token}` }
+    }
+
     get url() {
         return this.convertUrl(this.camSettings?.stream_url, this.printerUrl)
     }
@@ -106,6 +116,7 @@ export default class WebrtcCameraStreamer extends Mixins(BaseMixin, WebcamMixin)
             const requestIceServers = this.useStun ? [{ urls: ['stun:stun.l.google.com:19302'] }] : null
             const response = await fetch(this.url, {
                 body: JSON.stringify({ type: 'request', iceServers: requestIceServers, keepAlive: true }),
+                headers: { 'Content-Type': 'application/json', ...this.authHeaders },
                 method: 'POST',
             })
 
@@ -174,7 +185,7 @@ export default class WebrtcCameraStreamer extends Mixins(BaseMixin, WebcamMixin)
                     id: iceResponse.id,
                     sdp: offer?.sdp,
                 }),
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...this.authHeaders },
                 method: 'POST',
             })
             if (response.status !== 200) {
@@ -197,7 +208,7 @@ export default class WebrtcCameraStreamer extends Mixins(BaseMixin, WebcamMixin)
                     type: 'remote_candidate',
                     candidates: [e.candidate],
                 }),
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...this.authHeaders },
                 method: 'POST',
             })
             if (response.status !== 200) {

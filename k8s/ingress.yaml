@@ -67,6 +67,14 @@ spec:
                 name: fleet-manager
                 port:
                   number: 8080
+          # Webcam proxy endpoints (for WebRTC streaming in fleet mode)
+          - path: /webcam/proxy
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
           # Health check API
           - path: /api/health
             pathType: Prefix
@@ -116,6 +124,14 @@ spec:
                   number: 8080
           # Groups API endpoints
           - path: /api/groups
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
+          # Print Queue API endpoints
+          - path: /api/print-queue
             pathType: Prefix
             backend:
               service:

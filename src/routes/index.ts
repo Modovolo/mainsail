@@ -10,6 +10,7 @@ import Machine from '../pages/Machine.vue'
 import Login from '../pages/Login.vue'
 import MyPrinters from '../pages/MyPrinters.vue'
 import CentralFiles from '../pages/CentralFiles.vue'
+import PrintQueue from '../pages/PrintQueue.vue'
 import Settings from '../pages/Settings.vue'
 import PreparePage from '../pages/PreparePage.vue'
 import PreviewPage from '../pages/PreviewPage.vue'
@@ -24,6 +25,7 @@ import {
     mdiGrid,
     mdiFileDocumentMultipleOutline,
     mdiFolderNetwork,
+    mdiPlaylistPlay,
     mdiCog,
     mdiVideo3d,
     mdiHistory,
@@ -131,6 +133,17 @@ const routes: AppRoute[] = [
         meta: { requiresAuth: true },
     },
     {
+        name: 'print-queue',
+        title: 'Print Queue',
+        path: '/print-queue',
+        icon: mdiPlaylistPlay,
+        component: PrintQueue,
+        alwaysShow: true,
+        showInNavi: true,
+        position: 9,
+        meta: { requiresAuth: true },
+    },
+    {
         name: 'dashboard',
         title: 'Printer Dashboard',
         path: '/printer/:id?',
@@ -149,7 +162,7 @@ const routes: AppRoute[] = [
         component: Farm,
         alwaysShow: true,
         showInNavi: true,
-        position: 9,
+        position: 10,
         meta: { requiresAuth: true },
     },
     {

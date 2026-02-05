@@ -16,6 +16,23 @@ spec:
   # Uncomment and specify your storage class if needed
   # storageClassName: nfs-client
 ---
+# Fleet Manager File Repository Storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fleet-files-data
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: printer-fleet
+    app.kubernetes.io/component: file-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: linode-block-storage-retain
+  resources:
+    requests:
+      storage: 20Gi
+---
 # ConfigMap for shared printer configurations
 apiVersion: v1
 kind: ConfigMap

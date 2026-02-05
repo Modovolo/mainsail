@@ -109,6 +109,7 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
                 'Files',
                 'G-Code Files',
                 'Central File Repository',
+                'Print Queue',
                 'Machine',
                 'History',
             ];

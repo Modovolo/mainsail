@@ -15,6 +15,21 @@ import BaseMixin from '@/components/mixins/base'
 @Component
 export default class WebcamMixin extends Mixins(BaseMixin) {
     convertUrl(baseUrl: string, printerUrl: string | null) {
+        // Check if we're in fleet mode
+        const isFleetMode = this.$store.state.instancesDB === 'fleet'
+        const fleetPrinterId = this.$store.state.socket.fleetPrinterId
+        
+        // In fleet mode with a printer ID, use the webcam proxy
+        if (isFleetMode && fleetPrinterId && baseUrl.startsWith('/webcam')) {
+            // Extract the path after /webcam (e.g., /webcam/webrtc -> webrtc)
+            const webcamPath = baseUrl.replace(/^\/webcam\/?/, '')
+            // Build the proxy URL: /webcam/proxy/{printerId}/{path}
+            const protocol = window.location.protocol
+            const host = window.location.host
+            const proxyUrl = `${protocol}//${host}/webcam/proxy/${fleetPrinterId}/${webcamPath}`
+            return proxyUrl
+        }
+        
         // Use printerHostUrl to get the actual printer's URL in fleet mode
         let url = new URL(baseUrl, this.printerHostUrl.toString())
 
