@@ -51,10 +51,11 @@ const routes: AppRoute[] = [
         name: 'prepare',
         title: 'Prepare',
         path: '/prepare',
-        icon: mdiWrench,
+        icon: mdiPrinter3dNozzle,
         component: PreparePage,
         alwaysShow: true,
-        showInNavi: false,
+        showInNavi: true,
+        position: 15,
         meta: { requiresAuth: true },
     },
     {
