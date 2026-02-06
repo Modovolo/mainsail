@@ -13,74 +13,87 @@
         </v-row>
 
         <!-- Featured Files Grid -->
-        <v-row v-if="featuredParts.length > 0">
+        <v-row v-if="groupedFeaturedParts.length > 0">
             <v-col cols="12">
                 <h2 class="text-h5 mb-4">
                     <v-icon class="mr-2">mdi-star</v-icon>
                     Featured Parts
                 </h2>
             </v-col>
-            <v-col v-for="part in featuredParts" :key="part.id" cols="12" sm="6" md="4">
+             <v-col v-for="group in groupedFeaturedParts" :key="group.category" cols="12" sm="6" md="4">
                 <v-card elevation="3" class="part-tile" hover>
                     <div class="thumbnail-container">
                         <v-img
-                            :src="getCategoryThumbnail(part.category)"
+                            :src="getCategoryThumbnail(group.category)"
                             height="180"
                             class="part-thumbnail"
                             gradient="to bottom, rgba(0,0,0,0) 60%, rgba(0,0,0,0.7) 100%"
                         >
                             <template #placeholder>
                                 <v-row class="fill-height ma-0" align="center" justify="center">
-                                    <v-icon size="64" color="grey lighten-1">{{ getCategoryIcon(part.category) }}</v-icon>
+                                    <v-icon size="64" color="grey lighten-1">{{ getCategoryIcon(group.category) }}</v-icon>
                                 </v-row>
                             </template>
                             <div class="version-badge">
                                 <v-chip small color="primary" class="ma-2">
-                                    v{{ part.version || '1.0' }}
+                                    v{{ group.latestVersion }}
                                 </v-chip>
                             </div>
                         </v-img>
                     </div>
-                    <v-card-title class="pb-1">
-                        <v-icon class="mr-2" color="blue">mdi-file-document</v-icon>
-                        {{ getCategoryDisplayName(part.category) }}
+                    <v-card-title class="pb-2 pt-3">
+                        <v-icon class="mr-2" color="blue">mdi-package-variant</v-icon>
+                        {{ getCategoryDisplayName(group.category) }}
                     </v-card-title>
-                    <v-card-subtitle class="pb-2">
-                        {{ part.name }}
+                    <v-card-subtitle class="pb-3 px-4">
+                        {{ group.files.length }} file{{ group.files.length !== 1 ? 's' : '' }} in this part set
                     </v-card-subtitle>
                     <v-divider></v-divider>
-                    <v-card-text class="py-2">
-                        <div class="d-flex justify-space-between text-body-2">
-                            <span class="grey--text">
-                                <v-icon small class="mr-1">mdi-clock-outline</v-icon>
-                                Uploaded
-                            </span>
-                            <span>{{ formatUploadDate(part.uploadedAt) }}</span>
-                        </div>
-                        <div class="d-flex justify-space-between text-body-2 mt-1">
-                            <span class="grey--text">
-                                <v-icon small class="mr-1">mdi-file-outline</v-icon>
-                                Size
-                            </span>
-                            <span>{{ formatFileSize(part.size) }}</span>
-                        </div>
-                        <div v-if="part.printTime" class="d-flex justify-space-between text-body-2 mt-1">
-                            <span class="grey--text">
-                                <v-icon small class="mr-1">mdi-printer-3d</v-icon>
-                                Print Time
-                            </span>
-                            <span>{{ part.printTime }}</span>
-                        </div>
-                    </v-card-text>
-                    <v-card-actions>
-                        <v-btn text color="primary" small @click="sendToPrinter(part)">
-                            <v-icon left small>mdi-send</v-icon>
-                            Send to Printer
+                    
+                    <!-- Files Table -->
+                    <v-simple-table dense class="files-table clickable-table">
+                        <template #default>
+                            <thead>
+                                <tr>
+                                    <th class="text-left px-4">File</th>
+                                    <th class="text-right px-4">Size</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr 
+                                    v-for="file in group.files" 
+                                    :key="file.id"
+                                    class="clickable-row"
+                                    @click="openFileActionsDialog(file)"
+                                >
+                                    <td class="px-4 py-2">
+                                        <div class="d-flex align-center">
+                                            <v-icon small class="mr-2" color="primary">mdi-file-document</v-icon>
+                                            <div>
+                                                <div class="file-name text-truncate" style="max-width: 180px;">{{ file.name }}</div>
+                                                <div v-if="file.printTime" class="text-caption grey--text">
+                                                    <v-icon x-small class="mr-1">mdi-clock-outline</v-icon>
+                                                    {{ file.printTime }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-right px-4 py-2 text-caption">{{ formatFileSize(file.size) }}</td>
+                                </tr>
+                            </tbody>
+                        </template>
+                    </v-simple-table>
+                    
+                    <v-divider></v-divider>
+                    <v-card-actions class="px-4 py-3">
+                        <v-btn text color="primary" small @click="sendAllToPrinter(group)">
+                            <v-icon left small>mdi-send-check</v-icon>
+                            Send All
                         </v-btn>
                         <v-spacer></v-spacer>
-                        <v-btn icon small @click="downloadFile(part)">
-                            <v-icon small>mdi-download</v-icon>
-                        </v-btn>
+                        <span class="text-caption grey--text">
+                            Updated {{ formatUploadDate(group.latestUpload) }}
+                        </span>
                     </v-card-actions>
                 </v-card>
             </v-col>
@@ -145,7 +158,7 @@
                                 ></v-text-field>
                             </v-col>
                             <v-col cols="12" sm="4">
-                                <v-select
+                                <v-combobox
                                     v-model="uploadCategory"
                                     :items="categoryOptions"
                                     item-text="text"
@@ -155,9 +168,10 @@
                                     dense
                                     clearable
                                     prepend-icon="mdi-shape"
-                                    hint="Featured parts appear in the grid above"
+                                    hint="Select existing or type to create new"
                                     persistent-hint
-                                ></v-select>
+                                    :return-object="false"
+                                ></v-combobox>
                             </v-col>
                             <v-col cols="12" sm="4">
                                 <v-text-field
@@ -173,7 +187,7 @@
                             </v-col>
                         </v-row>
                         
-                        <!-- Upload Button -->
+                        <!-- Upload Button & Progress -->
                         <div v-if="selectedFiles.length" class="mt-4">
                             <v-btn
                                 color="primary"
@@ -184,6 +198,27 @@
                                 <v-icon left>mdi-upload</v-icon>
                                 Upload to Repository
                             </v-btn>
+                            
+                            <!-- Upload Progress Bar -->
+                            <div v-if="uploading" class="mt-4">
+                                <div class="d-flex align-center mb-2">
+                                    <v-icon small class="mr-2" color="primary">mdi-cloud-upload</v-icon>
+                                    <span class="text-body-2">Uploading...</span>
+                                    <v-spacer></v-spacer>
+                                    <span class="text-body-2 font-weight-medium">{{ uploadProgress }}%</span>
+                                </div>
+                                <v-progress-linear
+                                    :value="uploadProgress"
+                                    color="primary"
+                                    height="8"
+                                    rounded
+                                    striped
+                                    :indeterminate="uploadProgress === 0"
+                                ></v-progress-linear>
+                                <div class="text-caption grey--text mt-1">
+                                    {{ getUploadStatusText() }}
+                                </div>
+                            </div>
                         </div>
                     </v-card-text>
                 </v-card>
@@ -234,11 +269,12 @@
                         :items="filteredFiles"
                         :search="search"
                         :items-per-page="15"
-                        class="files-table"
+                        class="files-table clickable-table"
+                        @click:row="openFileActionsDialog"
                     >
                         <template #item.name="{ item }">
                             <div class="d-flex align-center">
-                                <v-icon class="mr-2" color="blue">mdi-file-document</v-icon>
+                                <v-icon class="mr-2" color="primary">mdi-file-document</v-icon>
                                 {{ item.name }}
                             </div>
                         </template>
@@ -263,54 +299,6 @@
 
                         <template #item.uploadedAt="{ item }">
                             {{ formatUploadDate(item.uploadedAt) }}
-                        </template>
-
-                        <template #item.actions="{ item }">
-                            <v-tooltip bottom>
-                                <template #activator="{ on, attrs }">
-                                    <v-btn
-                                        icon
-                                        small
-                                        color="primary"
-                                        v-bind="attrs"
-                                        v-on="on"
-                                        @click="sendToPrinter(item)"
-                                    >
-                                        <v-icon small>mdi-printer-3d</v-icon>
-                                    </v-btn>
-                                </template>
-                                <span>Send to Printer</span>
-                            </v-tooltip>
-                            <v-tooltip bottom>
-                                <template #activator="{ on, attrs }">
-                                    <v-btn
-                                        icon
-                                        small
-                                        color="info"
-                                        v-bind="attrs"
-                                        v-on="on"
-                                        @click="downloadFile(item)"
-                                    >
-                                        <v-icon small>mdi-download</v-icon>
-                                    </v-btn>
-                                </template>
-                                <span>Download</span>
-                            </v-tooltip>
-                            <v-tooltip bottom>
-                                <template #activator="{ on, attrs }">
-                                    <v-btn
-                                        icon
-                                        small
-                                        color="error"
-                                        v-bind="attrs"
-                                        v-on="on"
-                                        @click="confirmDelete(item)"
-                                    >
-                                        <v-icon small>mdi-delete</v-icon>
-                                    </v-btn>
-                                </template>
-                                <span>Delete</span>
-                            </v-tooltip>
                         </template>
                     </v-data-table>
                 </v-card>
@@ -377,6 +365,82 @@
             </v-card>
         </v-dialog>
 
+        <!-- File Actions Dialog -->
+        <v-dialog v-model="fileActionsDialog" max-width="450">
+            <v-card v-if="selectedFile">
+                <v-card-title class="primary white--text">
+                    <v-icon class="mr-2" color="white">mdi-file-document</v-icon>
+                    File Actions
+                </v-card-title>
+                <v-card-text class="pa-0">
+                    <v-list class="py-0">
+                        <v-list-item class="px-6 py-3">
+                            <v-list-item-content>
+                                <v-list-item-title class="text-h6">{{ selectedFile.name }}</v-list-item-title>
+                                <v-list-item-subtitle class="mt-1">
+                                    {{ formatFileSize(selectedFile.size) }}
+                                    <span v-if="selectedFile.version"> · v{{ selectedFile.version }}</span>
+                                    <span v-if="selectedFile.category"> · {{ getCategoryDisplayName(selectedFile.category) }}</span>
+                                </v-list-item-subtitle>
+                            </v-list-item-content>
+                        </v-list-item>
+                        <v-divider></v-divider>
+                        <v-list-item 
+                            class="action-item" 
+                            @click="handleSendToPrinter"
+                        >
+                            <v-list-item-icon>
+                                <v-icon color="primary">mdi-printer-3d</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-content>
+                                <v-list-item-title>Send to Printer</v-list-item-title>
+                                <v-list-item-subtitle>Transfer file to a connected printer</v-list-item-subtitle>
+                            </v-list-item-content>
+                            <v-list-item-action>
+                                <v-icon>mdi-chevron-right</v-icon>
+                            </v-list-item-action>
+                        </v-list-item>
+                        <v-divider inset></v-divider>
+                        <v-list-item 
+                            class="action-item" 
+                            @click="handleDownloadFile"
+                        >
+                            <v-list-item-icon>
+                                <v-icon color="info">mdi-download</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-content>
+                                <v-list-item-title>Download</v-list-item-title>
+                                <v-list-item-subtitle>Save file to your computer</v-list-item-subtitle>
+                            </v-list-item-content>
+                            <v-list-item-action>
+                                <v-icon>mdi-chevron-right</v-icon>
+                            </v-list-item-action>
+                        </v-list-item>
+                        <v-divider inset></v-divider>
+                        <v-list-item 
+                            class="action-item" 
+                            @click="handleDeleteFile"
+                        >
+                            <v-list-item-icon>
+                                <v-icon color="error">mdi-delete</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-content>
+                                <v-list-item-title class="error--text">Delete File</v-list-item-title>
+                                <v-list-item-subtitle>Permanently remove from repository</v-list-item-subtitle>
+                            </v-list-item-content>
+                            <v-list-item-action>
+                                <v-icon>mdi-chevron-right</v-icon>
+                            </v-list-item-action>
+                        </v-list-item>
+                    </v-list>
+                </v-card-text>
+                <v-card-actions class="px-4 py-3">
+                    <v-spacer></v-spacer>
+                    <v-btn text @click="fileActionsDialog = false">Close</v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
         <!-- Snackbar for notifications -->
         <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000">
             {{ snackbarText }}
@@ -419,6 +483,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     search = ''
     loading = false
     uploading = false
+    uploadProgress = 0
     sending = false
     deleting = false
 
@@ -427,12 +492,38 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     uploadCategory: string | null = null
     uploadPrintTime = ''
 
-    // Category options for dropdown
-    categoryOptions = [
+    // Category options for dropdown - base options
+    baseCategoryOptions = [
         { text: 'Propeller', value: 'propeller' },
         { text: 'Truss', value: 'truss' },
         { text: 'Control Box', value: 'control-box' },
     ]
+
+    // Computed category options that include existing categories from files
+    get categoryOptions(): { text: string; value: string }[] {
+        const options = [...this.baseCategoryOptions]
+        const existingValues = new Set(options.map(o => o.value))
+        
+        // Add categories from existing files
+        for (const file of this.files) {
+            if (file.category && !existingValues.has(file.category)) {
+                existingValues.add(file.category)
+                options.push({
+                    text: this.formatCategoryName(file.category),
+                    value: file.category
+                })
+            }
+        }
+        
+        return options.sort((a, b) => a.text.localeCompare(b.text))
+    }
+
+    formatCategoryName(category: string): string {
+        // Convert kebab-case or snake_case to Title Case
+        return category
+            .replace(/[-_]/g, ' ')
+            .replace(/\b\w/g, char => char.toUpperCase())
+    }
 
     // Featured parts data - loaded from API
     featuredParts: RepositoryFile[] = []
@@ -440,6 +531,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     // Dialogs
     sendDialog = false
     deleteDialog = false
+    fileActionsDialog = false
     selectedFile: RepositoryFile | null = null
     selectedPrinter: string | null = null
 
@@ -455,13 +547,46 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         { text: 'Size', value: 'size', sortable: true },
         { text: 'Uploaded', value: 'uploadedAt', sortable: true },
         { text: 'Uploaded By', value: 'uploadedBy', sortable: true },
-        { text: 'Actions', value: 'actions', sortable: false, align: 'end' },
     ]
 
     get filteredFiles(): RepositoryFile[] {
         if (!this.search) return this.files
         const searchLower = this.search.toLowerCase()
         return this.files.filter((f) => f.name.toLowerCase().includes(searchLower))
+    }
+
+    get groupedFeaturedParts(): { category: string; files: RepositoryFile[]; latestVersion: string; latestUpload: string }[] {
+        // Group featured parts by category
+        const groups: Record<string, RepositoryFile[]> = {}
+        
+        for (const part of this.featuredParts) {
+            const category = part.category || 'uncategorized'
+            if (!groups[category]) {
+                groups[category] = []
+            }
+            groups[category].push(part)
+        }
+        
+        // Convert to array with metadata
+        return Object.entries(groups).map(([category, files]) => {
+            // Sort files by name for consistent display
+            files.sort((a, b) => a.name.localeCompare(b.name))
+            
+            // Get the latest version from all files in this category
+            const versions = files.map(f => f.version || '1.0')
+            const latestVersion = versions.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0]
+            
+            // Get the most recent upload date
+            const dates = files.map(f => f.uploadedAt).sort().reverse()
+            const latestUpload = dates[0]
+            
+            return {
+                category,
+                files,
+                latestVersion,
+                latestUpload
+            }
+        })
     }
 
     mounted() {
@@ -514,7 +639,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     async loadPrinters() {
         try {
             const token = localStorage.getItem('fleet_token')
-            const response = await fetch('/api/printers', {
+            const response = await fetch('/api/printers/accessible', {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -539,10 +664,18 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         this.selectedFiles.splice(index, 1)
     }
 
+    getUploadStatusText(): string {
+        if (this.uploadProgress === 0) return 'Preparing upload...'
+        if (this.uploadProgress < 100) return `Uploading ${this.selectedFiles.length} file(s)...`
+        return 'Processing files...'
+    }
+
     async uploadFiles() {
         if (!this.selectedFiles.length) return
 
         this.uploading = true
+        this.uploadProgress = 0
+        
         try {
             const token = localStorage.getItem('fleet_token')
             const formData = new FormData()
@@ -563,15 +696,39 @@ export default class CentralFiles extends Mixins(BaseMixin) {
                 formData.append('files', file)
             }
 
-            const response = await fetch('/api/files/upload', {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-                body: formData,
+            // Use XMLHttpRequest for upload progress tracking
+            const result = await new Promise<{ ok: boolean; data?: any; error?: string }>((resolve) => {
+                const xhr = new XMLHttpRequest()
+                
+                xhr.upload.addEventListener('progress', (event) => {
+                    if (event.lengthComputable) {
+                        this.uploadProgress = Math.round((event.loaded / event.total) * 100)
+                    }
+                })
+                
+                xhr.addEventListener('load', () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve({ ok: true })
+                    } else {
+                        try {
+                            const data = JSON.parse(xhr.responseText)
+                            resolve({ ok: false, error: data.error || 'Upload failed' })
+                        } catch {
+                            resolve({ ok: false, error: 'Upload failed' })
+                        }
+                    }
+                })
+                
+                xhr.addEventListener('error', () => {
+                    resolve({ ok: false, error: 'Network error during upload' })
+                })
+                
+                xhr.open('POST', '/api/files/upload')
+                xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+                xhr.send(formData)
             })
 
-            if (response.ok) {
+            if (result.ok) {
                 this.showSuccess('Files uploaded successfully')
                 this.selectedFiles = []
                 // Reset form fields
@@ -581,21 +738,55 @@ export default class CentralFiles extends Mixins(BaseMixin) {
                 await this.refreshFiles()
                 await this.loadFeaturedParts()
             } else {
-                const data = await response.json()
-                this.showError(data.error || 'Failed to upload files')
+                this.showError(result.error || 'Failed to upload files')
             }
         } catch (error) {
             console.error('Error uploading files:', error)
             this.showError('Failed to upload files')
         } finally {
             this.uploading = false
+            this.uploadProgress = 0
         }
+    }
+
+    openFileActionsDialog(file: RepositoryFile) {
+        this.selectedFile = file
+        this.fileActionsDialog = true
+    }
+
+    handleSendToPrinter() {
+        this.fileActionsDialog = false
+        this.selectedPrinter = null
+        this.sendDialog = true
+    }
+
+    handleDownloadFile() {
+        if (this.selectedFile) {
+            this.downloadFile(this.selectedFile)
+            this.fileActionsDialog = false
+        }
+    }
+
+    handleDeleteFile() {
+        this.fileActionsDialog = false
+        this.deleteDialog = true
     }
 
     sendToPrinter(file: RepositoryFile) {
         this.selectedFile = file
         this.selectedPrinter = null
         this.sendDialog = true
+    }
+
+    sendAllToPrinter(group: { category: string; files: RepositoryFile[] }) {
+        // For now, show the dialog with the first file - user can send each individually
+        // In the future, this could be enhanced to queue all files
+        if (group.files.length > 0) {
+            this.selectedFile = group.files[0]
+            this.selectedPrinter = null
+            this.sendDialog = true
+            this.showSuccess(`Selected "${this.getCategoryDisplayName(group.category)}" part set. Send each file individually from the table.`)
+        }
     }
 
     async confirmSendToPrinter() {
@@ -730,7 +921,8 @@ export default class CentralFiles extends Mixins(BaseMixin) {
             'truss': 'Truss',
             'control-box': 'Control Box',
         }
-        return category ? names[category] || category : 'Uncategorized'
+        if (!category) return 'Uncategorized'
+        return names[category] || this.formatCategoryName(category)
     }
 
     getCategoryIcon(category: string | undefined): string {
@@ -776,6 +968,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
 
 .part-tile {
     transition: transform 0.2s ease, box-shadow 0.2s ease;
+    overflow: hidden;
 }
 
 .part-tile:hover {
@@ -795,5 +988,54 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     position: absolute;
     top: 0;
     right: 0;
+}
+
+.files-table {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.files-table th {
+    background-color: rgba(0, 0, 0, 0.05) !important;
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.files-table td {
+    font-size: 0.875rem;
+}
+
+.files-table tr:hover {
+    background-color: rgba(var(--v-primary-base), 0.05) !important;
+}
+
+.file-name {
+    font-weight: 500;
+}
+
+/* Clickable table rows */
+.clickable-table tbody tr {
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.clickable-table tbody tr:hover {
+    background-color: rgba(25, 118, 210, 0.12) !important;
+}
+
+.clickable-table tbody tr:active {
+    background-color: rgba(25, 118, 210, 0.2) !important;
+}
+
+/* File actions dialog items */
+.action-item {
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.action-item:hover {
+    background-color: rgba(0, 0, 0, 0.04);
 }
 </style>

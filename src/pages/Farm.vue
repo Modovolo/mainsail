@@ -931,7 +931,7 @@ class PageFarm extends Mixins(BaseMixin) {
             const token = localStorage.getItem('fleet_token')
             if (!token) return
             
-            const response = await fetch('/api/printers', {
+            const response = await fetch('/api/printers/accessible', {
                 headers: { Authorization: `Bearer ${token}` },
             })
             

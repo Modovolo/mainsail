@@ -94,7 +94,7 @@ export default class FleetDashboard extends Mixins(BaseMixin) {
                 return
             }
 
-            const response = await axios.get('/api/printers', {
+            const response = await axios.get('/api/printers/accessible', {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
