@@ -63,10 +63,17 @@ export interface SliceProfile {
 export interface PrinterProfile {
     id: string
     name: string
+    isBuiltIn?: boolean
     buildVolume: { x: number; y: number; z: number }
+    extruderCount: number
     nozzleDiameter: number
-    hasHeatedBed: boolean
-    isIdex: boolean
+    filamentDiameter: number
+    bedShape: 'rectangular' | 'circular'
+    heatedBed: boolean
+    heatedChamber: boolean
+    autoBedLeveling: boolean
+    directDrive: boolean
+    multiExtruderType?: 'single' | 'dual' | 'idex' | 'toolchanger'
 }
 
 export interface SliceJob {
@@ -125,10 +132,14 @@ export interface PrepareState {
     profiles: SliceProfile[]
     activeProfileId: string | null
     printerProfiles: PrinterProfile[]
+    customPrinterProfiles: PrinterProfile[]
     activePrinterId: string | null
 
     // Slicing job state
     currentJob: SliceJob | null
     isSlicing: boolean
     lastResult: SliceResult | null
+
+    // Last generated G-code (for passing to PreviewPage)
+    lastGcode: string | null
 }

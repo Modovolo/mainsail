@@ -38,6 +38,7 @@ from services.auth import JWTAuth
 from routes import (
     setup_auth_routes,
     setup_printer_routes,
+    setup_printer_profile_routes,
     setup_group_routes,
     setup_print_queue_routes,
     setup_webcam_proxy_routes,
@@ -479,6 +480,7 @@ class FleetManager:
         # Setup all routes using new modular structure
         setup_auth_routes(app)
         setup_printer_routes(app)
+        setup_printer_profile_routes(app)
         setup_group_routes(app)
         setup_print_queue_routes(app)
         setup_webcam_proxy_routes(app)

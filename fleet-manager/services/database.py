@@ -16,6 +16,7 @@ from models.user import UserModel, RefreshTokenModel, User
 from models.printer import PrinterModel, Printer
 from models.group import GroupModel, GroupMemberModel, Group, GroupMember
 from models.print_queue import PrintQueueJobModel, PrintQueueJob
+from models.printer_profile import PrinterProfileModel, PrinterProfileData
 
 logger = logging.getLogger(__name__)
 
@@ -650,5 +651,99 @@ class DatabaseService:
             
             job.status = 'cancelled'
             job.completed_at = datetime.utcnow()
+            session.commit()
+            return True
+
+    # ==================== Printer Profile Operations ====================
+
+    def get_all_printer_profiles(self) -> List[PrinterProfileData]:
+        """Get all printer profiles"""
+        with self.get_session() as session:
+            models = session.query(PrinterProfileModel).order_by(
+                PrinterProfileModel.name
+            ).all()
+            return [PrinterProfileData.from_model(m) for m in models]
+
+    def get_printer_profile(self, profile_id: str) -> Optional[PrinterProfileData]:
+        """Get a single printer profile by ID"""
+        with self.get_session() as session:
+            model = session.query(PrinterProfileModel).filter_by(id=profile_id).first()
+            if not model:
+                return None
+            return PrinterProfileData.from_model(model)
+
+    def create_printer_profile(self, data: Dict[str, Any]) -> PrinterProfileData:
+        """Create a new printer profile"""
+        with self.get_session() as session:
+            build_volume = data.get('buildVolume', {})
+            model = PrinterProfileModel(
+                id=secrets.token_hex(16),
+                name=data.get('name', 'Custom Printer'),
+                build_volume_x=build_volume.get('x', 220),
+                build_volume_y=build_volume.get('y', 220),
+                build_volume_z=build_volume.get('z', 250),
+                extruder_count=data.get('extruderCount', 1),
+                nozzle_diameter=data.get('nozzleDiameter', 0.4),
+                filament_diameter=data.get('filamentDiameter', 1.75),
+                bed_shape=data.get('bedShape', 'rectangular'),
+                heated_bed=data.get('heatedBed', True),
+                heated_chamber=data.get('heatedChamber', False),
+                auto_bed_leveling=data.get('autoBedLeveling', False),
+                direct_drive=data.get('directDrive', False),
+                multi_extruder_type=data.get('multiExtruderType'),
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            session.add(model)
+            session.commit()
+            return PrinterProfileData.from_model(model)
+
+    def update_printer_profile(self, profile_id: str, data: Dict[str, Any]) -> Optional[PrinterProfileData]:
+        """Update an existing printer profile"""
+        with self.get_session() as session:
+            model = session.query(PrinterProfileModel).filter_by(id=profile_id).first()
+            if not model:
+                return None
+
+            if 'name' in data:
+                model.name = data['name']
+            if 'buildVolume' in data:
+                bv = data['buildVolume']
+                if 'x' in bv:
+                    model.build_volume_x = bv['x']
+                if 'y' in bv:
+                    model.build_volume_y = bv['y']
+                if 'z' in bv:
+                    model.build_volume_z = bv['z']
+            if 'extruderCount' in data:
+                model.extruder_count = data['extruderCount']
+            if 'nozzleDiameter' in data:
+                model.nozzle_diameter = data['nozzleDiameter']
+            if 'filamentDiameter' in data:
+                model.filament_diameter = data['filamentDiameter']
+            if 'bedShape' in data:
+                model.bed_shape = data['bedShape']
+            if 'heatedBed' in data:
+                model.heated_bed = data['heatedBed']
+            if 'heatedChamber' in data:
+                model.heated_chamber = data['heatedChamber']
+            if 'autoBedLeveling' in data:
+                model.auto_bed_leveling = data['autoBedLeveling']
+            if 'directDrive' in data:
+                model.direct_drive = data['directDrive']
+            if 'multiExtruderType' in data:
+                model.multi_extruder_type = data['multiExtruderType']
+
+            model.updated_at = datetime.utcnow()
+            session.commit()
+            return PrinterProfileData.from_model(model)
+
+    def delete_printer_profile(self, profile_id: str) -> bool:
+        """Delete a printer profile"""
+        with self.get_session() as session:
+            model = session.query(PrinterProfileModel).filter_by(id=profile_id).first()
+            if not model:
+                return False
+            session.delete(model)
             session.commit()
             return True

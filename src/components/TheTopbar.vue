@@ -34,6 +34,132 @@
                     <span class="d-none d-md-inline">Monitoring</span>
                 </v-btn>
             </v-btn-toggle>
+
+            <!-- Prepare Page Menus - only show when viewMode === 'prepare' -->
+            <template v-if="viewMode === 'prepare'">
+                <v-menu offset-y>
+                    <template #activator="{ on, attrs }">
+                        <v-btn text small v-bind="attrs" v-on="on" class="ml-2">
+                            <v-icon left small>{{ mdiFile }}</v-icon>
+                            File
+                        </v-btn>
+                    </template>
+                    <v-list dense>
+                        <v-list-item @click="prepareAction('import')">
+                            <v-list-item-icon><v-icon>{{ mdiImport }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Import Model...</v-list-item-title>
+                            <v-list-item-action class="text-caption grey--text">Ctrl+I</v-list-item-action>
+                        </v-list-item>
+                        <v-list-item :disabled="!prepareHasWidgets" @click="prepareAction('clear')">
+                            <v-list-item-icon><v-icon>{{ mdiClose }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Clear Platform</v-list-item-title>
+                        </v-list-item>
+                        <v-divider />
+                        <v-list-item :disabled="!prepareHasSelection" @click="prepareAction('exportSTL')">
+                            <v-list-item-icon><v-icon>{{ mdiExport }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Export STL...</v-list-item-title>
+                        </v-list-item>
+                    </v-list>
+                </v-menu>
+
+                <v-menu offset-y>
+                    <template #activator="{ on, attrs }">
+                        <v-btn text small v-bind="attrs" v-on="on">
+                            <v-icon left small>{{ mdiEyeOutline }}</v-icon>
+                            View
+                        </v-btn>
+                    </template>
+                    <v-list dense>
+                        <v-list-item @click="prepareAction('resetCamera')">
+                            <v-list-item-icon><v-icon>{{ mdiCameraFlip }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Reset Camera</v-list-item-title>
+                            <v-list-item-action class="text-caption grey--text">Home</v-list-item-action>
+                        </v-list-item>
+                        <v-list-item @click="prepareAction('fitAll')">
+                            <v-list-item-icon><v-icon>{{ mdiCropFree }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Fit All</v-list-item-title>
+                            <v-list-item-action class="text-caption grey--text">F</v-list-item-action>
+                        </v-list-item>
+                        <v-divider />
+                        <v-list-item @click="prepareAction('viewTop')">
+                            <v-list-item-icon><v-icon>{{ mdiArrowUpBold }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Top View</v-list-item-title>
+                            <v-list-item-action class="text-caption grey--text">T</v-list-item-action>
+                        </v-list-item>
+                        <v-list-item @click="prepareAction('viewFront')">
+                            <v-list-item-icon><v-icon>{{ mdiArrowDownBold }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Front View</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item @click="prepareAction('viewRight')">
+                            <v-list-item-icon><v-icon>{{ mdiArrowRightBold }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Right View</v-list-item-title>
+                        </v-list-item>
+                        <v-divider />
+                        <v-list-item @click="setPrepareViewMode('solid')">
+                            <v-list-item-icon><v-icon>{{ mdiCube }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Solid</v-list-item-title>
+                            <v-list-item-action><v-icon v-if="prepareRenderMode === 'solid'" small color="primary">{{ mdiCheck }}</v-icon></v-list-item-action>
+                        </v-list-item>
+                        <v-list-item @click="setPrepareViewMode('wireframe')">
+                            <v-list-item-icon><v-icon>{{ mdiVectorSquare }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Wireframe</v-list-item-title>
+                            <v-list-item-action><v-icon v-if="prepareRenderMode === 'wireframe'" small color="primary">{{ mdiCheck }}</v-icon></v-list-item-action>
+                        </v-list-item>
+                        <v-list-item @click="setPrepareViewMode('xray')">
+                            <v-list-item-icon><v-icon>{{ mdiRadioactive }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>X-Ray</v-list-item-title>
+                            <v-list-item-action><v-icon v-if="prepareRenderMode === 'xray'" small color="primary">{{ mdiCheck }}</v-icon></v-list-item-action>
+                        </v-list-item>
+                    </v-list>
+                </v-menu>
+
+                <v-menu offset-y>
+                    <template #activator="{ on, attrs }">
+                        <v-btn text small v-bind="attrs" v-on="on">
+                            <v-icon left small>{{ mdiCubeOutline }}</v-icon>
+                            Model
+                        </v-btn>
+                    </template>
+                    <v-list dense>
+                        <v-list-item :disabled="!prepareHasSelection" @click="prepareAction('centerSelected')">
+                            <v-list-item-icon><v-icon>{{ mdiAlignHorizontalCenter }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Center on Platform</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item :disabled="!prepareHasSelection" @click="prepareAction('layFlat')">
+                            <v-list-item-icon><v-icon>{{ mdiAlignVerticalBottom }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Lay Flat</v-list-item-title>
+                        </v-list-item>
+                        <v-divider />
+                        <v-list-item :disabled="!prepareHasSelection" @click="prepareAction('duplicate')">
+                            <v-list-item-icon><v-icon>{{ mdiContentDuplicate }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Duplicate</v-list-item-title>
+                            <v-list-item-action class="text-caption grey--text">D</v-list-item-action>
+                        </v-list-item>
+                        <v-list-item :disabled="!prepareHasSelection" @click="prepareAction('mirror')">
+                            <v-list-item-icon><v-icon>{{ mdiFlipHorizontal }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Mirror</v-list-item-title>
+                            <v-list-item-action class="text-caption grey--text">M</v-list-item-action>
+                        </v-list-item>
+                        <v-list-item :disabled="!prepareHasSelection" @click="prepareAction('delete')">
+                            <v-list-item-icon><v-icon>{{ mdiDelete }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Delete</v-list-item-title>
+                            <v-list-item-action class="text-caption grey--text">Del</v-list-item-action>
+                        </v-list-item>
+                        <v-divider />
+                        <v-list-item :disabled="!prepareHasWidgets" @click="prepareAction('arrange')">
+                            <v-list-item-icon><v-icon>{{ mdiViewGrid }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Auto Arrange</v-list-item-title>
+                            <v-list-item-action class="text-caption grey--text">A</v-list-item-action>
+                        </v-list-item>
+                        <v-list-item @click="prepareAction('selectAll')">
+                            <v-list-item-icon><v-icon>{{ mdiSelectAll }}</v-icon></v-list-item-icon>
+                            <v-list-item-title>Select All</v-list-item-title>
+                            <v-list-item-action class="text-caption grey--text">Ctrl+A</v-list-item-action>
+                        </v-list-item>
+                    </v-list>
+                </v-menu>
+            </template>
+
             <v-spacer />
             <input
                 ref="fileUploadAndStart"
@@ -125,7 +251,39 @@ import PrinterSelector from '@/components/ui/PrinterSelector.vue'
 import MainsailLogo from '@/components/ui/MainsailLogo.vue'
 import TheNotificationMenu from '@/components/notifications/TheNotificationMenu.vue'
 import { topbarHeight } from '@/store/variables'
-import { mdiAlertOctagonOutline, mdiContentSave, mdiFileUpload, mdiClose, mdiCloseThick, mdiLogout, mdiWrench, mdiEye, mdiDevices, mdiMonitor } from '@mdi/js'
+import {
+    mdiAlertOctagonOutline,
+    mdiContentSave,
+    mdiFileUpload,
+    mdiClose,
+    mdiCloseThick,
+    mdiLogout,
+    mdiWrench,
+    mdiEye,
+    mdiEyeOutline,
+    mdiDevices,
+    mdiMonitor,
+    mdiFile,
+    mdiImport,
+    mdiExport,
+    mdiCameraFlip,
+    mdiCropFree,
+    mdiArrowUpBold,
+    mdiArrowDownBold,
+    mdiArrowRightBold,
+    mdiCube,
+    mdiCubeOutline,
+    mdiVectorSquare,
+    mdiRadioactive,
+    mdiCheck,
+    mdiAlignHorizontalCenter,
+    mdiAlignVerticalBottom,
+    mdiContentDuplicate,
+    mdiFlipHorizontal,
+    mdiDelete,
+    mdiViewGrid,
+    mdiSelectAll,
+} from '@mdi/js'
 import EmergencyStopDialog from '@/components/dialogs/EmergencyStopDialog.vue'
 import InlineSvg from 'vue-inline-svg'
 import ThemeMixin from '@/components/mixins/theme'
@@ -161,8 +319,29 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
     mdiCloseThick = mdiCloseThick
     mdiWrench = mdiWrench
     mdiEye = mdiEye
+    mdiEyeOutline = mdiEyeOutline
     mdiDevices = mdiDevices
     mdiMonitor = mdiMonitor
+    mdiFile = mdiFile
+    mdiImport = mdiImport
+    mdiExport = mdiExport
+    mdiCameraFlip = mdiCameraFlip
+    mdiCropFree = mdiCropFree
+    mdiArrowUpBold = mdiArrowUpBold
+    mdiArrowDownBold = mdiArrowDownBold
+    mdiArrowRightBold = mdiArrowRightBold
+    mdiCube = mdiCube
+    mdiCubeOutline = mdiCubeOutline
+    mdiVectorSquare = mdiVectorSquare
+    mdiRadioactive = mdiRadioactive
+    mdiCheck = mdiCheck
+    mdiAlignHorizontalCenter = mdiAlignHorizontalCenter
+    mdiAlignVerticalBottom = mdiAlignVerticalBottom
+    mdiContentDuplicate = mdiContentDuplicate
+    mdiFlipHorizontal = mdiFlipHorizontal
+    mdiDelete = mdiDelete
+    mdiViewGrid = mdiViewGrid
+    mdiSelectAll = mdiSelectAll
 
     topbarHeight = topbarHeight
 
@@ -274,6 +453,20 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
         return this.$store.state.gui?.uiSettings?.defaultNavigationStateSetting ?? 'alwaysOpen'
     }
 
+    // --- Prepare Page State ---
+
+    get prepareHasWidgets(): boolean {
+        return this.$store.state.prepare?.hasWidgets ?? false
+    }
+
+    get prepareHasSelection(): boolean {
+        return this.$store.state.prepare?.hasSelection ?? false
+    }
+
+    get prepareRenderMode(): string {
+        return this.$store.state.prepare?.viewMode ?? 'solid'
+    }
+
     mounted() {
         //this.naviDrawer = this.$vuetify.breakpoint.lgAndUp
         switch (this.defaultNavigationStateSetting) {
@@ -323,6 +516,16 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
                 // Ignore navigation duplicates
             })
         }
+    }
+
+    // --- Prepare Page Actions ---
+
+    prepareAction(action: string) {
+        this.$store.dispatch('prepare/triggerAction', action)
+    }
+
+    setPrepareViewMode(mode: string) {
+        this.$store.commit('prepare/setViewMode', mode)
     }
 
     btnEmergencyStop() {

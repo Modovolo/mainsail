@@ -15,6 +15,7 @@ import { farm } from '@/store/farm'
 import { editor } from '@/store/editor'
 import { gcodeviewer } from '@/store/gcodeviewer'
 import { auth } from '@/store/auth'
+import { prepare } from '@/store/prepare'
 
 Vue.use(Vuex)
 
@@ -42,6 +43,7 @@ export default new Vuex.Store({
         editor,
         gcodeviewer,
         auth,
+        prepare,
     },
     getters: getters,
     mutations: mutations,

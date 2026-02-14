@@ -3,8 +3,11 @@
  *
  * Enables communication between TheTopbar (menu actions) and PreparePage (3D viewer)
  * Manages slice parameters, profiles, and job state
+ * Persists printer profiles to PostgreSQL via fleet manager API
  */
 
+import Vue from 'vue'
+import axios from 'axios'
 import { Module } from 'vuex'
 import {
     PrepareState,
@@ -48,6 +51,65 @@ const QUALITY_PRESETS: Record<string, Partial<SliceParams>> = {
     ultra: { layer_height: 0.08, first_layer_height: 0.15, wall_count: 5, infill_density: 30, print_speed: 30 },
 }
 
+const BUILTIN_PRINTER_PROFILES: PrinterProfile[] = [
+    {
+        id: 'generic',
+        name: 'Generic Printer',
+        isBuiltIn: true,
+        buildVolume: { x: 220, y: 220, z: 250 },
+        extruderCount: 1,
+        nozzleDiameter: 0.4,
+        filamentDiameter: 1.75,
+        bedShape: 'rectangular',
+        heatedBed: true,
+        heatedChamber: false,
+        autoBedLeveling: false,
+        directDrive: false,
+    },
+    {
+        id: 'prusa-mk4',
+        name: 'Prusa MK4',
+        isBuiltIn: true,
+        buildVolume: { x: 250, y: 210, z: 220 },
+        extruderCount: 1,
+        nozzleDiameter: 0.4,
+        filamentDiameter: 1.75,
+        bedShape: 'rectangular',
+        heatedBed: true,
+        heatedChamber: false,
+        autoBedLeveling: true,
+        directDrive: true,
+    },
+    {
+        id: 'voron-2.4',
+        name: 'Voron 2.4 350',
+        isBuiltIn: true,
+        buildVolume: { x: 350, y: 350, z: 350 },
+        extruderCount: 1,
+        nozzleDiameter: 0.4,
+        filamentDiameter: 1.75,
+        bedShape: 'rectangular',
+        heatedBed: true,
+        heatedChamber: true,
+        autoBedLeveling: true,
+        directDrive: true,
+    },
+    {
+        id: 'bambu-x1',
+        name: 'Bambu X1 Carbon',
+        isBuiltIn: true,
+        buildVolume: { x: 256, y: 256, z: 256 },
+        extruderCount: 1,
+        nozzleDiameter: 0.4,
+        filamentDiameter: 1.75,
+        bedShape: 'rectangular',
+        heatedBed: true,
+        heatedChamber: true,
+        autoBedLeveling: true,
+        directDrive: true,
+    },
+]
+
 export const getDefaultState = (): PrepareState => ({
     hasWidgets: false,
     hasSelection: false,
@@ -63,11 +125,13 @@ export const getDefaultState = (): PrepareState => ({
     qualityPreset: 'normal',
     profiles: [],
     activeProfileId: null,
-    printerProfiles: [],
-    activePrinterId: null,
+    printerProfiles: [...BUILTIN_PRINTER_PROFILES],
+    customPrinterProfiles: [],
+    activePrinterId: 'generic',
     currentJob: null,
     isSlicing: false,
     lastResult: null,
+    lastGcode: null,
 })
 
 // Initial state
@@ -176,6 +240,29 @@ export const prepare: Module<PrepareState, any> = {
         setPrinterProfiles(state, profiles: PrinterProfile[]) {
             state.printerProfiles = profiles
         },
+        setCustomPrinterProfiles(state, profiles: PrinterProfile[]) {
+            state.customPrinterProfiles = profiles
+            // Rebuild full list: built-in + custom
+            state.printerProfiles = [...BUILTIN_PRINTER_PROFILES, ...profiles]
+        },
+        addCustomPrinterProfile(state, profile: PrinterProfile) {
+            state.customPrinterProfiles.push(profile)
+            state.printerProfiles = [...BUILTIN_PRINTER_PROFILES, ...state.customPrinterProfiles]
+        },
+        updateCustomPrinterProfile(state, profile: PrinterProfile) {
+            const idx = state.customPrinterProfiles.findIndex((p) => p.id === profile.id)
+            if (idx !== -1) {
+                Vue.set(state.customPrinterProfiles, idx, profile)
+                state.printerProfiles = [...BUILTIN_PRINTER_PROFILES, ...state.customPrinterProfiles]
+            }
+        },
+        deleteCustomPrinterProfile(state, id: string) {
+            state.customPrinterProfiles = state.customPrinterProfiles.filter((p) => p.id !== id)
+            state.printerProfiles = [...BUILTIN_PRINTER_PROFILES, ...state.customPrinterProfiles]
+            if (state.activePrinterId === id) {
+                state.activePrinterId = 'generic'
+            }
+        },
         setActivePrinter(state, id: string | null) {
             state.activePrinterId = id
         },
@@ -216,13 +303,18 @@ export const prepare: Module<PrepareState, any> = {
             state.isSlicing = false
         },
 
+        setLastGcode(state, gcode: string | null) {
+            state.lastGcode = gcode
+        },
+
         reset(state) {
             // Preserve profiles and printer settings across resets
-            const { profiles, activeProfileId, printerProfiles, activePrinterId, sliceParams } = state
+            const { profiles, activeProfileId, printerProfiles, customPrinterProfiles, activePrinterId, sliceParams } = state
             Object.assign(state, getDefaultState())
             state.profiles = profiles
             state.activeProfileId = activeProfileId
             state.printerProfiles = printerProfiles
+            state.customPrinterProfiles = customPrinterProfiles
             state.activePrinterId = activePrinterId
             state.sliceParams = sliceParams
         },
@@ -239,6 +331,77 @@ export const prepare: Module<PrepareState, any> = {
             commit('setHasSelection', payload.hasSelection)
             commit('setWidgetCount', payload.widgetCount)
             commit('setSelectionCount', payload.selectionCount)
+        },
+
+        // --- DB Persistence for Printer Profiles (PostgreSQL via fleet API) ---
+
+        async initPrinterProfiles({ commit }) {
+            // Ensure auth header is set (may not be if page mounts before checkAuth completes)
+            if (!axios.defaults.headers.common['Authorization']) {
+                const token = localStorage.getItem('fleet_token')
+                if (token) {
+                    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+                }
+            }
+
+            try {
+                const response = await axios.get('/api/printer-profiles')
+                const profiles = response.data?.profiles
+                if (Array.isArray(profiles) && profiles.length > 0) {
+                    commit('setCustomPrinterProfiles', profiles)
+                }
+            } catch (error) {
+                console.warn('Failed to load printer profiles from API:', error)
+            }
+
+            // Restore active printer selection from localStorage (UI preference)
+            const activeId = localStorage.getItem('prepare.activePrinterId')
+            if (activeId) {
+                commit('setActivePrinter', activeId)
+            }
+        },
+
+        selectPrinter({ commit }, id: string) {
+            commit('setActivePrinter', id)
+            localStorage.setItem('prepare.activePrinterId', id)
+        },
+
+        async addPrinterProfile({ commit }, profile: PrinterProfile) {
+            try {
+                const response = await axios.post('/api/printer-profiles', profile)
+                const created = response.data
+                commit('addCustomPrinterProfile', created)
+                commit('setActivePrinter', created.id)
+                localStorage.setItem('prepare.activePrinterId', created.id)
+            } catch (error) {
+                console.error('Failed to create printer profile:', error)
+                throw error
+            }
+        },
+
+        async updatePrinterProfile({ commit }, profile: PrinterProfile) {
+            try {
+                const response = await axios.put(`/api/printer-profiles/${profile.id}`, profile)
+                const updated = response.data
+                commit('updateCustomPrinterProfile', updated)
+            } catch (error) {
+                console.error('Failed to update printer profile:', error)
+                throw error
+            }
+        },
+
+        async deletePrinterProfile({ commit, state }, id: string) {
+            try {
+                await axios.delete(`/api/printer-profiles/${id}`)
+                commit('deleteCustomPrinterProfile', id)
+                if (state.activePrinterId === id) {
+                    commit('setActivePrinter', 'generic')
+                    localStorage.setItem('prepare.activePrinterId', 'generic')
+                }
+            } catch (error) {
+                console.error('Failed to delete printer profile:', error)
+                throw error
+            }
         },
 
         // Profile actions

@@ -114,6 +114,14 @@ spec:
                 name: fleet-manager
                 port:
                   number: 8080
+          # Printer profile API endpoints
+          - path: /api/printer-profiles
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
           # Central file repository API endpoints
           - path: /api/files
             pathType: Prefix
