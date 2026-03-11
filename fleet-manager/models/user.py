@@ -52,6 +52,25 @@ class RefreshTokenModel(Base):
     )
 
 
+class PasswordResetTokenModel(Base):
+    """Password reset token model"""
+    __tablename__ = 'password_reset_tokens'
+    
+    token = Column(String(255), primary_key=True)
+    user_id = Column(String(32), ForeignKey('users.id'), nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    used = Column(Boolean, default=False)
+    
+    # Relationships
+    user = relationship('UserModel')
+    
+    __table_args__ = (
+        Index('idx_prt_user_id', 'user_id'),
+        Index('idx_prt_expires_at', 'expires_at'),
+    )
+
+
 @dataclass
 class User:
     """User data class"""

@@ -19,6 +19,7 @@ import 'vue-toast-notification/dist/theme-sugar.css'
 //overlayerscrollbars-vue
 import { OverlayScrollbarsPlugin } from 'overlayscrollbars-vue'
 import 'overlayscrollbars/css/OverlayScrollbars.css'
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
 // Directives
 import './directives/longpress'
 import './directives/responsive-class'
@@ -63,6 +64,80 @@ use([SVGRenderer, LineChart, BarChart, LegendComponent, PieChart, DatasetCompone
 Vue.component('EChart', ECharts)
 
 Vue.use(VueResize)
+
+function normalizeToken(token: string | null | undefined): string {
+    return (token ?? '').replace(/^Bearer\s+/i, '').trim()
+}
+
+function setupAxiosAuthInterceptors() {
+    let refreshPromise: Promise<boolean> | null = null
+
+    axios.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+        const currentToken = normalizeToken(
+            (store.getters['auth/token'] as string | null | undefined) ?? localStorage.getItem('fleet_token')
+        )
+
+        if (currentToken) {
+            config.headers = config.headers ?? {}
+            if (!config.headers.Authorization) {
+                config.headers.Authorization = `Bearer ${currentToken}`
+            }
+        }
+
+        return config
+    })
+
+    axios.interceptors.response.use(
+        (response) => response,
+        async (error: AxiosError) => {
+            const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined
+            const status = error.response?.status
+            const url = originalRequest?.url ?? ''
+
+            if (
+                !originalRequest ||
+                status !== 401 ||
+                originalRequest._retry ||
+                url.includes('/api/auth/login') ||
+                url.includes('/api/auth/register') ||
+                url.includes('/api/auth/refresh') ||
+                url.includes('/api/auth/logout')
+            ) {
+                return Promise.reject(error)
+            }
+
+            originalRequest._retry = true
+
+            if (!refreshPromise) {
+                refreshPromise = store
+                    .dispatch('auth/refreshToken')
+                    .then((result) => Boolean(result))
+                    .catch(() => false)
+                    .finally(() => {
+                        refreshPromise = null
+                    })
+            }
+
+            const refreshed = await refreshPromise
+            if (!refreshed) {
+                return Promise.reject(error)
+            }
+
+            const nextToken = normalizeToken(
+                (store.getters['auth/token'] as string | null | undefined) ?? localStorage.getItem('fleet_token')
+            )
+
+            if (nextToken) {
+                originalRequest.headers = originalRequest.headers ?? {}
+                originalRequest.headers.Authorization = `Bearer ${nextToken}`
+            }
+
+            return axios(originalRequest)
+        }
+    )
+}
+
+setupAxiosAuthInterceptors()
 
 const initLoad = async () => {
     try {

@@ -20,18 +20,21 @@ import hashlib
 import shutil
 import subprocess
 import socket
+import posixpath
+from urllib.parse import quote
 from datetime import datetime
 from typing import Optional, Dict, Any
 import websockets
 import aiohttp
 
 # Client version - update this when releasing new versions
-CLIENT_VERSION = "3.5.0"
+CLIENT_VERSION = "3.5.1"
 
 # Configuration
 CONFIG_FILE = os.environ.get("FLEET_CONFIG_FILE", "/etc/fleet-client/config.json")
 LOG_LEVEL = os.environ.get("FLEET_LOG_LEVEL", "INFO")
 UPDATE_CHECK_INTERVAL = int(os.environ.get("FLEET_UPDATE_INTERVAL", "3600"))  # Default: 1 hour
+FLEET_SERVICE_NAME = os.environ.get("FLEET_SERVICE_NAME", "fleet-client")
 
 # Setup logging
 logging.basicConfig(
@@ -93,6 +96,120 @@ class FleetClient:
         self.pending_moonraker_requests: Dict[int, str] = {}
         self.moonraker_request_id = 1000  # Start high to avoid conflicts
         
+        # Auto-update setting
+        self.auto_update_enabled = config.get("auto_update", True)
+        self.client_capabilities = [
+            "status_reporting",
+            "remote_control",
+            "gcode",
+            "jsonrpc_proxy",
+            "ota_update",
+            "config_fetch",
+        ]
+        self.service_name = os.environ.get("FLEET_SERVICE_NAME", FLEET_SERVICE_NAME)
+        self.update_state = "idle"
+        self.update_message = f"Fleet client ready (v{CLIENT_VERSION})"
+        self.update_progress = 0
+        self.update_logs: list[str] = []
+        self.update_updated_at = datetime.now().isoformat()
+        self.last_update_check_at: Optional[str] = None
+        self._append_update_log(self.update_message)
+
+    def _append_update_log(self, message: str):
+        """Add a timestamped progress log entry for UI display."""
+        if not message:
+            return
+
+        if self.update_logs and self.update_logs[-1].endswith(message):
+            self.update_updated_at = datetime.now().isoformat()
+            return
+
+        entry = f"{datetime.now().strftime('%H:%M:%S')} {message}"
+        self.update_logs.append(entry)
+        self.update_logs = self.update_logs[-12:]
+        self.update_updated_at = datetime.now().isoformat()
+
+    def _build_client_runtime_state(self) -> dict:
+        """Build runtime metadata shared with fleet-manager."""
+        return {
+            "version": CLIENT_VERSION,
+            "auto_update": self.auto_update_enabled,
+            "capabilities": self.client_capabilities,
+            "service_name": self.service_name,
+            "update_state": self.update_state,
+            "update_message": self.update_message,
+            "update_progress": self.update_progress,
+            "update_logs": self.update_logs,
+            "update_updated_at": self.update_updated_at,
+            "last_update_check_at": self.last_update_check_at,
+        }
+
+    async def send_client_update_status(self):
+        """Send client update/restart progress to fleet-manager."""
+        if self.websocket and self.connected:
+            try:
+                await self.websocket.send(json.dumps({
+                    "type": "client_update_status",
+                    "printer_id": self.printer_id,
+                    "data": self._build_client_runtime_state()
+                }))
+            except Exception as e:
+                logger.error(f"Failed to send client update status: {e}")
+                self.connected = False
+
+    async def _set_update_status(
+        self,
+        state: str,
+        message: str,
+        progress: Optional[int] = None,
+        send_update: bool = False,
+        reset_logs: bool = False,
+    ):
+        """Update local progress state and optionally push it to fleet-manager."""
+        self.update_state = state
+        self.update_message = message
+        if progress is not None:
+            self.update_progress = max(0, min(100, int(progress)))
+        if reset_logs:
+            self.update_logs = []
+        self._append_update_log(message)
+        if send_update:
+            await self.send_client_update_status()
+
+    def _persist_auto_update_setting(self):
+        """Persist auto-update preference locally so it survives restarts."""
+        try:
+            config: Dict[str, Any] = {}
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, 'r') as f:
+                    config = json.load(f)
+
+            config['auto_update'] = self.auto_update_enabled
+
+            config_dir = os.path.dirname(CONFIG_FILE)
+            if config_dir:
+                os.makedirs(config_dir, exist_ok=True)
+
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(config, f, indent=2)
+                f.write('\n')
+        except Exception as exc:
+            logger.warning(f"Failed to persist auto-update setting: {exc}")
+
+    async def restart_service(self, reason: str = "Restarting fleet-client service"):
+        """Restart the local systemd service after reporting progress upstream."""
+        await self._set_update_status('restarting', reason, progress=95, send_update=True)
+        await self._set_update_status(
+            'restarting',
+            f"Running systemctl restart {self.service_name}",
+            progress=98,
+            send_update=True,
+        )
+
+        await asyncio.sleep(1)
+        self.running = False
+        subprocess.Popen(['sudo', 'systemctl', 'restart', self.service_name])
+        
     async def get_printer_status(self) -> dict:
         """Get current printer status from Moonraker"""
         try:
@@ -127,18 +244,19 @@ class FleetClient:
                     "extruder": printer_objects.get("extruder", {}),
                     "heater_bed": printer_objects.get("heater_bed", {}),
                     "display_status": printer_objects.get("display_status", {}),
-                    "moonraker_connected": True
+                    "moonraker_connected": True,
+                    **self._build_client_runtime_state(),
                 }
                 
         except asyncio.TimeoutError:
             logger.warning("Timeout getting printer status from Moonraker")
-            return {"moonraker_connected": False, "error": "timeout"}
+            return {"moonraker_connected": False, "error": "timeout", **self._build_client_runtime_state()}
         except aiohttp.ClientError as e:
             logger.warning(f"Error connecting to Moonraker: {e}")
-            return {"moonraker_connected": False, "error": str(e)}
+            return {"moonraker_connected": False, "error": str(e), **self._build_client_runtime_state()}
         except Exception as e:
             logger.error(f"Unexpected error getting printer status: {e}")
-            return {"moonraker_connected": False, "error": str(e)}
+            return {"moonraker_connected": False, "error": str(e), **self._build_client_runtime_state()}
     
     # ===== Moonraker WebSocket Proxy Methods =====
     
@@ -372,6 +490,7 @@ class FleetClient:
             if msg_type == "registered":
                 logger.info(f"Registered with fleet: {data.get('message')}")
                 self.reconnect_delay = 5  # Reset reconnect delay on successful registration
+                await self.send_client_update_status()
                 
             elif msg_type == "heartbeat_ack":
                 logger.debug("Heartbeat acknowledged")
@@ -382,8 +501,36 @@ class FleetClient:
             elif msg_type == "upload_file":
                 await self.handle_file_upload(data)
                 
+            elif msg_type == "config_sync":
+                await self.handle_config_sync(data)
+
+            elif msg_type == "config_fetch":
+                await self.handle_config_fetch(data)
+                
             elif msg_type == "webcam_request":
                 await self.handle_webcam_request(data)
+            
+            elif msg_type == "trigger_update":
+                # Server requesting immediate update check
+                logger.info("Update check triggered by fleet server")
+                asyncio.create_task(self.check_for_updates(force=True))
+            
+            elif msg_type == "set_auto_update":
+                # Server setting auto-update preference
+                enabled = data.get('enabled', True)
+                self.auto_update_enabled = enabled
+                self._persist_auto_update_setting()
+                logger.info(f"Auto-update {'enabled' if enabled else 'disabled'}")
+                await self._set_update_status(
+                    self.update_state if self.update_state != 'idle' else 'idle',
+                    f"Auto-update {'enabled' if enabled else 'disabled'}",
+                    progress=self.update_progress,
+                    send_update=True,
+                )
+
+            elif msg_type == "restart_client":
+                logger.info("Fleet manager requested fleet-client service restart")
+                asyncio.create_task(self.restart_service("Remote restart requested by fleet manager"))
                 
             elif msg_type == "error":
                 logger.error(f"Fleet server error: {data.get('message')}")
@@ -504,6 +651,253 @@ class FleetClient:
                 except:
                     pass
     
+    async def handle_config_sync(self, data: dict):
+        """
+        Handle config sync from fleet server.
+        
+        Receives a configuration file (e.g., printer.cfg) from the fleet manager
+        and writes it to Moonraker's config directory.
+        """
+        import base64
+        
+        template_id = data.get("templateId", "unknown")
+        filename = data.get("filename", "config.cfg")
+        content_b64 = data.get("content", "")
+        version = data.get("version", "1.0")
+        content_hash = data.get("contentHash", "")
+        
+        try:
+            # Decode base64 content
+            content = base64.b64decode(content_b64)
+            logger.info(f"Receiving config: {filename} v{version} ({len(content)} bytes)")
+            
+            # Upload to Moonraker's config directory
+            async with aiohttp.ClientSession() as session:
+                # Create multipart form data
+                form = aiohttp.FormData()
+                form.add_field(
+                    'file',
+                    content,
+                    filename=filename,
+                    content_type='text/plain'
+                )
+                # Use root=config to write to config directory
+                form.add_field('root', 'config')
+                
+                upload_url = f"{self.moonraker_url}/server/files/upload"
+                async with session.post(upload_url, data=form) as resp:
+                    if resp.status == 201:
+                        result = await resp.json()
+                        logger.info(f"Config synced successfully: {filename} v{version}")
+                        
+                        # Send success response back to fleet
+                        if self.websocket:
+                            await self.websocket.send(json.dumps({
+                                "type": "config_sync_complete",
+                                "templateId": template_id,
+                                "filename": filename,
+                                "version": version,
+                                "contentHash": content_hash,
+                                "success": True,
+                                "printer_id": self.printer_id
+                            }))
+                    else:
+                        error_text = await resp.text()
+                        logger.error(f"Failed to sync config to Moonraker: {resp.status} - {error_text}")
+                        
+                        if self.websocket:
+                            await self.websocket.send(json.dumps({
+                                "type": "config_sync_complete",
+                                "templateId": template_id,
+                                "filename": filename,
+                                "success": False,
+                                "error": f"Moonraker error: {resp.status}",
+                                "printer_id": self.printer_id
+                            }))
+                            
+        except Exception as e:
+            logger.error(f"Failed to handle config sync: {e}")
+            if self.websocket:
+                try:
+                    await self.websocket.send(json.dumps({
+                        "type": "config_sync_complete",
+                        "templateId": template_id,
+                        "filename": filename,
+                        "success": False,
+                        "error": str(e),
+                        "printer_id": self.printer_id
+                    }))
+                except:
+                    pass
+
+    def _normalize_config_path(self, path: str, base_file: str = "") -> Optional[str]:
+        """Normalize config-relative path and prevent traversal outside config root."""
+        raw_path = (path or '').strip()
+        if not raw_path:
+            return None
+
+        if raw_path.startswith('/'):
+            raw_path = raw_path[1:]
+
+        base_dir = posixpath.dirname(base_file) if base_file else ''
+        merged = posixpath.join(base_dir, raw_path) if base_dir else raw_path
+        normalized = posixpath.normpath(merged)
+
+        if normalized in ('', '.', '..') or normalized.startswith('../'):
+            return None
+
+        return normalized
+
+    def _extract_include_paths(self, content: str, current_file: str) -> tuple[list[str], list[str]]:
+        """Extract include file paths from a Klipper config section."""
+        include_paths: list[str] = []
+        unresolved: list[str] = []
+
+        for line in content.splitlines():
+            stripped = line.strip()
+            if not stripped.lower().startswith('[include ') or not stripped.endswith(']'):
+                continue
+
+            include_target = stripped[len('[include '):-1].strip()
+            if not include_target:
+                continue
+
+            # Globs are not expanded in this first implementation
+            if any(token in include_target for token in ['*', '?', '[', ']']):
+                unresolved.append(include_target)
+                continue
+
+            normalized = self._normalize_config_path(include_target, current_file)
+            if normalized:
+                include_paths.append(normalized)
+            else:
+                unresolved.append(include_target)
+
+        return include_paths, unresolved
+
+    async def _fetch_config_file(self, session: aiohttp.ClientSession, config_path: str) -> tuple[bool, dict]:
+        """Fetch config file content from Moonraker config root."""
+        encoded_path = quote(config_path, safe='/')
+        root_candidates = ['config', 'configs']
+        last_status = 404
+
+        try:
+            for root in root_candidates:
+                file_url = f"{self.moonraker_url}/server/files/{root}/{encoded_path}"
+                async with session.get(file_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status != 200:
+                        last_status = resp.status
+                        continue
+
+                    content_bytes = await resp.read()
+                    content_hash = hashlib.sha256(content_bytes).hexdigest()
+
+                    return True, {
+                        'path': config_path,
+                        'content': content_bytes.decode('utf-8', errors='replace'),
+                        'content_hash': content_hash,
+                        'size': len(content_bytes),
+                    }
+
+            return False, {
+                'path': config_path,
+                'error': f'Moonraker file fetch failed from config roots {root_candidates}: HTTP {last_status}',
+                'status': last_status,
+            }
+        except Exception as exc:
+            return False, {
+                'path': config_path,
+                'error': str(exc),
+                'status': 502,
+            }
+
+    async def handle_config_fetch(self, data: dict):
+        """
+        Fetch one or more running config files from Moonraker config root and relay to fleet manager.
+        """
+        import base64
+
+        request_id = data.get('request_id', 'unknown')
+        filenames = data.get('filenames', ['printer.cfg'])
+        include_dependencies = bool(data.get('include_dependencies', True))
+
+        if not isinstance(filenames, list) or not filenames:
+            filenames = ['printer.cfg']
+
+        normalized_seeds = []
+        for filename in filenames:
+            normalized = self._normalize_config_path(str(filename))
+            if normalized:
+                normalized_seeds.append(normalized)
+
+        if not normalized_seeds:
+            normalized_seeds = ['printer.cfg']
+
+        files_out = []
+        unresolved_includes: list[str] = []
+        visited: set[str] = set()
+        queue = list(dict.fromkeys(normalized_seeds))
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                while queue:
+                    current = queue.pop(0)
+                    if current in visited:
+                        continue
+                    visited.add(current)
+
+                    ok, result = await self._fetch_config_file(session, current)
+                    if not ok:
+                        if self.websocket:
+                            await self.websocket.send(json.dumps({
+                                'type': 'config_fetch_response',
+                                'request_id': request_id,
+                                'success': False,
+                                'error': result.get('error', 'Failed to fetch config file'),
+                                'status': result.get('status', 502),
+                                'details': result.get('path', current),
+                            }))
+                        return
+
+                    content = result['content']
+                    files_out.append({
+                        'path': result['path'],
+                        'content': base64.b64encode(content.encode('utf-8')).decode('utf-8'),
+                        'content_hash': result['content_hash'],
+                        'size': result['size'],
+                    })
+
+                    if include_dependencies:
+                        includes, unresolved = self._extract_include_paths(content, current)
+                        unresolved_includes.extend(unresolved)
+                        for include_path in includes:
+                            if include_path not in visited and include_path not in queue:
+                                queue.append(include_path)
+
+            if self.websocket:
+                await self.websocket.send(json.dumps({
+                    'type': 'config_fetch_response',
+                    'request_id': request_id,
+                    'success': True,
+                    'files': files_out,
+                    'unresolved_includes': sorted(set(unresolved_includes)),
+                    'fetched_at': datetime.now().isoformat(),
+                    'printer_id': self.printer_id,
+                }))
+        except Exception as exc:
+            logger.error(f'Failed to handle config fetch: {exc}')
+            if self.websocket:
+                try:
+                    await self.websocket.send(json.dumps({
+                        'type': 'config_fetch_response',
+                        'request_id': request_id,
+                        'success': False,
+                        'error': str(exc),
+                        'status': 500,
+                    }))
+                except:
+                    pass
+    
     async def handle_webcam_request(self, data: dict):
         """
         Handle webcam request from fleet server.
@@ -614,8 +1008,8 @@ class FleetClient:
                 "name": self.printer_name,
                 "hostname": local_hostname,
                 "local_ip": local_ip,
-                "capabilities": ["status_reporting", "remote_control", "gcode", "jsonrpc_proxy", "ota_update"],
-                "version": CLIENT_VERSION
+                "capabilities": self.client_capabilities,
+                **self._build_client_runtime_state(),
             }))
             
             self.connected = True
@@ -648,14 +1042,21 @@ class FleetClient:
         
         while self.running:
             try:
-                await self.check_for_updates()
+                if self.auto_update_enabled:
+                    await self.check_for_updates()
+                else:
+                    logger.debug("Auto-update disabled, skipping periodic check")
             except Exception as e:
                 logger.error(f"Update check failed: {e}")
             
             await asyncio.sleep(UPDATE_CHECK_INTERVAL)
     
-    async def check_for_updates(self):
+    async def check_for_updates(self, force: bool = False):
         """Check fleet-manager for available updates"""
+        if self.update_state in ('checking', 'downloading', 'installing', 'restarting'):
+            logger.info(f"Update flow already active ({self.update_state}), skipping duplicate request")
+            return
+
         # Extract base URL from WebSocket URL
         ws_url = self.fleet_ws_url
         if ws_url.startswith('wss://'):
@@ -667,12 +1068,26 @@ class FleetClient:
             return
         
         version_url = f"{base_url}/api/client/version"
+        self.last_update_check_at = datetime.now().isoformat()
+        await self._set_update_status(
+            'checking',
+            'Checking fleet manager for updates',
+            progress=5,
+            send_update=True,
+            reset_logs=force,
+        )
         
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(version_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status != 200:
                         logger.warning(f"Version check failed: HTTP {resp.status}")
+                        await self._set_update_status(
+                            'error',
+                            f"Version check failed: HTTP {resp.status}",
+                            progress=0,
+                            send_update=True,
+                        )
                         return
                     
                     version_info = await resp.json()
@@ -680,6 +1095,12 @@ class FleetClient:
                     min_version = version_info.get('min_version', '0.0.0')
                     
                     logger.info(f"Current version: {CLIENT_VERSION}, Remote version: {remote_version}")
+                    await self._set_update_status(
+                        'checking',
+                        f"Latest available version is v{remote_version}",
+                        progress=15,
+                        send_update=True,
+                    )
                     
                     # Compare versions
                     if self._version_compare(remote_version, CLIENT_VERSION) > 0:
@@ -690,11 +1111,19 @@ class FleetClient:
                         await self.perform_update(base_url, version_info)
                     else:
                         logger.debug("Client is up to date")
+                        await self._set_update_status(
+                            'up_to_date',
+                            f"Already on latest version v{CLIENT_VERSION}",
+                            progress=100,
+                            send_update=True,
+                        )
                         
         except asyncio.TimeoutError:
             logger.warning("Version check timed out")
+            await self._set_update_status('error', 'Version check timed out', progress=0, send_update=True)
         except aiohttp.ClientError as e:
             logger.warning(f"Version check network error: {e}")
+            await self._set_update_status('error', f'Version check network error: {e}', progress=0, send_update=True)
     
     def _version_compare(self, v1: str, v2: str) -> int:
         """Compare two version strings. Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if equal"""
@@ -720,19 +1149,45 @@ class FleetClient:
     async def perform_update(self, base_url: str, version_info: dict):
         """Download and install the update"""
         download_url = f"{base_url}/api/client/download"
+        target_version = version_info.get('version', 'unknown')
+        old_version = CLIENT_VERSION
+        await self._set_update_status(
+            'downloading',
+            f"Downloading fleet client v{target_version}",
+            progress=25,
+            send_update=True,
+        )
         
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(download_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
                     if resp.status != 200:
                         logger.error(f"Failed to download update: HTTP {resp.status}")
+                        await self._set_update_status(
+                            'error',
+                            f"Failed to download update: HTTP {resp.status}",
+                            progress=0,
+                            send_update=True,
+                        )
                         return
                     
                     new_content = await resp.text()
+                    await self._set_update_status(
+                        'installing',
+                        'Validating downloaded client package',
+                        progress=50,
+                        send_update=True,
+                    )
                     
                     # Verify the downloaded file has the version constant
                     if f'CLIENT_VERSION = "{version_info["version"]}"' not in new_content:
                         logger.error("Downloaded file version mismatch, aborting update")
+                        await self._set_update_status(
+                            'error',
+                            'Downloaded file version mismatch, aborting update',
+                            progress=0,
+                            send_update=True,
+                        )
                         return
                     
                     # Get current script path
@@ -741,6 +1196,12 @@ class FleetClient:
                     temp_script = current_script + '.new'
                     
                     logger.info(f"Updating {current_script}")
+                    await self._set_update_status(
+                        'installing',
+                        f'Writing new client script to {current_script}',
+                        progress=65,
+                        send_update=True,
+                    )
                     
                     # Write new content to temp file
                     with open(temp_script, 'w') as f:
@@ -751,6 +1212,12 @@ class FleetClient:
                     
                     # Backup current script
                     if os.path.exists(current_script):
+                        await self._set_update_status(
+                            'installing',
+                            'Backing up current client script',
+                            progress=75,
+                            send_update=True,
+                        )
                         shutil.copy2(current_script, backup_script)
                     
                     # Replace current with new
@@ -758,6 +1225,12 @@ class FleetClient:
                     
                     logger.info(f"Update installed successfully: {CLIENT_VERSION} -> {version_info['version']}")
                     logger.info("Restarting service...")
+                    await self._set_update_status(
+                        'installing',
+                        f'Installed v{target_version}; preparing restart',
+                        progress=90,
+                        send_update=True,
+                    )
                     
                     # Notify fleet-manager about the update
                     if self.websocket and self.connected:
@@ -765,23 +1238,36 @@ class FleetClient:
                             await self.websocket.send(json.dumps({
                                 "type": "client_updated",
                                 "printer_id": self.printer_id,
-                                "old_version": CLIENT_VERSION,
-                                "new_version": version_info['version']
+                                "old_version": old_version,
+                                "new_version": target_version,
+                                "data": {
+                                    **self._build_client_runtime_state(),
+                                    "version": target_version,
+                                    "update_state": "restarting",
+                                    "update_message": f"Installed v{target_version}; restarting service",
+                                    "update_progress": 95,
+                                },
                             }))
                         except:
                             pass
                     
                     # Restart the systemd service
-                    self.running = False
-                    subprocess.Popen(['sudo', 'systemctl', 'restart', 'fleet-client'])
+                    await self.restart_service(f"Restarting service to apply v{target_version}")
                     
         except Exception as e:
             logger.error(f"Update failed: {e}")
+            await self._set_update_status('error', f'Update failed: {e}', progress=0, send_update=True)
             # Try to restore backup if exists
             backup_script = os.path.abspath(__file__) + '.backup'
             if os.path.exists(backup_script):
                 logger.info("Restoring backup...")
                 shutil.copy2(backup_script, os.path.abspath(__file__))
+                await self._set_update_status(
+                    'error',
+                    'Update failed; restored previous client backup',
+                    progress=0,
+                    send_update=True,
+                )
 
     async def run(self):
         """Main run loop"""

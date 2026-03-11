@@ -257,3 +257,54 @@ data:
             }
         }
     }
+
+---
+# BFP Print Monitor configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bfp-monitor-config
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: bfp-print-monitor
+    app.kubernetes.io/component: monitoring
+data:
+  print_monitor_config.json: |
+    {
+      "min_confidence": 0.6,
+      "discord_webhook": "",
+      "printers": {
+        "bfp2": {
+          "stream_url": "http://bfp2:8080/?action=snapshot",
+          "moonraker_url": "http://bfp2:7125"
+        },
+        "bfp3.local": {
+          "stream_url": "http://bfp3.local:8080/?action=snapshot",
+          "moonraker_url": "http://bfp3.local:7125"
+        },
+        "bfp4": {
+          "stream_url": "http://bfp4:8080/?action=snapshot",
+          "moonraker_url": "http://bfp4:7125"
+        },
+        "bfp5": {
+          "stream_url": "http://bfp5:8080/?action=snapshot",
+          "moonraker_url": "http://bfp5:7125"
+        },
+        "bfp7": {
+          "stream_url": "http://bfp7:8080/?action=snapshot",
+          "moonraker_url": "http://bfp7:7125"
+        },
+        "bfp8": {
+          "stream_url": "http://bfp8:8080/?action=snapshot",
+          "moonraker_url": "http://bfp8:7125"
+        },
+        "bfp9": {
+          "stream_url": "http://bfp9:8080/?action=snapshot",
+          "moonraker_url": "http://bfp9:7125"
+        },
+        "bfp10": {
+          "stream_url": "http://bfp10:8080/?action=snapshot",
+          "moonraker_url": "http://bfp10:7125"
+        }
+      }
+    }

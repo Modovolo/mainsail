@@ -7,7 +7,7 @@ import hmac
 import logging
 import os
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
@@ -202,6 +202,128 @@ class DatabaseService:
         with self.get_session() as session:
             session.query(RefreshTokenModel).filter_by(user_id=user_id).delete()
             session.commit()
+
+    # ==================== Admin User Management Methods ====================
+
+    def get_all_users(self) -> List[User]:
+        """Get all users (admin function)"""
+        with self.get_session() as session:
+            users = session.query(UserModel).order_by(UserModel.username).all()
+            return [User.from_model(u) for u in users]
+
+    def admin_reset_password(self, user_id: str, new_password: str) -> bool:
+        """Admin function to reset a user's password"""
+        with self.get_session() as session:
+            password_hash = self._hash_password(new_password)
+            result = session.query(UserModel).filter_by(id=user_id).update(
+                {'password_hash': password_hash}
+            )
+            session.commit()
+            if result > 0:
+                # Revoke all existing tokens for the user
+                self.revoke_all_user_tokens(user_id)
+                return True
+            return False
+
+    def update_user_role(self, user_id: str, new_role: str) -> bool:
+        """Update user role (admin function)"""
+        with self.get_session() as session:
+            result = session.query(UserModel).filter_by(id=user_id).update(
+                {'role': new_role}
+            )
+            session.commit()
+            return result > 0
+
+    def deactivate_user(self, user_id: str) -> bool:
+        """Deactivate a user account (admin function)"""
+        with self.get_session() as session:
+            result = session.query(UserModel).filter_by(id=user_id).update(
+                {'is_active': False}
+            )
+            session.commit()
+            if result > 0:
+                self.revoke_all_user_tokens(user_id)
+                return True
+            return False
+
+    def activate_user(self, user_id: str) -> bool:
+        """Activate a user account (admin function)"""
+        with self.get_session() as session:
+            result = session.query(UserModel).filter_by(id=user_id).update(
+                {'is_active': True}
+            )
+            session.commit()
+            return result > 0
+
+    # ==================== Password Reset Token Methods ====================
+
+    def create_password_reset_token(self, user_id: str) -> str:
+        """Create a password reset token for a user"""
+        from models.user import PasswordResetTokenModel
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(hours=1)  # Token valid for 1 hour
+        
+        with self.get_session() as session:
+            # Invalidate any existing tokens for this user
+            session.query(PasswordResetTokenModel).filter_by(user_id=user_id).delete()
+            
+            token_model = PasswordResetTokenModel(
+                token=token,
+                user_id=user_id,
+                expires_at=expires_at,
+                created_at=datetime.utcnow(),
+                used=False
+            )
+            session.add(token_model)
+            session.commit()
+        
+        return token
+
+    def validate_password_reset_token(self, token: str) -> Optional[str]:
+        """Validate a password reset token and return user_id if valid"""
+        from models.user import PasswordResetTokenModel
+        with self.get_session() as session:
+            token_model = session.query(PasswordResetTokenModel).filter_by(token=token).first()
+            if token_model and not token_model.used and token_model.expires_at > datetime.utcnow():
+                return token_model.user_id
+        return None
+
+    def use_password_reset_token(self, token: str, new_password: str) -> bool:
+        """Use a password reset token to change a user's password"""
+        from models.user import PasswordResetTokenModel
+        user_id = self.validate_password_reset_token(token)
+        if not user_id:
+            return False
+        
+        with self.get_session() as session:
+            # Update password
+            password_hash = self._hash_password(new_password)
+            session.query(UserModel).filter_by(id=user_id).update(
+                {'password_hash': password_hash}
+            )
+            
+            # Mark token as used
+            session.query(PasswordResetTokenModel).filter_by(token=token).update(
+                {'used': True}
+            )
+            session.commit()
+        
+        # Revoke all refresh tokens
+        self.revoke_all_user_tokens(user_id)
+        return True
+
+    def get_user_by_email(self, email: str) -> Optional[User]:
+        """Get user by email address"""
+        if not email:
+            return None
+        with self.get_session() as session:
+            from sqlalchemy import func
+            user = session.query(UserModel).filter(
+                func.lower(UserModel.email) == email.lower()
+            ).first()
+            if user:
+                return User.from_model(user)
+        return None
 
     # ==================== Printer Methods ====================
 
@@ -747,3 +869,259 @@ class DatabaseService:
             session.delete(model)
             session.commit()
             return True
+
+    # ==================== Config Template Methods ====================
+
+    def _get_template_source_path_map(self, session, template_ids: List[str]) -> Dict[str, str]:
+        from models.config_template import ConfigTemplateSourceBindingModel
+
+        if not template_ids:
+            return {}
+
+        bindings = (
+            session.query(ConfigTemplateSourceBindingModel)
+            .filter(ConfigTemplateSourceBindingModel.template_id.in_(template_ids))
+            .all()
+        )
+        return {
+            binding.template_id: binding.source_path
+            for binding in bindings
+            if binding.source_path
+        }
+
+    def get_template_source_binding(self, template_id: str) -> Optional[str]:
+        """Get canonical source path binding for a template."""
+        from models.config_template import ConfigTemplateSourceBindingModel
+
+        with self.get_session() as session:
+            binding = session.query(ConfigTemplateSourceBindingModel).filter_by(template_id=template_id).first()
+            if not binding:
+                return None
+            return binding.source_path
+
+    def upsert_template_source_binding(self, template_id: str, source_path: Optional[str]) -> Optional[str]:
+        """Create, update, or delete source binding for a template."""
+        from models.config_template import ConfigTemplateSourceBindingModel
+
+        cleaned_path = (source_path or '').strip()
+
+        with self.get_session() as session:
+            binding = session.query(ConfigTemplateSourceBindingModel).filter_by(template_id=template_id).first()
+
+            if not cleaned_path:
+                if binding:
+                    session.delete(binding)
+                return None
+
+            if binding:
+                binding.source_path = cleaned_path
+                binding.updated_at = datetime.utcnow()
+            else:
+                binding = ConfigTemplateSourceBindingModel(
+                    id=secrets.token_hex(16),
+                    template_id=template_id,
+                    source_path=cleaned_path,
+                    updated_at=datetime.utcnow(),
+                )
+                session.add(binding)
+
+            session.flush()
+            return cleaned_path
+
+    def get_config_templates(self) -> List['ConfigTemplate']:
+        """Get all config templates"""
+        from models.config_template import ConfigTemplateModel, ConfigTemplate
+        with self.get_session() as session:
+            models = session.query(ConfigTemplateModel).order_by(ConfigTemplateModel.name).all()
+            source_map = self._get_template_source_path_map(session, [m.id for m in models])
+            return [
+                ConfigTemplate.from_model(m, include_username=True, source_path=source_map.get(m.id))
+                for m in models
+            ]
+
+    def get_config_template_by_id(self, template_id: str) -> Optional['ConfigTemplate']:
+        """Get a config template by ID"""
+        from models.config_template import ConfigTemplateModel, ConfigTemplate
+        with self.get_session() as session:
+            model = session.query(ConfigTemplateModel).filter_by(id=template_id).first()
+            if model:
+                source_map = self._get_template_source_path_map(session, [model.id])
+                return ConfigTemplate.from_model(
+                    model,
+                    include_username=True,
+                    source_path=source_map.get(model.id),
+                )
+        return None
+
+    def create_config_template(
+        self,
+        template_id: str,
+        name: str,
+        filename: str,
+        content: str,
+        content_hash: str,
+        version: str,
+        description: Optional[str],
+        created_by: str,
+        source_path: Optional[str] = None,
+    ) -> 'ConfigTemplate':
+        """Create a new config template"""
+        from models.config_template import ConfigTemplateModel, ConfigTemplate, ConfigTemplateSourceBindingModel
+        with self.get_session() as session:
+            model = ConfigTemplateModel(
+                id=template_id,
+                name=name,
+                filename=filename,
+                content=content,
+                content_hash=content_hash,
+                version=version,
+                description=description,
+                created_by=created_by,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            session.add(model)
+
+            cleaned_source_path = (source_path or '').strip()
+            if cleaned_source_path:
+                session.add(
+                    ConfigTemplateSourceBindingModel(
+                        id=secrets.token_hex(16),
+                        template_id=template_id,
+                        source_path=cleaned_source_path,
+                        updated_at=datetime.utcnow(),
+                    )
+                )
+
+            session.commit()
+            session.refresh(model)
+            return ConfigTemplate.from_model(
+                model,
+                include_username=True,
+                source_path=cleaned_source_path or None,
+            )
+
+    def update_config_template(
+        self,
+        template_id: str,
+        name: str,
+        filename: str,
+        content: str,
+        content_hash: str,
+        version: str,
+        description: Optional[str],
+        source_path: Optional[str] = None,
+    ) -> Optional['ConfigTemplate']:
+        """Update an existing config template"""
+        from models.config_template import ConfigTemplateModel, ConfigTemplate, ConfigTemplateSourceBindingModel
+        with self.get_session() as session:
+            model = session.query(ConfigTemplateModel).filter_by(id=template_id).first()
+            if not model:
+                return None
+            
+            model.name = name
+            model.filename = filename
+            model.content = content
+            model.content_hash = content_hash
+            model.version = version
+            model.description = description
+            model.updated_at = datetime.utcnow()
+
+            cleaned_source_path = (source_path or '').strip()
+            binding = session.query(ConfigTemplateSourceBindingModel).filter_by(template_id=template_id).first()
+            if cleaned_source_path:
+                if binding:
+                    binding.source_path = cleaned_source_path
+                    binding.updated_at = datetime.utcnow()
+                else:
+                    session.add(
+                        ConfigTemplateSourceBindingModel(
+                            id=secrets.token_hex(16),
+                            template_id=template_id,
+                            source_path=cleaned_source_path,
+                            updated_at=datetime.utcnow(),
+                        )
+                    )
+            elif binding:
+                session.delete(binding)
+            
+            session.commit()
+            session.refresh(model)
+            return ConfigTemplate.from_model(
+                model,
+                include_username=True,
+                source_path=cleaned_source_path or None,
+            )
+
+    def delete_config_template(self, template_id: str) -> bool:
+        """Delete a config template and its sync statuses"""
+        from models.config_template import (
+            ConfigTemplateModel,
+            ConfigTemplateSourceBindingModel,
+            PrinterConfigStatusModel,
+        )
+        with self.get_session() as session:
+            # Delete sync statuses first
+            session.query(PrinterConfigStatusModel).filter_by(template_id=template_id).delete()
+            session.query(ConfigTemplateSourceBindingModel).filter_by(template_id=template_id).delete()
+            
+            # Delete template
+            model = session.query(ConfigTemplateModel).filter_by(id=template_id).first()
+            if not model:
+                return False
+            session.delete(model)
+            session.commit()
+            return True
+
+    # ==================== Printer Config Status Methods ====================
+
+    def get_all_printer_config_statuses(self) -> List['PrinterConfigStatus']:
+        """Get all printer config sync statuses"""
+        from models.config_template import PrinterConfigStatusModel, PrinterConfigStatus
+        with self.get_session() as session:
+            models = session.query(PrinterConfigStatusModel).all()
+            return [PrinterConfigStatus.from_model(m) for m in models]
+
+    def get_printer_config_statuses(self, printer_id: str) -> List['PrinterConfigStatus']:
+        """Get config sync statuses for a specific printer"""
+        from models.config_template import PrinterConfigStatusModel, PrinterConfigStatus
+        with self.get_session() as session:
+            models = session.query(PrinterConfigStatusModel).filter_by(printer_id=printer_id).all()
+            return [PrinterConfigStatus.from_model(m) for m in models]
+
+    def update_printer_config_status(
+        self,
+        printer_id: str,
+        template_id: str,
+        synced_version: str,
+        synced_hash: str
+    ) -> 'PrinterConfigStatus':
+        """Update or create a printer config status record"""
+        from models.config_template import PrinterConfigStatusModel, PrinterConfigStatus
+        with self.get_session() as session:
+            # Try to find existing
+            model = session.query(PrinterConfigStatusModel).filter_by(
+                printer_id=printer_id,
+                template_id=template_id
+            ).first()
+            
+            if model:
+                # Update existing
+                model.synced_version = synced_version
+                model.synced_hash = synced_hash
+                model.synced_at = datetime.utcnow()
+            else:
+                # Create new
+                model = PrinterConfigStatusModel(
+                    id=secrets.token_hex(16),
+                    printer_id=printer_id,
+                    template_id=template_id,
+                    synced_version=synced_version,
+                    synced_hash=synced_hash,
+                    synced_at=datetime.utcnow()
+                )
+                session.add(model)
+            
+            session.commit()
+            session.refresh(model)
+            return PrinterConfigStatus.from_model(model)

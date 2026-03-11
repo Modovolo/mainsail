@@ -160,10 +160,19 @@ export class PrepareWidget {
         this.modified = true
     }
 
-    mirror(): void {
+    mirror(axis: 'x' | 'y' | 'z' = 'x'): void {
         this.group.forEach(w => {
             w.bounds = null
-            w.mesh.geometry.applyMatrix4(new THREE.Matrix4().makeScale(-1, 1, 1))
+            const mirrorScale =
+                axis === 'x'
+                    ? new THREE.Vector3(-1, 1, 1)
+                    : axis === 'y'
+                        ? new THREE.Vector3(1, -1, 1)
+                        : new THREE.Vector3(1, 1, -1)
+
+            w.mesh.geometry.applyMatrix4(
+                new THREE.Matrix4().makeScale(mirrorScale.x, mirrorScale.y, mirrorScale.z)
+            )
             // Flip normals
             const positions = w.mesh.geometry.attributes.position
             if (positions) {

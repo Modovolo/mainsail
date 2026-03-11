@@ -22,6 +22,7 @@ export const mutations: MutationTree<EditorState> = {
     },
 
     openFile(state, payload) {
+        Vue.set(state, 'diffMode', !!payload.diffMode)
         Vue.set(state, 'filename', payload.filename)
         Vue.set(state, 'fileroot', payload.fileroot)
         Vue.set(state, 'filepath', payload.filepath)

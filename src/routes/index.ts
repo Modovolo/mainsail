@@ -10,14 +10,15 @@ import Machine from '../pages/Machine.vue'
 import Login from '../pages/Login.vue'
 import MyPrinters from '../pages/MyPrinters.vue'
 import CentralFiles from '../pages/CentralFiles.vue'
+import ConfigSync from '../pages/ConfigSync.vue'
 import PrintQueue from '../pages/PrintQueue.vue'
 import Settings from '../pages/Settings.vue'
-import PreparePage from '../pages/PreparePage.vue'
-import PreviewPage from '../pages/PreviewPage.vue'
+import SlicingPage from '../pages/SlicingPage.vue'
 import MonitoringPage from '../pages/MonitoringPage.vue'
 import { AsyncComponent, Component } from 'vue'
 
 import {
+    mdiChartAreaspline,
     mdiMonitorDashboard,
     mdiViewDashboard,
     mdiWebcam,
@@ -27,6 +28,7 @@ import {
     mdiFolderNetwork,
     mdiPlaylistPlay,
     mdiCog,
+    mdiCogSync,
     mdiVideo3d,
     mdiHistory,
     mdiTimelapse,
@@ -48,23 +50,31 @@ const routes: AppRoute[] = [
         meta: { requiresAuth: false, isPublic: true },
     },
     {
-        name: 'prepare',
-        title: 'Prepare',
-        path: '/prepare',
+        name: 'slicing',
+        title: 'Slicing',
+        path: '/slicing',
         icon: mdiPrinter3dNozzle,
-        component: PreparePage,
+        component: SlicingPage,
         alwaysShow: true,
         showInNavi: true,
         position: 15,
         meta: { requiresAuth: true },
     },
     {
-        name: 'preview',
-        title: 'Preview',
+        title: null,
         path: '/preview',
-        icon: mdiWebcam,
-        component: PreviewPage,
-        alwaysShow: true,
+        redirect: '/slicing?mode=preview',
+        component: null,
+        alwaysShow: false,
+        showInNavi: false,
+        meta: { requiresAuth: true },
+    },
+    {
+        title: null,
+        path: '/prepare',
+        redirect: '/slicing?mode=prepare',
+        component: null,
+        alwaysShow: false,
         showInNavi: false,
         meta: { requiresAuth: true },
     },
@@ -142,6 +152,17 @@ const routes: AppRoute[] = [
         alwaysShow: true,
         showInNavi: true,
         position: 9,
+        meta: { requiresAuth: true },
+    },
+    {
+        name: 'config-sync',
+        title: 'Config Sync',
+        path: '/config-sync',
+        icon: mdiCogSync,
+        component: ConfigSync,
+        alwaysShow: true,
+        showInNavi: true,
+        position: 9.5,
         meta: { requiresAuth: true },
     },
     {
@@ -236,6 +257,18 @@ const routes: AppRoute[] = [
         showInNavi: true,
         moonrakerComponent: 'history',
         position: 70,
+        meta: { requiresAuth: true },
+    },
+    {
+        name: 'charts',
+        title: 'Charts',
+        path: '/charts',
+        icon: mdiChartAreaspline,
+        component: History,
+        alwaysShow: true,
+        showInNavi: true,
+        moonrakerComponent: 'history',
+        position: 71,
         meta: { requiresAuth: true },
     },
     {

@@ -221,7 +221,7 @@ export default class PageDashboard extends Mixins(DashboardMixin) {
             
             // Reset fleet-specific state
             this.$store.commit('socket/setDisconnected')
-3            this.$store.commit('socket/setFleetPrinterConnected', null)
+            this.$store.commit('socket/setFleetPrinterConnected', null)
             this.$store.commit('socket/setFleetPrinterId', null)
             this.$store.commit('socket/setFleetPrinterName', null)
         }

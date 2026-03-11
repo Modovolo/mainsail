@@ -4,6 +4,10 @@ import { RootState } from '../types'
 import Vue from 'vue'
 import axios from 'axios'
 
+function normalizeToken(token: string | null | undefined): string {
+    return (token ?? '').replace(/^Bearer\s+/i, '').trim()
+}
+
 // Map backend error messages to user-friendly messages
 const ERROR_MESSAGES: Record<string, string> = {
     // Registration errors
@@ -79,7 +83,9 @@ export const actions: ActionTree<AuthState, RootState> = {
 
         try {
             const response = await axios.post('/api/auth/login', credentials)
-            const { token, refreshToken, user } = response.data
+            const rawToken = response.data?.token
+            const token = normalizeToken(rawToken)
+            const { refreshToken, user } = response.data
 
             commit('setToken', token)
             commit('setRefreshToken', refreshToken)
@@ -130,7 +136,7 @@ export const actions: ActionTree<AuthState, RootState> = {
 
         try {
             const response = await axios.post('/api/auth/refresh', { refreshToken })
-            const { token } = response.data
+            const token = normalizeToken(response.data?.token)
 
             commit('setToken', token)
             localStorage.setItem('fleet_token', token)
@@ -144,7 +150,7 @@ export const actions: ActionTree<AuthState, RootState> = {
     },
 
     async checkAuth({ commit, dispatch }) {
-        const token = localStorage.getItem('fleet_token')
+        const token = normalizeToken(localStorage.getItem('fleet_token'))
         
         if (!token) {
             return false

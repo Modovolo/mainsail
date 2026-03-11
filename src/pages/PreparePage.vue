@@ -826,6 +826,7 @@ import SliceSettingsPanel from '@/components/panels/Prepare/SliceSettingsPanel.v
 import { getSlicerEngine } from '@/util/slicer/SlicerEngine'
 import { mapSettings } from '@/util/slicer/settingsMapper'
 import type { SlicerConfig } from '@/util/slicer/types'
+import { setSharedPrepareViewerState, clearSharedPrepareViewerState } from '@/util/prepare/sharedViewer'
 import {
     mdiCube,
     mdiCubeOutline,
@@ -994,8 +995,15 @@ export default class PreparePage extends Mixins(BaseMixin) {
     camera: THREE.PerspectiveCamera | null = null
     renderer: THREE.WebGLRenderer | null = null
     controls: OrbitControls | null = null
+    private renderPending = false
     raycaster = new THREE.Raycaster()
     mouse = new THREE.Vector2()
+    private preserveViewerForPreview = false
+    private lastHoverRaycastAt = 0
+    private readonly hoverRaycastIntervalMs = 33
+    private lastHoverWidgetId: string | null = null
+    private lastCursorStyle: string = 'default'
+    private readonly onControlsChange = () => this.requestRender()
     
     // Platform & widgets
     platform: Platform | null = null
@@ -1150,16 +1158,21 @@ export default class PreparePage extends Mixins(BaseMixin) {
     // --- Lifecycle ---
     
     mounted() {
+        this.preserveViewerForPreview = false
+        clearSharedPrepareViewerState()
+
         // Load printer profiles from PostgreSQL via fleet API
         this.$store.dispatch('prepare/initPrinterProfiles')
         
         // Use multiple strategies to ensure 3D environment loads
         this.$nextTick(() => {
+            this.setupContainerResizeObserver()
             this.initThreeJS()
         })
         // Fallback: retry after a short delay if still not initialized
         setTimeout(() => {
             if (!this.scene) {
+                this.setupContainerResizeObserver()
                 this.initThreeJS()
             }
         }, 100)
@@ -1170,9 +1183,45 @@ export default class PreparePage extends Mixins(BaseMixin) {
     beforeDestroy() {
         window.removeEventListener('resize', this.onWindowResize)
         window.removeEventListener('keydown', this.handleKeyDown)
-        this.disposeThreeJS()
-        // Reset store state when leaving page
-        this.$store.commit('prepare/reset')
+        this.containerResizeObserver?.disconnect()
+        this.containerResizeObserver = null
+
+        if (!this.preserveViewerForPreview) {
+            this.disposeThreeJS()
+            // Reset store state when leaving page
+            this.$store.commit('prepare/reset')
+            clearSharedPrepareViewerState()
+        }
+    }
+
+    private handoffViewerToPreview() {
+        if (!this.renderer || !this.scene || !this.camera || !this.controls) return
+
+        this.preserveViewerForPreview = true
+        setSharedPrepareViewerState({
+            renderer: this.renderer,
+            scene: this.scene,
+            camera: this.camera,
+            controls: this.controls,
+            platform: this.platform,
+        })
+    }
+
+    beforeRouteLeave(to: any, _from: any, next: any) {
+        const goingToPreview = to?.name === 'preview' || to?.path === '/preview'
+        this.preserveViewerForPreview = goingToPreview
+
+        if (goingToPreview && this.renderer && this.scene && this.camera && this.controls) {
+            setSharedPrepareViewerState({
+                renderer: this.renderer,
+                scene: this.scene,
+                camera: this.camera,
+                controls: this.controls,
+                platform: this.platform,
+            })
+        }
+
+        next()
     }
     
     // --- Watchers ---
@@ -1265,34 +1314,64 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.$forceUpdate()
         this.syncStateToStore()
         this.updateTransformInputsFromSelection()
+        this.requestRender()
+    }
+
+    private renderScene() {
+        this.renderPending = false
+        if (!this.renderer || !this.scene || !this.camera) return
+        this.renderer.render(this.scene, this.camera)
+    }
+
+    private requestRender() {
+        if (this.renderPending) return
+        this.renderPending = true
+        requestAnimationFrame(() => this.renderScene())
     }
     
     // --- Three.js setup ---
     
     private initRetryCount = 0
+    private containerResizeObserver: ResizeObserver | null = null
+
+    private setupContainerResizeObserver() {
+        if (this.containerResizeObserver) return
+        if (typeof ResizeObserver === 'undefined') return
+
+        const container = this.$refs.viewerContainer as HTMLElement
+        if (!container) return
+
+        this.containerResizeObserver = new ResizeObserver((entries) => {
+            if (this.scene) return
+            for (const entry of entries) {
+                if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+                    this.initThreeJS()
+                    break
+                }
+            }
+        })
+
+        this.containerResizeObserver.observe(container)
+    }
     
     initThreeJS() {
         const container = this.$refs.viewerContainer as HTMLElement
         if (!container) {
-            // Container not ready, retry
-            if (this.initRetryCount < 10) {
-                this.initRetryCount++
-                requestAnimationFrame(() => this.initThreeJS())
-            }
+            // Container not ready yet (nextTick/observer will retry)
             return
         }
         
         // Guard against 0-height container (layout not ready yet)
         if (container.clientHeight === 0 || container.clientWidth === 0) {
-            if (this.initRetryCount < 20) {
+            // Common when rendered under /slicing while hidden; wait for resize observer.
+            if (this.initRetryCount < 5) {
                 this.initRetryCount++
-                requestAnimationFrame(() => this.initThreeJS())
-            } else {
-                // Force minimum dimensions as fallback
-                console.warn('PreparePage: Container has no dimensions, using fallback size')
+                console.warn('PreparePage: Container has no dimensions, waiting for layout to settle')
             }
             return
         }
+
+        this.initRetryCount = 0
         
         // Already initialized
         if (this.scene) return
@@ -1315,8 +1394,8 @@ export default class PreparePage extends Mixins(BaseMixin) {
         
         // Controls
         this.controls = new OrbitControls(this.camera, this.renderer.domElement)
-        this.controls.enableDamping = true
-        this.controls.dampingFactor = 0.05
+        this.controls.enableDamping = false
+        this.controls.addEventListener('change', this.onControlsChange)
         
         // Lighting
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
@@ -1359,8 +1438,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         canvas.addEventListener('mousemove', this.onMouseMove)
         canvas.addEventListener('mouseup', this.onMouseUp)
         
-        // Animation loop
-        this.animate()
+        this.requestRender()
     }
     
     updateBuildVolume() {
@@ -1406,22 +1484,24 @@ export default class PreparePage extends Mixins(BaseMixin) {
         const axesHelper = new THREE.AxesHelper(20)
         axesHelper.userData.isBuildVolume = true
         this.scene.add(axesHelper)
-    }
-    
-    animate() {
-        if (!this.renderer || !this.scene || !this.camera || !this.controls) return
-        requestAnimationFrame(() => this.animate())
-        this.controls.update()
-        this.renderer.render(this.scene, this.camera)
+
+        this.requestRender()
     }
     
     onWindowResize() {
         const container = this.$refs.viewerContainer as HTMLElement
-        if (!container || !this.camera || !this.renderer) return
+        if (!container) return
+        if (!this.scene || !this.camera || !this.renderer) {
+            if (container.clientWidth > 0 && container.clientHeight > 0) {
+                this.initThreeJS()
+            }
+            return
+        }
         if (container.clientHeight === 0) return  // Guard against collapsed container
         this.camera.aspect = container.clientWidth / container.clientHeight
         this.camera.updateProjectionMatrix()
         this.renderer.setSize(container.clientWidth, container.clientHeight)
+        this.requestRender()
     }
     
     disposeThreeJS() {
@@ -1431,6 +1511,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             canvas.removeEventListener('mousemove', this.onMouseMove)
             canvas.removeEventListener('mouseup', this.onMouseUp)
         }
+        this.controls?.removeEventListener('change', this.onControlsChange)
         if (this.renderer) this.renderer.dispose()
         if (this.platform) this.platform.removeAll()
     }
@@ -1463,6 +1544,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
                 if (event.ctrlKey || event.metaKey) {
                     if (hit.face) {
                         widget.layFlatOnFace(hit.face.normal)
+                        this.syncAndUpdate()
                     }
                     return
                 }
@@ -1503,22 +1585,44 @@ export default class PreparePage extends Mixins(BaseMixin) {
                 const newPoint = planeHits[0].point
                 const delta = newPoint.clone().sub(this.mouseDragPoint)
                 this.mouseDragPoint = newPoint.clone()
+
+                if (delta.lengthSq() < 0.000001) return
                 
                 // Move selected widgets (delta.x = X, delta.z = Y on platform)
                 this.platform.moveSelected(delta.x, delta.z, 0)
+                this.requestRender()
             }
         } else {
+            const now = performance.now()
+            if (now - this.lastHoverRaycastAt < this.hoverRaycastIntervalMs) return
+            this.lastHoverRaycastAt = now
+
             // Hover mode: highlight widget under cursor
             const meshes = this.platform.getMeshes()
             const intersections = this.raycaster.intersectObjects(meshes, false)
             
             if (intersections.length > 0) {
                 const widget = this.platform.widgetFromIntersection(intersections[0])
-                this.platform.setHover(widget)
-                if (container) container.style.cursor = 'pointer'
+                const widgetId = widget?.id || null
+                if (widgetId !== this.lastHoverWidgetId) {
+                    this.platform.setHover(widget)
+                    this.lastHoverWidgetId = widgetId
+                    this.requestRender()
+                }
+                if (container && this.lastCursorStyle !== 'pointer') {
+                    container.style.cursor = 'pointer'
+                    this.lastCursorStyle = 'pointer'
+                }
             } else {
-                this.platform.setHover(null)
-                if (container) container.style.cursor = 'default'
+                if (this.lastHoverWidgetId !== null) {
+                    this.platform.setHover(null)
+                    this.lastHoverWidgetId = null
+                    this.requestRender()
+                }
+                if (container && this.lastCursorStyle !== 'default') {
+                    container.style.cursor = 'default'
+                    this.lastCursorStyle = 'default'
+                }
             }
         }
     }
@@ -1844,7 +1948,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             }
         }
         
-        this.platform.dropToFloor(this.platform.selected)
+        this.layFlatSelected()
         this.syncAndUpdate()
     }
     
@@ -1858,7 +1962,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             widget.move(0, 0, 0, true)
         }
         
-        this.platform.dropToFloor(this.platform.selected)
+        this.layFlatSelected()
         this.centerSelected()
         this.syncAndUpdate()
     }
@@ -1910,7 +2014,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
                 true
             )
         }
-        this.platform.dropToFloor(this.platform.selected)
+        this.layFlatSelected()
         this.syncAndUpdate()
     }
     
@@ -1926,7 +2030,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
                 this.transformInputs.rotZ * toRad - currentRot.z
             )
         }
-        this.platform.dropToFloor(this.platform.selected)
+        this.layFlatSelected()
         this.syncAndUpdate()
     }
     
@@ -1952,7 +2056,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
                 )
             }
         }
-        this.platform.dropToFloor(this.platform.selected)
+        this.layFlatSelected()
         this.syncAndUpdate()
     }
     
@@ -1965,7 +2069,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             else if (axis === 'y') widget.rotate(0, rad, 0)
             else if (axis === 'z') widget.rotate(0, 0, rad)
         }
-        this.platform.dropToFloor(this.platform.selected)
+        this.layFlatSelected()
         this.updateTransformInputsFromSelection()
         this.syncAndUpdate()
     }
@@ -1976,7 +2080,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         for (const widget of this.platform.selected) {
             widget.scale(factor, factor, factor)
         }
-        this.platform.dropToFloor(this.platform.selected)
+        this.layFlatSelected()
         this.updateTransformInputsFromSelection()
         this.syncAndUpdate()
     }
@@ -2188,6 +2292,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             this.camera!.position.lerpVectors(startPos, targetPosition, ease)
             this.controls!.target.lerpVectors(startTarget, targetLookAt, ease)
             this.controls!.update()
+            this.requestRender()
             
             if (t < 1) {
                 requestAnimationFrame(animate)
@@ -2353,6 +2458,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
     
     previewGcode() {
         this.showResultDialog = false
+        this.handoffViewerToPreview()
         this.$router.push({ path: '/preview' })
     }
     

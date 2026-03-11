@@ -103,6 +103,7 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
                 'Fleet Dashboard',
                 'My Printers',
                 'Register Printer',
+                'Config Sync',
                 'All Printers',
                 'Printers',
                 'Farm',
@@ -112,6 +113,7 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
                 'Print Queue',
                 'Machine',
                 'History',
+                'Charts',
             ];
             return points.filter(entry => {
                 const titleToCheck = entry.orgTitle || entry.title;

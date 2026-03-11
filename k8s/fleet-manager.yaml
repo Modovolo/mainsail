@@ -78,6 +78,8 @@ spec:
                   key: email-from
             - name: FLEET_URL
               value: "https://fleet.modovolo.com"
+            - name: BFP_MONITOR_BASE_URL
+              value: "http://bfp-print-monitor:5000"
           resources:
             requests:
               cpu: 100m

@@ -41,7 +41,7 @@
         <div ref="viewerContainer" class="preview-viewer" />
 
         <!-- Layer Slider (vertical, right side) -->
-        <div v-if="parsedGcode" class="layer-slider-container">
+        <div v-if="parsedGcode && totalLayers > 0" class="layer-slider-container">
             <div class="layer-info">
                 <div class="text-caption">Layer {{ currentLayer + 1 }} / {{ totalLayers }}</div>
                 <div class="text-caption">Z: {{ currentZ.toFixed(2) }}mm</div>
@@ -73,7 +73,7 @@
         </div>
 
         <!-- Info Panel -->
-        <div v-if="parsedGcode" class="preview-info">
+        <div v-if="parsedGcode && totalLayers > 0" class="preview-info">
             <v-card dark class="pa-3" style="background: rgba(30,30,30,0.9)">
                 <div class="d-flex justify-space-between mb-1">
                     <span class="text-caption grey--text">Layers</span>
@@ -129,9 +129,11 @@ import { Mixins, Watch } from 'vue-property-decorator'
 import BaseMixin from '@/components/mixins/base'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
-import { parseGcode } from '@/util/gcode/parser'
+import { getGcodeParserEngine } from '@/util/gcode/ParserEngine'
 import { FEATURE_COLORS, FEATURE_COLORS_HEX } from '@/util/gcode/types'
 import type { ParsedGcode, GcodeFeatureType } from '@/util/gcode/types'
+import { takeSharedPrepareViewerState, clearSharedPrepareViewerState, setSharedPrepareViewerState } from '@/util/prepare/sharedViewer'
+import type { Platform } from '@/util/mesh'
 import {
     mdiPalette,
     mdiSpeedometer,
@@ -156,8 +158,25 @@ export default class PreviewPage extends Mixins(BaseMixin) {
     private scene: THREE.Scene | null = null
     private camera: THREE.PerspectiveCamera | null = null
     private controls: OrbitControls | null = null
-    private animFrameId = 0
+    private renderPending = false
     private buildPlate: THREE.Group | null = null
+    private usingSharedViewer = false
+    private preserveViewerForPrepare = false
+    private hiddenModelMeshes: THREE.Object3D[] = []
+    private sourcePlatform: Platform | null = null
+    private bedWidth = 220
+    private bedDepth = 220
+    private bedHeight = 250
+    private activeBuildToken = 0
+    private readonly maxLayerMovesForPreview = 200000
+    private readonly maxGlobalSegments = 2000000
+    private builtSegmentsTotal = 0
+    private warnedSafetyCap = false
+    private builtLayers: Set<number> = new Set()
+    private pendingLayerQueue: number[] = []
+    private isProcessingLayerQueue = false
+    private readonly initialFinishLayersCount = 6
+    private readonly onControlsChange = () => this.requestRender()
 
     // Toolpath line objects (one group per layer, separate travel lines)
     private layerMeshes: Map<number, THREE.Group> = new Map()
@@ -220,8 +239,54 @@ export default class PreviewPage extends Mixins(BaseMixin) {
     // --- Lifecycle ---
 
     mounted() {
-        this.initThree()
-        this.animate()
+        this.syncBedFromStore()
+
+        const sharedViewer = takeSharedPrepareViewerState()
+        if (sharedViewer) {
+            try {
+                this.usingSharedViewer = true
+                this.renderer = sharedViewer.renderer
+                this.scene = sharedViewer.scene
+                this.camera = sharedViewer.camera
+                this.controls = sharedViewer.controls
+
+                const container = this.$refs.viewerContainer as HTMLElement
+                if (container && this.renderer?.domElement) {
+                    const parent = this.renderer.domElement.parentElement
+                    if (parent) {
+                        parent.removeChild(this.renderer.domElement)
+                    }
+                    container.appendChild(this.renderer.domElement)
+                    this.renderer.setSize(container.clientWidth, container.clientHeight)
+                    this.camera.aspect = container.clientWidth / container.clientHeight
+                    this.camera.updateProjectionMatrix()
+                    ;(this.controls as any).domElement = this.renderer.domElement
+                    this.controls.enableDamping = false
+                    this.controls.addEventListener('change', this.onControlsChange)
+                    this.controls.update()
+                }
+
+                if (sharedViewer.platform) {
+                    this.sourcePlatform = sharedViewer.platform
+                    this.hiddenModelMeshes = sharedViewer.platform.widgets.map((widget: any) => widget.mesh)
+                    for (const mesh of this.hiddenModelMeshes) {
+                        mesh.visible = false
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to attach shared prepare viewer, falling back to new preview scene', error)
+                this.usingSharedViewer = false
+                this.hiddenModelMeshes = []
+                this.renderer = null
+                this.scene = null
+                this.camera = null
+                this.controls = null
+                this.initThree()
+            }
+        } else {
+            this.initThree()
+        }
+        this.requestRender()
 
         // Check if we have G-code from the store (passed from PreparePage slicing)
         const gcodeData = (this.$store.state.prepare as any)?.lastGcode
@@ -234,9 +299,49 @@ export default class PreviewPage extends Mixins(BaseMixin) {
 
     beforeDestroy() {
         window.removeEventListener('resize', this.onResize)
-        cancelAnimationFrame(this.animFrameId)
-        this.renderer?.dispose()
-        this.controls?.dispose()
+        this.controls?.removeEventListener('change', this.onControlsChange)
+        this.activeBuildToken++
+
+        for (const mesh of this.hiddenModelMeshes) {
+            mesh.visible = true
+        }
+        this.hiddenModelMeshes = []
+
+        if (!this.preserveViewerForPrepare) {
+            this.renderer?.dispose()
+            this.controls?.dispose()
+            clearSharedPrepareViewerState()
+            this.$store.commit('prepare/reset')
+        }
+    }
+
+    beforeRouteLeave(to: any, _from: any, next: any) {
+        const goingToPrepare = to?.name === 'prepare' || String(to?.path || '').startsWith('/prepare')
+        this.preserveViewerForPrepare = goingToPrepare
+
+        if (goingToPrepare && this.renderer && this.scene && this.camera && this.controls) {
+            setSharedPrepareViewerState({
+                renderer: this.renderer,
+                scene: this.scene,
+                camera: this.camera,
+                controls: this.controls,
+                platform: this.sourcePlatform,
+            })
+        }
+
+        next()
+    }
+
+    syncBedFromStore() {
+        const prepareState = this.$store.state.prepare as any
+        const profiles = prepareState?.printerProfiles ?? []
+        const activeId = prepareState?.activePrinterId
+        const profile = profiles.find((item: any) => item.id === activeId) ?? profiles[0]
+        if (profile?.buildVolume) {
+            this.bedWidth = Number(profile.buildVolume.x) || 220
+            this.bedDepth = Number(profile.buildVolume.y) || 220
+            this.bedHeight = Number(profile.buildVolume.z) || 250
+        }
     }
 
     // --- Three.js Setup ---
@@ -266,8 +371,8 @@ export default class PreviewPage extends Mixins(BaseMixin) {
 
         // Controls
         this.controls = new OrbitControls(this.camera, this.renderer.domElement)
-        this.controls.enableDamping = true
-        this.controls.dampingFactor = 0.1
+        this.controls.enableDamping = false
+        this.controls.addEventListener('change', this.onControlsChange)
 
         // Lighting
         const ambient = new THREE.AmbientLight(0xffffff, 0.6)
@@ -278,6 +383,20 @@ export default class PreviewPage extends Mixins(BaseMixin) {
 
         // Build plate (simple grid)
         this.buildBuildPlate()
+        this.requestRender()
+    }
+
+    private renderScene() {
+        this.renderPending = false
+        if (this.renderer && this.scene && this.camera) {
+            this.renderer.render(this.scene, this.camera)
+        }
+    }
+
+    private requestRender() {
+        if (this.renderPending) return
+        this.renderPending = true
+        requestAnimationFrame(() => this.renderScene())
     }
 
     buildBuildPlate() {
@@ -290,13 +409,14 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         this.buildPlate = new THREE.Group()
 
         // Grid
-        const gridSize = 220
-        const gridDiv = 22
+        const gridSize = Math.max(this.bedWidth, this.bedDepth)
+        const gridDiv = Math.max(10, Math.round(gridSize / 10))
         const grid = new THREE.GridHelper(gridSize, gridDiv, 0x444466, 0x333355)
+        grid.position.set(this.bedWidth / 2, 0, this.bedDepth / 2)
         this.buildPlate.add(grid)
 
         // Floor plane
-        const floorGeo = new THREE.PlaneGeometry(gridSize, gridSize)
+        const floorGeo = new THREE.PlaneGeometry(this.bedWidth, this.bedDepth)
         const floorMat = new THREE.MeshBasicMaterial({
             color: 0x1a1a2e,
             side: THREE.DoubleSide,
@@ -305,18 +425,20 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         })
         const floor = new THREE.Mesh(floorGeo, floorMat)
         floor.rotation.x = -Math.PI / 2
+        floor.position.x = this.bedWidth / 2
+        floor.position.z = this.bedDepth / 2
         floor.position.y = -0.01
         this.buildPlate.add(floor)
 
-        this.scene.add(this.buildPlate)
-    }
+        const boxGeometry = new THREE.BoxGeometry(this.bedWidth, this.bedHeight, this.bedDepth)
+        const edges = new THREE.EdgesGeometry(boxGeometry)
+        const lineMaterial = new THREE.LineBasicMaterial({ color: 0x4466aa, transparent: true, opacity: 0.4 })
+        const wireframe = new THREE.LineSegments(edges, lineMaterial)
+        wireframe.position.set(this.bedWidth / 2, this.bedHeight / 2, this.bedDepth / 2)
+        this.buildPlate.add(wireframe)
 
-    animate() {
-        this.animFrameId = requestAnimationFrame(() => this.animate())
-        this.controls?.update()
-        if (this.renderer && this.scene && this.camera) {
-            this.renderer.render(this.scene, this.camera)
-        }
+        this.scene.add(this.buildPlate)
+        this.requestRender()
     }
 
     onResize() {
@@ -325,18 +447,33 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         this.camera.aspect = container.clientWidth / container.clientHeight
         this.camera.updateProjectionMatrix()
         this.renderer.setSize(container.clientWidth, container.clientHeight)
+        this.requestRender()
     }
 
     resetCamera() {
         if (!this.camera || !this.controls) return
-        this.camera.position.set(150, 150, 200)
-        this.controls.target.set(110, 0, 110)
+        const maxSize = Math.max(this.bedWidth, this.bedDepth, this.bedHeight)
+        this.camera.position.set(maxSize * 0.7, maxSize * 0.7, maxSize)
+        this.controls.target.set(this.bedWidth / 2, 0, this.bedDepth / 2)
         this.controls.update()
+        this.requestRender()
     }
 
     fitView() {
         if (!this.parsedGcode || !this.camera || !this.controls) return
         const b = this.parsedGcode.bounds
+        if (
+            !b ||
+            !Number.isFinite(b.xMin) ||
+            !Number.isFinite(b.xMax) ||
+            !Number.isFinite(b.yMin) ||
+            !Number.isFinite(b.yMax) ||
+            !Number.isFinite(b.zMin) ||
+            !Number.isFinite(b.zMax)
+        ) {
+            this.resetCamera()
+            return
+        }
         const cx = (b.xMin + b.xMax) / 2
         const cy = (b.zMin + b.zMax) / 2
         const cz = (b.yMin + b.yMax) / 2
@@ -344,6 +481,7 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         this.camera.position.set(cx + size, cy + size, cz + size)
         this.controls.target.set(cx, cy, cz)
         this.controls.update()
+        this.requestRender()
     }
 
     // --- G-code Loading ---
@@ -372,28 +510,44 @@ export default class PreviewPage extends Mixins(BaseMixin) {
     async loadGcodeString(gcode: string) {
         this.isLoading = true
         this.loadingMessage = 'Parsing G-code...'
+        const buildToken = ++this.activeBuildToken
 
         // Parse in next tick to allow UI to update
         await this.$nextTick()
 
         try {
-            const parsed = parseGcode(gcode, (progress) => {
+            const parserEngine = getGcodeParserEngine()
+            const parsed = await parserEngine.parse(gcode, ({ progress }) => {
                 this.loadingMessage = `Parsing G-code... ${Math.round(progress)}%`
             })
 
+            if (buildToken !== this.activeBuildToken) return
+
+            if (!parsed || !Array.isArray(parsed.layers) || parsed.totalLayers <= 0) {
+                this.parsedGcode = null
+                this.$toast.error('No printable layers found in this G-code file')
+                return
+            }
+
             this.parsedGcode = parsed
-            this.currentLayer = parsed.totalLayers - 1
+            this.currentLayer = Math.max(parsed.totalLayers - 1, 0)
             this.layerRangeStart = 0
-            this.loadingMessage = 'Building visualization...'
+            this.showLayerRange = false
+            this.loadingMessage = 'Building finish layers...'
 
             await this.$nextTick()
-            this.buildAllLayers()
+            await this.buildAllLayers(buildToken)
+
+            if (buildToken !== this.activeBuildToken) return
+
             this.updateLayerVisibility()
             this.fitView()
         } catch (error: any) {
             console.error('Failed to parse G-code:', error)
         } finally {
-            this.isLoading = false
+            if (buildToken === this.activeBuildToken) {
+                this.isLoading = false
+            }
         }
     }
 
@@ -403,110 +557,195 @@ export default class PreviewPage extends Mixins(BaseMixin) {
      * Build Three.js line geometry for all layers.
      * Each feature type gets its own colored LineSegments object.
      */
-    buildAllLayers() {
+    async buildAllLayers(buildToken: number = this.activeBuildToken) {
         if (!this.parsedGcode || !this.scene) return
 
-        // Clear existing meshes
+        this.clearBuiltLayers()
+
+        const top = this.parsedGcode.totalLayers - 1
+        const initialStart = Math.max(0, top - this.initialFinishLayersCount + 1)
+        const finishLayers: number[] = []
+        for (let idx = top; idx >= initialStart; idx--) {
+            finishLayers.push(idx)
+        }
+
+        this.enqueueLayersForBuild(finishLayers, true, buildToken)
+
+        // Build at least the top-most finish layer before removing loading overlay
+        await this.processLayerQueue(buildToken, 1)
+        this.requestRender()
+    }
+
+    private clearBuiltLayers() {
+        if (!this.scene) return
         for (const [, group] of this.layerMeshes) {
             this.scene.remove(group)
         }
-        this.layerMeshes.clear()
         for (const [, line] of this.travelLines) {
             this.scene.remove(line)
         }
+        this.layerMeshes.clear()
         this.travelLines.clear()
+        this.builtLayers.clear()
+        this.pendingLayerQueue = []
+        this.builtSegmentsTotal = 0
+        this.warnedSafetyCap = false
+        this.isProcessingLayerQueue = false
+    }
 
-        const layers = this.parsedGcode.layers
+    private enqueueLayersForBuild(layerIndices: number[], highPriority = false, buildToken: number = this.activeBuildToken) {
+        if (!this.parsedGcode) return
+        const maxLayer = this.parsedGcode.totalLayers - 1
 
-        for (const layer of layers) {
-            const group = new THREE.Group()
-            group.name = `layer-${layer.layerIndex}`
+        const normalized = layerIndices
+            .map((idx) => Math.max(0, Math.min(maxLayer, idx)))
+            .filter((idx, pos, arr) => arr.indexOf(idx) === pos)
+            .filter((idx) => !this.builtLayers.has(idx) && !this.pendingLayerQueue.includes(idx))
 
-            // Collect segments by type
-            const segmentsByType = new Map<GcodeFeatureType, number[]>()
+        if (!normalized.length) return
 
-            let prevX = 0
-            let prevY = 0
-            if (layer.layerIndex > 0 && layers[layer.layerIndex - 1]) {
-                const prevLayer = layers[layer.layerIndex - 1]
-                if (prevLayer.moves.length > 0) {
-                    const lastMove = prevLayer.moves[prevLayer.moves.length - 1]
-                    prevX = lastMove.x
-                    prevY = lastMove.y
+        if (highPriority) {
+            this.pendingLayerQueue = [...normalized, ...this.pendingLayerQueue]
+        } else {
+            this.pendingLayerQueue.push(...normalized)
+        }
+
+        this.processLayerQueue(buildToken)
+    }
+
+    private async processLayerQueue(buildToken: number = this.activeBuildToken, stopAfterBuilt = Infinity) {
+        if (this.isProcessingLayerQueue || !this.parsedGcode || !this.scene) return
+        this.isProcessingLayerQueue = true
+
+        let builtCount = 0
+        try {
+            while (this.pendingLayerQueue.length && buildToken === this.activeBuildToken && builtCount < stopAfterBuilt) {
+                const layerIndex = this.pendingLayerQueue.shift()!
+                if (this.builtLayers.has(layerIndex)) continue
+
+                const built = this.buildSingleLayer(layerIndex)
+                if (built) {
+                    builtCount += 1
                 }
+
+                this.updateLayerVisibility()
+                await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
             }
-
-            const travelPositions: number[] = []
-
-            for (const move of layer.moves) {
-                if (move.type === 'travel') {
-                    // Travel moves go to separate collection
-                    travelPositions.push(prevX, layer.z, prevY)
-                    travelPositions.push(move.x, layer.z, move.y)
-                } else {
-                    const type = move.type as GcodeFeatureType
-                    if (!segmentsByType.has(type)) {
-                        segmentsByType.set(type, [])
-                    }
-                    const positions = segmentsByType.get(type)!
-                    // In Three.js: X=X, Y=Z(height), Z=Y(depth)
-                    positions.push(prevX, layer.z, prevY)
-                    positions.push(move.x, layer.z, move.y)
-                }
-
-                prevX = move.x
-                prevY = move.y
-            }
-
-            // Create line objects for each feature type
-            for (const [type, positions] of segmentsByType) {
-                if (positions.length === 0) continue
-
-                const geometry = new THREE.BufferGeometry()
-                geometry.setAttribute(
-                    'position',
-                    new THREE.Float32BufferAttribute(positions, 3)
-                )
-
-                const material = new THREE.LineBasicMaterial({
-                    color: FEATURE_COLORS_HEX[type] ?? 0xffffff,
-                    linewidth: 1,
-                })
-
-                const lineSegments = new THREE.LineSegments(geometry, material)
-                group.add(lineSegments)
-            }
-
-            this.scene.add(group)
-            this.layerMeshes.set(layer.layerIndex, group)
-
-            // Travel lines (separate for toggle visibility)
-            if (travelPositions.length > 0) {
-                const travelGeo = new THREE.BufferGeometry()
-                travelGeo.setAttribute(
-                    'position',
-                    new THREE.Float32BufferAttribute(travelPositions, 3)
-                )
-                const travelMat = new THREE.LineBasicMaterial({
-                    color: FEATURE_COLORS_HEX['travel'],
-                    linewidth: 1,
-                    transparent: true,
-                    opacity: 0.3,
-                })
-                const travelLine = new THREE.LineSegments(travelGeo, travelMat)
-                travelLine.visible = this.showTravel
-                this.scene.add(travelLine)
-                this.travelLines.set(layer.layerIndex, travelLine)
+        } finally {
+            this.isProcessingLayerQueue = false
+            if (this.pendingLayerQueue.length && buildToken === this.activeBuildToken) {
+                this.processLayerQueue(buildToken)
             }
         }
+    }
+
+    private buildSingleLayer(layerIndex: number): boolean {
+        if (!this.parsedGcode || !this.scene) return false
+        if (this.builtLayers.has(layerIndex)) return true
+        if (this.builtSegmentsTotal >= this.maxGlobalSegments) {
+            if (!this.warnedSafetyCap) {
+                this.warnedSafetyCap = true
+                this.$toast.error('Preview simplified to avoid memory crash on large G-code')
+            }
+            return false
+        }
+
+        const layer = this.parsedGcode.layers[layerIndex]
+        if (!layer) return false
+
+        const group = new THREE.Group()
+        group.name = `layer-${layer.layerIndex}`
+
+        const segmentsByType = new Map<GcodeFeatureType, number[]>()
+        let prevX = 0
+        let prevY = 0
+
+        if (layerIndex > 0 && this.parsedGcode.layers[layerIndex - 1]) {
+            const prevLayer = this.parsedGcode.layers[layerIndex - 1]
+            if (prevLayer.moves.length > 0) {
+                const lastMove = prevLayer.moves[prevLayer.moves.length - 1]
+                prevX = lastMove.x
+                prevY = lastMove.y
+            }
+        }
+
+        const travelPositions: number[] = []
+        const moveStride = Math.max(1, Math.ceil(layer.moves.length / this.maxLayerMovesForPreview))
+
+        for (let moveIndex = 0; moveIndex < layer.moves.length; moveIndex += moveStride) {
+            if (this.builtSegmentsTotal >= this.maxGlobalSegments) break
+
+            const move = layer.moves[moveIndex]
+            if (move.type === 'travel') {
+                travelPositions.push(prevX, layer.z, prevY)
+                travelPositions.push(move.x, layer.z, move.y)
+            } else {
+                const type = move.type as GcodeFeatureType
+                if (!segmentsByType.has(type)) {
+                    segmentsByType.set(type, [])
+                }
+                const positions = segmentsByType.get(type)!
+                positions.push(prevX, layer.z, prevY)
+                positions.push(move.x, layer.z, move.y)
+            }
+
+            this.builtSegmentsTotal += 1
+            prevX = move.x
+            prevY = move.y
+        }
+
+        for (const [type, positions] of segmentsByType) {
+            if (!positions.length) continue
+
+            const geometry = new THREE.BufferGeometry()
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+
+            const material = new THREE.LineBasicMaterial({
+                color: FEATURE_COLORS_HEX[type] ?? 0xffffff,
+                linewidth: 1,
+            })
+
+            group.add(new THREE.LineSegments(geometry, material))
+        }
+
+        this.scene.add(group)
+        this.layerMeshes.set(layer.layerIndex, group)
+
+        if (travelPositions.length > 0) {
+            const travelGeo = new THREE.BufferGeometry()
+            travelGeo.setAttribute('position', new THREE.Float32BufferAttribute(travelPositions, 3))
+            const travelMat = new THREE.LineBasicMaterial({
+                color: FEATURE_COLORS_HEX.travel,
+                linewidth: 1,
+                transparent: true,
+                opacity: 0.3,
+            })
+            const travelLine = new THREE.LineSegments(travelGeo, travelMat)
+            travelLine.visible = this.showTravel
+            this.scene.add(travelLine)
+            this.travelLines.set(layer.layerIndex, travelLine)
+        }
+
+        this.builtLayers.add(layer.layerIndex)
+        return true
     }
 
     /**
      * Show/hide layers based on the current layer slider position.
      */
     updateLayerVisibility() {
-        const start = this.showLayerRange ? this.layerRangeStart : 0
-        const end = this.currentLayer
+        if (!this.parsedGcode || this.totalLayers <= 0) return
+
+        const start = this.showLayerRange ? Math.max(0, this.layerRangeStart) : 0
+        const end = Math.min(Math.max(0, this.currentLayer), this.totalLayers - 1)
+
+        const neededLayers: number[] = []
+        for (let idx = start; idx <= end; idx++) {
+            neededLayers.push(idx)
+        }
+        // Build exactly what the slider/range needs, prioritizing current end layer first.
+        const orderedNeededLayers = [...neededLayers].sort((a, b) => Math.abs(a - end) - Math.abs(b - end))
+        this.enqueueLayersForBuild(orderedNeededLayers, true)
 
         for (const [idx, group] of this.layerMeshes) {
             group.visible = idx >= start && idx <= end
@@ -514,6 +753,7 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         for (const [idx, line] of this.travelLines) {
             line.visible = this.showTravel && idx >= start && idx <= end
         }
+        this.requestRender()
     }
 
     // --- Watchers ---

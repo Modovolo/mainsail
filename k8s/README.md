@@ -169,6 +169,19 @@ sudo systemctl enable wg-quick@wg0
 
 ## Troubleshooting
 
+### Monitoring API 502 on `/api/monitoring/snapshot/*`
+
+Fleet monitoring snapshots depend on the in-cluster `bfp-print-monitor` service.
+
+Quick checks:
+```bash
+kubectl -n fleet get pods | grep bfp-print-monitor
+kubectl -n fleet get svc bfp-print-monitor
+kubectl -n fleet exec deploy/fleet-manager -- curl -sS http://bfp-print-monitor:5000/api/health
+```
+
+If the service is missing or unhealthy, `/api/monitoring/snapshot/{printer_id}` will return HTTP 502 from fleet-manager.
+
 ### Check Pod Status
 ```bash
 kubectl -n fleet get pods -o wide

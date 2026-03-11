@@ -12,7 +12,8 @@
             <printer-selector v-if="countPrinters" />
             <v-spacer />
             <v-btn-toggle
-                v-model="viewMode"
+                :value="viewMode"
+                @change="onViewModeToggle"
                 mandatory
                 dense
                 class="view-mode-toggle"
@@ -311,6 +312,13 @@ type uploadSnackbar = {
     },
 })
 export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
+    private readonly viewModeConfig: Record<'prepare' | 'preview' | 'devices' | 'monitoring', { prefixes: string[]; target: string }> = {
+        prepare: { prefixes: ['/slicing', '/prepare'], target: '/slicing?mode=prepare' },
+        preview: { prefixes: ['/slicing', '/preview'], target: '/slicing?mode=preview' },
+        devices: { prefixes: ['/'], target: '/' },
+        monitoring: { prefixes: ['/monitoring'], target: '/monitoring' },
+    }
+
     mdiAlertOctagonOutline = mdiAlertOctagonOutline
     mdiContentSave = mdiContentSave
     mdiFileUpload = mdiFileUpload
@@ -347,8 +355,6 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
 
     showEmergencyStopDialog = false
 
-    viewMode: string = 'devices'
-
     uploadSnackbar: uploadSnackbar = {
         status: false,
         filename: '',
@@ -380,6 +386,10 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
 
     get currentPage() {
         return this.$route.fullPath
+    }
+
+    get viewMode(): string {
+        return this.getViewModeForRoute(this.$route.path, this.$route.query.mode)
     }
 
     get saveConfigPending() {
@@ -481,15 +491,30 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
             default:
                 this.naviDrawer = this.$vuetify.breakpoint.lgAndUp
         }
-        
-        // Initialize view mode - show sidebar only for devices tab
+
         this.updateNaviDrawerForViewMode(this.viewMode)
     }
 
-    @Watch('viewMode')
-    onViewModeChange(newMode: string) {
-        this.updateNaviDrawerForViewMode(newMode)
-        this.navigateToViewMode(newMode)
+    @Watch('$route.fullPath', { immediate: true })
+    onRoutePathChange() {
+        const routeViewMode = this.getViewModeForRoute(this.$route.path, this.$route.query.mode)
+        this.updateNaviDrawerForViewMode(routeViewMode)
+    }
+
+    onViewModeToggle(newMode: string) {
+        if (!newMode) return
+        if (!['prepare', 'preview', 'devices', 'monitoring'].includes(newMode)) return
+        this.navigateToViewMode(newMode as 'prepare' | 'preview' | 'devices' | 'monitoring')
+    }
+
+    getViewModeForRoute(path: string, modeQuery: unknown): string {
+        if (path.startsWith('/slicing')) {
+            return String(modeQuery || 'prepare').toLowerCase() === 'preview' ? 'preview' : 'prepare'
+        }
+        if (this.viewModeConfig.prepare.prefixes.some((prefix) => path.startsWith(prefix))) return 'prepare'
+        if (this.viewModeConfig.preview.prefixes.some((prefix) => path.startsWith(prefix))) return 'preview'
+        if (this.viewModeConfig.monitoring.prefixes.some((prefix) => path.startsWith(prefix))) return 'monitoring'
+        return 'devices'
     }
 
     updateNaviDrawerForViewMode(mode: string) {
@@ -501,16 +526,19 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
         }
     }
 
-    navigateToViewMode(mode: string) {
-        // Navigate to the appropriate route based on view mode
-        const routeMap: { [key: string]: string } = {
-            'prepare': '/prepare',
-            'preview': '/preview',
-            'devices': '/',
-            'monitoring': '/monitoring'
+    navigateToViewMode(mode: 'prepare' | 'preview' | 'devices' | 'monitoring') {
+        if (mode === 'prepare' || mode === 'preview') {
+            const targetMode = mode
+            const currentMode = String(this.$route.query.mode || 'prepare').toLowerCase()
+            if (this.$route.path !== '/slicing' || currentMode !== targetMode) {
+                this.$router.push({ path: '/slicing', query: { mode: targetMode } }).catch(() => {
+                    // Ignore navigation duplicates
+                })
+            }
+            return
         }
-        
-        const targetPath = routeMap[mode]
+
+        const targetPath = this.viewModeConfig[mode].target
         if (targetPath && this.$route.path !== targetPath) {
             this.$router.push(targetPath).catch(() => {
                 // Ignore navigation duplicates

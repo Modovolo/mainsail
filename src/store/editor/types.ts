@@ -1,5 +1,6 @@
 export interface EditorState {
     bool: boolean
+    diffMode: boolean
     filename: string
     fileroot: string
     permissions: string

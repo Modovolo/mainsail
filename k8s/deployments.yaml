@@ -209,3 +209,65 @@ spec:
         - name: nginx-config
           configMap:
             name: nginx-proxy-config
+
+---
+# BFP Print Monitor Web API Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bfp-print-monitor
+  namespace: fleet
+  labels:
+    app.kubernetes.io/name: bfp-print-monitor
+    app.kubernetes.io/component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bfp-print-monitor
+  template:
+    metadata:
+      labels:
+        app: bfp-print-monitor
+        app.kubernetes.io/name: bfp-print-monitor
+        app.kubernetes.io/component: monitoring
+    spec:
+      imagePullSecrets:
+        - name: dockerhub-creds
+      containers:
+        - name: bfp-print-monitor
+          image: jmarji/bfp-print-monitor-web:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5000
+              name: http
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          volumeMounts:
+            - name: monitor-config
+              mountPath: /app/config/print_monitor_config.json
+              subPath: print_monitor_config.json
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: monitor-config
+          configMap:
+            name: bfp-monitor-config

@@ -1,7 +1,11 @@
 <template>
     <div class="slice-settings-content">
         <!-- Settings menu -->
-        <div class="d-flex justify-end mb-2">
+        <div class="d-flex justify-space-between align-center mb-2">
+            <v-btn small color="primary" text @click="$emit('save-settings')">
+                <v-icon left small>{{ mdiContentSave }}</v-icon>
+                Save
+            </v-btn>
             <v-menu left offset-y>
                 <template #activator="{ on, attrs }">
                     <v-btn icon small v-bind="attrs" v-on="on">

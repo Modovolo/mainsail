@@ -146,6 +146,22 @@ spec:
                 name: fleet-manager
                 port:
                   number: 8080
+          # Config Sync API endpoints
+          - path: /api/config-sync
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
+          # Monitoring API endpoints
+          - path: /api/monitoring
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
           # Client download endpoints
           - path: /api/client
             pathType: Prefix

@@ -34,6 +34,7 @@ import sys
 
 # Import new modular structure
 from services.database import DatabaseService
+from services.client_version import get_client_script_path, load_client_release_info
 from services.auth import JWTAuth
 from routes import (
     setup_auth_routes,
@@ -42,6 +43,11 @@ from routes import (
     setup_group_routes,
     setup_print_queue_routes,
     setup_webcam_proxy_routes,
+    setup_config_sync_routes,
+    setup_config_snapshot_routes,
+    setup_fleet_update_routes,
+    setup_monitoring_routes,
+    setup_fleet_telemetry_routes,
 )
 
 logging.basicConfig(level=logging.DEBUG)
@@ -65,6 +71,20 @@ class FleetManager:
         self.pending_requests: Dict[str, dict] = {}
         # Cleanup interval for stale requests (seconds)
         self.request_timeout = 60
+
+    def _merge_printer_runtime_data(self, printer_id: str, payload: Optional[dict] = None) -> dict:
+        """Merge runtime metadata reported by a printer into its shared status entry."""
+        status_entry = self.printer_status.get(printer_id)
+        if not status_entry:
+            return {}
+
+        runtime_data = status_entry.setdefault('data', {})
+        if isinstance(payload, dict):
+            runtime_data.update(payload)
+
+        status_entry['printer_data'] = runtime_data
+        status_entry['last_seen'] = datetime.now().isoformat()
+        return runtime_data
 
     async def register_printer(self, websocket, printer_data):
         """Register a printer connection - validates printer_id against database"""
@@ -205,16 +225,31 @@ class FleetManager:
 
             # Handle status updates
             if message_type == 'status_update':
-                self.printer_status[printer_id].update({
-                    'last_seen': datetime.now().isoformat(),
-                    'printer_data': data.get('data', {})
-                })
+                merged_data = self._merge_printer_runtime_data(printer_id, data.get('data', {}))
                 
                 # Broadcast to all web clients (fleet status) and printer subscribers
                 await self.broadcast_to_web_clients({
                     'type': 'printer_status',
                     'printer_id': printer_id,
-                    'data': data.get('data', {})
+                    'data': merged_data
+                })
+
+            elif message_type == 'client_update_status':
+                merged_data = self._merge_printer_runtime_data(printer_id, data.get('data', {}))
+                await self.broadcast_to_web_clients({
+                    'type': 'printer_client_update',
+                    'printer_id': printer_id,
+                    'data': merged_data
+                })
+
+            elif message_type == 'client_updated':
+                merged_data = self._merge_printer_runtime_data(printer_id, data.get('data', {}))
+                await self.broadcast_to_web_clients({
+                    'type': 'printer_client_updated',
+                    'printer_id': printer_id,
+                    'old_version': data.get('old_version'),
+                    'new_version': data.get('new_version'),
+                    'data': merged_data,
                 })
 
             elif message_type == 'heartbeat':
@@ -225,6 +260,11 @@ class FleetManager:
                 # Handle webcam relay response from printer
                 from routes.webcam_proxy import handle_webcam_response
                 handle_webcam_response(data)
+
+            elif message_type == 'config_fetch_response':
+                # Handle config snapshot relay response from printer
+                from routes.config_snapshot import handle_config_fetch_response
+                handle_config_fetch_response(data)
 
             else:
                 logger.warning(f"Unknown message type from {printer_id}: {message_type}")
@@ -486,6 +526,11 @@ class FleetManager:
         setup_webcam_proxy_routes(app)
         setup_printer_registration_routes(app)
         setup_file_routes(app, fleet_manager=self)
+        setup_config_sync_routes(app, fleet_manager=self)
+        setup_config_snapshot_routes(app)
+        setup_fleet_update_routes(app)
+        setup_monitoring_routes(app)
+        setup_fleet_telemetry_routes(app)
         
         # Add health check endpoint
         async def health_check(request):
@@ -511,9 +556,7 @@ class FleetManager:
         async def get_client_version(request):
             """Return the latest fleet_client version info"""
             try:
-                version_file = os.path.join(os.path.dirname(__file__), 'client_version.json')
-                with open(version_file, 'r') as f:
-                    version_info = json.load(f)
+                version_info = load_client_release_info()
                 return web.json_response(version_info)
             except Exception as e:
                 logger.error(f"Error reading client version: {e}")
@@ -522,7 +565,7 @@ class FleetManager:
         async def download_client(request):
             """Serve the latest fleet_client.py for OTA updates"""
             try:
-                client_file = os.path.join(os.path.dirname(__file__), 'printer_client', 'fleet_client.py')
+                client_file = get_client_script_path()
                 if not os.path.exists(client_file):
                     return web.json_response({'error': 'Client file not found'}, status=404)
                 

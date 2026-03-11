@@ -7,6 +7,7 @@ import { getters } from '@/store/editor/getters'
 export const getDefaultState = (): EditorState => {
     return {
         bool: false,
+        diffMode: false,
         filename: '',
         permissions: '',
         fileroot: '',

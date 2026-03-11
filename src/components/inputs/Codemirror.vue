@@ -11,8 +11,8 @@ import { Component, Mixins, Prop, Ref, Watch } from 'vue-property-decorator'
 import BaseMixin from '../mixins/base'
 import ThemeMixin from '../mixins/theme'
 import { basicSetup } from 'codemirror'
-import { EditorView, keymap } from '@codemirror/view'
-import { EditorState } from '@codemirror/state'
+import { Decoration, EditorView, ViewPlugin, keymap } from '@codemirror/view'
+import { EditorState, RangeSetBuilder } from '@codemirror/state'
 import { vscodeDark, vscodeLight } from '@uiw/codemirror-theme-vscode'
 import { StreamLanguage } from '@codemirror/language'
 import { klipper_config } from '@/plugins/StreamParserKlipperConfig'
@@ -41,6 +41,9 @@ export default class Codemirror extends Mixins(BaseMixin, ThemeMixin) {
 
     @Prop({ required: false, default: '' })
     declare readonly fileExtension: string
+
+    @Prop({ required: false, default: false })
+    declare readonly diffMode: boolean
 
     @Watch('value')
     valueChanged(newVal: string) {
@@ -97,6 +100,60 @@ export default class Codemirror extends Mixins(BaseMixin, ThemeMixin) {
                 }
             }),
         ]
+
+        if (this.diffMode) {
+            const diffLineDecorator = ViewPlugin.fromClass(
+                class {
+                    decorations
+
+                    constructor(view: EditorView) {
+                        this.decorations = this.buildDecorations(view)
+                    }
+
+                    update(update: any) {
+                        if (update.docChanged || update.viewportChanged) {
+                            this.decorations = this.buildDecorations(update.view)
+                        }
+                    }
+
+                    buildDecorations(view: EditorView) {
+                        const builder = new RangeSetBuilder<Decoration>()
+
+                        for (const range of view.visibleRanges) {
+                            let line = view.state.doc.lineAt(range.from)
+                            while (line.from <= range.to) {
+                                const text = line.text
+                                if (text.startsWith('+') && !text.startsWith('+++')) {
+                                    builder.add(line.from, line.from, Decoration.line({ class: 'cm-diff-add-line' }))
+                                } else if (text.startsWith('-') && !text.startsWith('---')) {
+                                    builder.add(line.from, line.from, Decoration.line({ class: 'cm-diff-remove-line' }))
+                                }
+
+                                if (line.to >= range.to) break
+                                line = view.state.doc.line(line.number + 1)
+                            }
+                        }
+
+                        return builder.finish()
+                    }
+                },
+                {
+                    decorations: (plugin) => plugin.decorations,
+                }
+            )
+
+            extensions.push(
+                diffLineDecorator,
+                EditorView.theme({
+                    '.cm-diff-add-line': {
+                        backgroundColor: 'rgba(46, 160, 67, 0.18)',
+                    },
+                    '.cm-diff-remove-line': {
+                        backgroundColor: 'rgba(248, 81, 73, 0.18)',
+                    },
+                })
+            )
+        }
 
         if (['cfg', 'conf'].includes(this.fileExtension)) extensions.push(StreamLanguage.define(klipper_config))
         else if (['gcode'].includes(this.fileExtension)) extensions.push(StreamLanguage.define(gcode))

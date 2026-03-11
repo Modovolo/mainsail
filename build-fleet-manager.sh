@@ -7,6 +7,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 K8S_DIR="$SCRIPT_DIR/k8s"
 MOONRAKER_DIR="$(dirname "$SCRIPT_DIR")/moonraker"
+BFP_MONITOR_DIR="$(dirname "$SCRIPT_DIR")/bfp-print-monitor"
 
 # Registry
 REGISTRY="jmarji"
@@ -28,6 +29,7 @@ echo ""
 BUILD_FLEET_MANAGER=false
 BUILD_MAINSAIL=false
 BUILD_MOONRAKER=false
+BUILD_BFP_MONITOR=false
 APPLY_MANIFESTS=false
 RESTART_PODS=false
 
@@ -38,6 +40,7 @@ usage() {
     echo "  --fleet-manager    Build and push fleet-manager"
     echo "  --mainsail         Build and push mainsail"
     echo "  --moonraker        Build and push moonraker"
+    echo "  --monitor          Build and push bfp-print-monitor web API"
     echo "  --all              Build and push all containers"
     echo "  --apply            Apply k8s manifests"
     echo "  --restart          Restart deployments to pull new images"
@@ -72,10 +75,14 @@ for arg in "${ARGS[@]}"; do
         --moonraker)
             BUILD_MOONRAKER=true
             ;;
+        --monitor)
+            BUILD_BFP_MONITOR=true
+            ;;
         --all)
             BUILD_FLEET_MANAGER=true
             BUILD_MAINSAIL=true
             BUILD_MOONRAKER=true
+            BUILD_BFP_MONITOR=true
             ;;
         --apply)
             APPLY_MANIFESTS=true
@@ -87,6 +94,7 @@ for arg in "${ARGS[@]}"; do
             BUILD_FLEET_MANAGER=true
             BUILD_MAINSAIL=true
             BUILD_MOONRAKER=true
+            BUILD_BFP_MONITOR=true
             APPLY_MANIFESTS=true
             RESTART_PODS=true
             ;;
@@ -128,6 +136,19 @@ if [ "$BUILD_MOONRAKER" = true ]; then
     fi
 fi
 
+# Build bfp print monitor web API
+if [ "$BUILD_BFP_MONITOR" = true ]; then
+    if [ -d "$BFP_MONITOR_DIR" ]; then
+        echo -e "${YELLOW}Building bfp-print-monitor-web...${NC}"
+        docker build -t $REGISTRY/bfp-print-monitor-web:$TAG -f "$BFP_MONITOR_DIR/docker/Dockerfile.web" "$BFP_MONITOR_DIR"
+        echo -e "${YELLOW}Pushing bfp-print-monitor-web...${NC}"
+        docker push $REGISTRY/bfp-print-monitor-web:$TAG
+        echo -e "${GREEN}bfp-print-monitor-web:$TAG pushed${NC}"
+    else
+        echo -e "${RED}bfp-print-monitor directory not found at $BFP_MONITOR_DIR${NC}"
+    fi
+fi
+
 # Update image tags in manifests
 update_manifests() {
     echo -e "${YELLOW}Updating image tags in manifests to $TAG...${NC}"
@@ -138,6 +159,7 @@ update_manifests() {
     # Update deployments.yaml (mainsail and moonraker)
     sed -i "s|image: $REGISTRY/mainsail:.*|image: $REGISTRY/mainsail:$TAG|g" "$K8S_DIR/deployments.yaml"
     sed -i "s|image: $REGISTRY/moonraker:.*|image: $REGISTRY/moonraker:$TAG|g" "$K8S_DIR/deployments.yaml"
+    sed -i "s|image: $REGISTRY/bfp-print-monitor-web:.*|image: $REGISTRY/bfp-print-monitor-web:$TAG|g" "$K8S_DIR/deployments.yaml"
     
     echo -e "${GREEN}Manifests updated${NC}"
 }
@@ -174,11 +196,16 @@ if [ "$RESTART_PODS" = true ]; then
     if [ "$BUILD_MOONRAKER" = true ] || [ "$APPLY_MANIFESTS" = true ]; then
         kubectl rollout restart deployment/moonraker -n fleet
     fi
+
+    if [ "$BUILD_BFP_MONITOR" = true ] || [ "$APPLY_MANIFESTS" = true ]; then
+        kubectl rollout restart deployment/bfp-print-monitor -n fleet
+    fi
     
     echo -e "${YELLOW}Waiting for rollouts...${NC}"
     kubectl rollout status deployment/fleet-manager -n fleet --timeout=120s || true
     kubectl rollout status deployment/mainsail -n fleet --timeout=120s || true
     kubectl rollout status deployment/moonraker -n fleet --timeout=120s || true
+    kubectl rollout status deployment/bfp-print-monitor -n fleet --timeout=120s || true
     
     echo -e "${GREEN}Deployments restarted${NC}"
 fi

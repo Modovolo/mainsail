@@ -7,6 +7,7 @@ from models.printer import PrinterModel
 from models.printer_profile import PrinterProfileModel
 from models.group import GroupModel, GroupMemberModel
 from models.print_queue import PrintQueueJobModel
+from models.config_template import ConfigTemplateModel, ConfigTemplateSourceBindingModel, PrinterConfigStatusModel
 
 __all__ = [
     'Base',
@@ -17,4 +18,7 @@ __all__ = [
     'GroupModel',
     'GroupMemberModel',
     'PrintQueueJobModel',
+    'ConfigTemplateModel',
+    'ConfigTemplateSourceBindingModel',
+    'PrinterConfigStatusModel',
 ]

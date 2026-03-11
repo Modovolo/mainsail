@@ -36,7 +36,7 @@
                         {{ $t('Editor.FileStructure') }}
                     </v-btn>
                     <v-btn
-                        v-if="restartServiceNameExists"
+                        v-if="restartServiceNameExists && !isDiffMode"
                         color="primary"
                         text
                         tile
@@ -45,7 +45,7 @@
                         <v-icon small class="mr-1">{{ mdiRestart }}</v-icon>
                         {{ $t('Editor.SaveRestart') }}
                     </v-btn>
-                    <v-btn v-if="isWriteable" icon tile @click="save(null)">
+                    <v-btn v-if="isWriteable && !isDiffMode" icon tile @click="save(null)">
                         <v-icon>{{ mdiContentSave }}</v-icon>
                     </v-btn>
                     <v-btn icon tile @click="close">
@@ -59,6 +59,7 @@
                         v-model="sourcecode"
                         :name="filename"
                         :file-extension="fileExtension"
+                        :diff-mode="isDiffMode"
                         class="codemirror"
                         :class="{ withSidebar: existsFileStructure && fileStructureSidebar }"
                         @lineChange="lineChanges" />
@@ -225,6 +226,10 @@ export default class TheEditor extends Mixins(BaseMixin) {
         return this.$store.state.editor.bool ?? false
     }
 
+    get isDiffMode() {
+        return this.$store.state.editor.diffMode ?? false
+    }
+
     get filepath(): string {
         return this.$store.state.editor.filepath ?? ''
     }
@@ -333,6 +338,8 @@ export default class TheEditor extends Mixins(BaseMixin) {
 
     get title() {
         const title = this.filepath ? `${this.filepath}/${this.filename}` : this.filename
+
+        if (this.isDiffMode) return `${title} (${this.$t('Editor.FileReadOnly')}) · Diff Review`
 
         if (!this.isWriteable) return `${title} (${this.$t('Editor.FileReadOnly')})`
 

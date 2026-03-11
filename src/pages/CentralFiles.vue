@@ -12,6 +12,152 @@
             </v-col>
         </v-row>
 
+        <!-- Recipies Section -->
+        <v-row class="mb-4">
+            <v-col cols="12">
+                <v-card elevation="2">
+                    <v-card-title>
+                        <v-icon class="mr-2">mdi-source-branch</v-icon>
+                        Gcode Recipies
+                    </v-card-title>
+                    <v-card-text>
+                        <input
+                            ref="recipeGcodeInput"
+                            type="file"
+                            multiple
+                            accept=".gcode,.g,.gc,.gco"
+                            style="display: none"
+                            @change="onRecipeGcodeFilesSelected"
+                        />
+                        <v-row>
+                            <v-col cols="12" md="8">
+                                <v-treeview
+                                    :items="recipeTreeItems"
+                                    item-key="id"
+                                    item-text="name"
+                                    open-on-click
+                                    activatable
+                                    dense
+                                    hoverable
+                                    :open.sync="recipeOpen"
+                                    :active.sync="recipeActive"
+                                >
+                                    <template #prepend="{ item }">
+                                        <v-icon small :color="item.isAddAction ? 'success' : item.children && item.children.length ? 'primary' : 'secondary'">
+                                            {{ item.isAddAction ? 'mdi-plus-circle-outline' : item.children && item.children.length ? 'mdi-package-variant' : 'mdi-cube-outline' }}
+                                        </v-icon>
+                                    </template>
+                                </v-treeview>
+                                <div v-if="!recipes.length" class="text-body-2 grey--text">
+                                    No recipes yet. Add a product to get started.
+                                </div>
+                            </v-col>
+
+                            <v-col cols="12" md="4">
+                                <v-text-field
+                                    v-model="newRecipeProductName"
+                                    label="New Product"
+                                    placeholder="e.g., Modovolo Lift Quad Copter"
+                                    outlined
+                                    dense
+                                    prepend-icon="mdi-package-variant"
+                                    @keyup.enter="addRecipeProduct"
+                                ></v-text-field>
+                                <v-btn
+                                    color="primary"
+                                    block
+                                    :disabled="!newRecipeProductName.trim()"
+                                    @click="addRecipeProduct"
+                                >
+                                    <v-icon left small>mdi-plus</v-icon>
+                                    Add Product
+                                </v-btn>
+
+                                <v-divider class="my-4"></v-divider>
+
+                                <v-select
+                                    v-model="recipeAddMode"
+                                    :items="recipeAddModeOptions"
+                                    item-text="text"
+                                    item-value="value"
+                                    label="Add Type"
+                                    outlined
+                                    dense
+                                    prepend-icon="mdi-tune-variant"
+                                    :disabled="selectedRecipeTargetParentId === undefined || recipeUploading"
+                                ></v-select>
+
+                                <v-text-field
+                                    v-if="recipeAddMode === 'item'"
+                                    v-model="newRecipePartName"
+                                    :label="selectedRecipeTargetLabel"
+                                    placeholder="e.g., Control Box"
+                                    outlined
+                                    dense
+                                    prepend-icon="mdi-cube-outline"
+                                    :disabled="selectedRecipeTargetParentId === undefined"
+                                    @keyup.enter="addRecipePart"
+                                ></v-text-field>
+
+                                <div v-else>
+                                    <v-btn
+                                        outlined
+                                        block
+                                        color="secondary"
+                                        :disabled="selectedRecipeTargetParentId === undefined || recipeUploading"
+                                        @click="openRecipeGcodePicker"
+                                    >
+                                        <v-icon left small>mdi-file-upload</v-icon>
+                                        Select G-Code Files
+                                    </v-btn>
+                                    <div v-if="recipeGcodeFiles.length" class="mt-2 mb-2">
+                                        <v-chip
+                                            v-for="(file, index) in recipeGcodeFiles"
+                                            :key="`recipe-upload-${index}`"
+                                            small
+                                            class="mr-1 mb-1"
+                                            close
+                                            @click:close="removeRecipeGcodeFile(index)"
+                                        >
+                                            <v-icon left x-small>mdi-file-document</v-icon>
+                                            {{ file.name }}
+                                        </v-chip>
+                                    </div>
+                                </div>
+
+                                <v-btn
+                                    color="secondary"
+                                    block
+                                    :disabled="!canAddRecipePart"
+                                    :loading="recipeUploading"
+                                    @click="addRecipePart"
+                                >
+                                    <v-icon left small>mdi-plus</v-icon>
+                                    {{ recipeAddMode === 'item' ? 'Add Part' : 'Upload G-Code' }}
+                                </v-btn>
+
+                                <v-btn
+                                    class="mt-2"
+                                    text
+                                    color="error"
+                                    block
+                                    :disabled="!canRemoveSelectedRecipeNode"
+                                    @click="removeSelectedRecipeNode"
+                                >
+                                    <v-icon left small>mdi-delete</v-icon>
+                                    Remove Selected
+                                </v-btn>
+
+                                <div class="text-caption grey--text mt-3">
+                                    Select a product/part to add under it, or select a + node to add at that level.
+                                </div>
+                            </v-col>
+                        </v-row>
+                    </v-card-text>
+                </v-card>
+            </v-col>
+        </v-row>
+
         <!-- Featured Files Grid -->
         <v-row v-if="groupedFeaturedParts.length > 0">
             <v-col cols="12">
@@ -246,6 +392,10 @@
                         <v-btn icon class="ml-2" @click="refreshFiles" :loading="loading">
                             <v-icon>mdi-refresh</v-icon>
                         </v-btn>
+                        <v-btn color="primary" small class="ml-2" @click="openCreateDirectoryDialog">
+                            <v-icon left small>mdi-folder-plus</v-icon>
+                            New Folder
+                        </v-btn>
                     </v-card-title>
                     <v-divider></v-divider>
 
@@ -441,6 +591,44 @@
             </v-card>
         </v-dialog>
 
+        <!-- Create Directory Dialog -->
+        <v-dialog v-model="createDirectoryDialog" max-width="450">
+            <v-card>
+                <v-card-title class="primary white--text">
+                    <v-icon class="mr-2" color="white">mdi-folder-plus</v-icon>
+                    Create New Directory
+                </v-card-title>
+                <v-card-text class="pa-6">
+                    <v-text-field
+                        v-model="newDirectoryName"
+                        label="Directory Name"
+                        placeholder="Enter directory name"
+                        outlined
+                        autofocus
+                        prepend-icon="mdi-folder"
+                        :rules="directoryNameRules"
+                        @keyup.enter="createDirectory"
+                    ></v-text-field>
+                    <div class="text-caption grey--text mt-2">
+                        Directory will be created in the repository root.
+                    </div>
+                </v-card-text>
+                <v-card-actions>
+                    <v-spacer></v-spacer>
+                    <v-btn text @click="createDirectoryDialog = false">Cancel</v-btn>
+                    <v-btn
+                        color="primary"
+                        :disabled="!isValidDirectoryName"
+                        :loading="creatingDirectory"
+                        @click="createDirectory"
+                    >
+                        <v-icon left>mdi-folder-plus</v-icon>
+                        Create
+                    </v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
         <!-- Snackbar for notifications -->
         <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000">
             {{ snackbarText }}
@@ -474,6 +662,19 @@ interface Printer {
     isActive: boolean
 }
 
+interface RecipeNode {
+    id: number
+    name: string
+    children: RecipeNode[]
+}
+
+interface RecipeTreeNode {
+    id: number | string
+    name: string
+    children?: RecipeTreeNode[]
+    isAddAction?: boolean
+}
+
 @Component
 export default class CentralFiles extends Mixins(BaseMixin) {
     // Data
@@ -491,6 +692,27 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     uploadVersion = '1.0'
     uploadCategory: string | null = null
     uploadPrintTime = ''
+
+    // Directory creation
+    createDirectoryDialog = false
+    newDirectoryName = ''
+    creatingDirectory = false
+
+    // Recipies tree data
+    recipes: RecipeNode[] = []
+    recipeOpen: Array<number | string> = []
+    recipeActive: Array<number | string> = []
+    recipeNextId = 1
+    newRecipeProductName = ''
+    newRecipePartName = ''
+    recipeAddMode: 'item' | 'gcode' = 'item'
+    recipeGcodeFiles: File[] = []
+    recipeUploading = false
+
+    recipeAddModeOptions = [
+        { text: 'List Item', value: 'item' },
+        { text: 'G-Code File', value: 'gcode' },
+    ]
 
     // Category options for dropdown - base options
     baseCategoryOptions = [
@@ -534,6 +756,20 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     fileActionsDialog = false
     selectedFile: RepositoryFile | null = null
     selectedPrinter: string | null = null
+
+    // Directory name validation rules
+    directoryNameRules = [
+        (v: string) => !!v || 'Directory name is required',
+        (v: string) => (v && v.length >= 1) || 'Directory name must be at least 1 character',
+        (v: string) => (v && v.length <= 255) || 'Directory name must be less than 255 characters',
+        (v: string) => /^[^<>:"/\\|?*]+$/.test(v) || 'Directory name contains invalid characters',
+    ]
+
+    get isValidDirectoryName(): boolean {
+        const name = this.newDirectoryName.trim()
+        if (!name || name.length === 0 || name.length > 255) return false
+        return /^[^<>:"/\\|?*]+$/.test(name)
+    }
 
     // Snackbar
     snackbar = false
@@ -590,9 +826,414 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     }
 
     mounted() {
+        this.loadRecipes()
         this.refreshFiles()
         this.loadPrinters()
         this.loadFeaturedParts()
+    }
+
+    get recipeTreeItems(): RecipeTreeNode[] {
+        return this.buildRecipeTree(this.recipes, null)
+    }
+
+    get selectedRecipeNode(): RecipeNode | null {
+        if (!this.recipeActive.length) return null
+        const activeId = this.recipeActive[0]
+        if (typeof activeId === 'string' && activeId.startsWith('add:')) {
+            return null
+        }
+        const nodeId = typeof activeId === 'number' ? activeId : Number(activeId)
+        if (Number.isNaN(nodeId)) return null
+        return this.findRecipeNodeById(this.recipes, nodeId)
+    }
+
+    get selectedRecipeTargetParentId(): number | null | undefined {
+        if (!this.recipeActive.length) return undefined
+        const activeId = this.recipeActive[0]
+
+        if (typeof activeId === 'string' && activeId.startsWith('add:')) {
+            const parentSegment = activeId.replace('add:', '')
+            if (parentSegment === 'root') return null
+            const parsedParent = Number(parentSegment)
+            return Number.isNaN(parsedParent) ? undefined : parsedParent
+        }
+
+        if (typeof activeId === 'number') {
+            return activeId
+        }
+
+        const parsed = Number(activeId)
+        return Number.isNaN(parsed) ? undefined : parsed
+    }
+
+    get selectedRecipeTargetLabel(): string {
+        const parentId = this.selectedRecipeTargetParentId
+        if (parentId === undefined) return 'Select a node in the tree'
+        if (parentId === null) {
+            return this.recipeAddMode === 'item' ? 'Add item at root level' : 'Upload G-Code to root level'
+        }
+        const node = this.findRecipeNodeById(this.recipes, parentId)
+        if (!node) return 'Select a node in the tree'
+        return this.recipeAddMode === 'item' ? `Part for ${node.name}` : `Upload G-Code under ${node.name}`
+    }
+
+    get canAddRecipePart(): boolean {
+        if (this.selectedRecipeTargetParentId === undefined || this.recipeUploading) return false
+        if (this.recipeAddMode === 'item') {
+            return !!this.newRecipePartName.trim()
+        }
+        return this.recipeGcodeFiles.length > 0
+    }
+
+    get canRemoveSelectedRecipeNode(): boolean {
+        if (!this.recipeActive.length) return false
+        const activeId = this.recipeActive[0]
+        return !(typeof activeId === 'string' && activeId.startsWith('add:'))
+    }
+
+    get defaultRecipes(): RecipeNode[] {
+        return [
+            {
+                id: 1,
+                name: 'Modovolo Lift Quad Copter',
+                children: [
+                    { id: 2, name: 'Control Box', children: [] },
+                    { id: 3, name: 'Air Frame', children: [] },
+                    { id: 4, name: '...', children: [] },
+                ],
+            },
+        ]
+    }
+
+    loadRecipes() {
+        const storageKey = 'central_files_recipies_v1'
+        const stored = localStorage.getItem(storageKey)
+
+        if (stored) {
+            try {
+                const parsed = JSON.parse(stored) as RecipeNode[]
+                if (Array.isArray(parsed)) {
+                    this.recipes = this.normalizeRecipeNodes(parsed)
+                }
+            } catch (error) {
+                console.error('Error loading recipies:', error)
+            }
+        }
+
+        if (!this.recipes.length) {
+            this.recipes = JSON.parse(JSON.stringify(this.defaultRecipes))
+            this.saveRecipes()
+        }
+
+        const maxId = this.getMaxRecipeId(this.recipes)
+        this.recipeNextId = maxId + 1
+        this.recipeOpen = this.recipes.map((recipe) => recipe.id)
+    }
+
+    normalizeRecipeNodes(nodes: RecipeNode[]): RecipeNode[] {
+        return nodes.map((node) => ({
+            id: node.id,
+            name: node.name,
+            children: this.normalizeRecipeNodes(node.children || []),
+        }))
+    }
+
+    saveRecipes() {
+        const storageKey = 'central_files_recipies_v1'
+        localStorage.setItem(storageKey, JSON.stringify(this.recipes))
+    }
+
+    getMaxRecipeId(nodes: RecipeNode[]): number {
+        let maxId = 0
+        for (const node of nodes) {
+            maxId = Math.max(maxId, node.id)
+            if (node.children.length) {
+                maxId = Math.max(maxId, this.getMaxRecipeId(node.children))
+            }
+        }
+        return maxId
+    }
+
+    getNextRecipeId(): number {
+        const id = this.recipeNextId
+        this.recipeNextId += 1
+        return id
+    }
+
+    findRecipeNodeById(nodes: RecipeNode[], id: number): RecipeNode | null {
+        for (const node of nodes) {
+            if (node.id === id) {
+                return node
+            }
+            if (node.children.length) {
+                const found = this.findRecipeNodeById(node.children, id)
+                if (found) return found
+            }
+        }
+        return null
+    }
+
+    buildRecipeTree(nodes: RecipeNode[], parentId: number | null): RecipeTreeNode[] {
+        const treeNodes: RecipeTreeNode[] = nodes.map((node) => ({
+            id: node.id,
+            name: node.name,
+            children: this.buildRecipeTree(node.children, node.id),
+        }))
+
+        treeNodes.push({
+            id: this.getAddNodeId(parentId),
+            name: this.getAddNodeLabel(parentId),
+            isAddAction: true,
+        })
+
+        return treeNodes
+    }
+
+    getAddNodeId(parentId: number | null): string {
+        return `add:${parentId === null ? 'root' : parentId}`
+    }
+
+    getAddNodeLabel(parentId: number | null): string {
+        return parentId === null ? '+ Add Product' : '+ Add Part'
+    }
+
+    addRecipeProduct() {
+        const name = this.newRecipeProductName.trim()
+        if (!name) return
+
+        const product: RecipeNode = {
+            id: this.getNextRecipeId(),
+            name,
+            children: [],
+        }
+
+        this.recipes = [...this.recipes, product]
+        this.recipeOpen = [...this.recipeOpen, product.id]
+        this.newRecipeProductName = ''
+        this.saveRecipes()
+        this.showSuccess('Product recipe added')
+    }
+
+    async addRecipePart() {
+        const targetParentId = this.selectedRecipeTargetParentId
+        if (targetParentId === undefined) return
+
+        if (this.recipeAddMode === 'gcode') {
+            await this.uploadRecipeFilesToTree(targetParentId)
+            return
+        }
+
+        const partName = this.newRecipePartName.trim()
+        if (!partName) return
+
+        if (targetParentId === null) {
+            this.recipes = [...this.recipes, {
+                id: this.getNextRecipeId(),
+                name: partName,
+                children: [],
+            }]
+            this.newRecipePartName = ''
+            this.saveRecipes()
+            this.showSuccess('Recipe item added at root level')
+            return
+        }
+
+        const childNode: RecipeNode = {
+            id: this.getNextRecipeId(),
+            name: partName,
+            children: [],
+        }
+
+        const updatedTree = this.appendRecipeChild(this.recipes, targetParentId, childNode)
+        if (!updatedTree.added) return
+
+        this.recipes = updatedTree.nodes
+
+        if (!this.recipeOpen.includes(targetParentId)) {
+            this.recipeOpen = [...this.recipeOpen, targetParentId]
+        }
+
+        this.newRecipePartName = ''
+        this.saveRecipes()
+        this.showSuccess('Recipe part added')
+    }
+
+    onRecipeGcodeFilesSelected(event: Event) {
+        const input = event.target as HTMLInputElement
+        if (input.files) {
+            this.recipeGcodeFiles = Array.from(input.files)
+        }
+    }
+
+    openRecipeGcodePicker() {
+        const input = this.$refs.recipeGcodeInput as HTMLInputElement | undefined
+        input?.click()
+    }
+
+    removeRecipeGcodeFile(index: number) {
+        this.recipeGcodeFiles.splice(index, 1)
+    }
+
+    async uploadRecipeFilesToTree(targetParentId: number | null) {
+        if (!this.recipeGcodeFiles.length) return
+
+        this.recipeUploading = true
+        try {
+            const token = localStorage.getItem('fleet_token')
+            const formData = new FormData()
+
+            for (const file of this.recipeGcodeFiles) {
+                formData.append('files', file)
+            }
+
+            const response = await fetch('/api/files/upload', {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+                body: formData,
+            })
+
+            if (!response.ok) {
+                let errorMessage = 'Failed to upload G-Code files'
+                try {
+                    const data = await response.json()
+                    if (data?.error) {
+                        errorMessage = data.error
+                    }
+                } catch {
+                    // Keep default message
+                }
+                this.showError(errorMessage)
+                return
+            }
+
+            const uploadedNodes: RecipeNode[] = this.recipeGcodeFiles.map((file) => ({
+                id: this.getNextRecipeId(),
+                name: file.name,
+                children: [],
+            }))
+
+            const inserted = this.insertRecipeNodesAtTarget(this.recipes, targetParentId, uploadedNodes)
+            if (!inserted.inserted) {
+                this.showError('Unable to add uploaded files to recipe tree')
+                return
+            }
+
+            this.recipes = inserted.nodes
+            if (targetParentId !== null && !this.recipeOpen.includes(targetParentId)) {
+                this.recipeOpen = [...this.recipeOpen, targetParentId]
+            }
+
+            this.recipeGcodeFiles = []
+            this.saveRecipes()
+            await this.refreshFiles()
+            await this.loadFeaturedParts()
+            this.showSuccess('G-Code files uploaded and added to recipe tree')
+        } catch (error) {
+            console.error('Error uploading recipe gcode files:', error)
+            this.showError('Failed to upload G-Code files')
+        } finally {
+            this.recipeUploading = false
+        }
+    }
+
+    insertRecipeNodesAtTarget(nodes: RecipeNode[], targetParentId: number | null, newNodes: RecipeNode[]): { nodes: RecipeNode[]; inserted: boolean } {
+        if (targetParentId === null) {
+            return {
+                nodes: [...nodes, ...newNodes],
+                inserted: true,
+            }
+        }
+
+        let inserted = false
+        const updatedNodes = nodes.map((node) => {
+            if (node.id === targetParentId) {
+                inserted = true
+                return {
+                    ...node,
+                    children: [...node.children, ...newNodes],
+                }
+            }
+
+            const nested = this.insertRecipeNodesAtTarget(node.children, targetParentId, newNodes)
+            if (nested.inserted) {
+                inserted = true
+                return {
+                    ...node,
+                    children: nested.nodes,
+                }
+            }
+
+            return node
+        })
+
+        return {
+            nodes: updatedNodes,
+            inserted,
+        }
+    }
+
+    appendRecipeChild(nodes: RecipeNode[], parentId: number, childNode: RecipeNode): { nodes: RecipeNode[]; added: boolean } {
+        let added = false
+        const updatedNodes = nodes.map((node) => {
+            if (node.id === parentId) {
+                added = true
+                return {
+                    ...node,
+                    children: [...node.children, childNode],
+                }
+            }
+
+            const nested = this.appendRecipeChild(node.children, parentId, childNode)
+            if (nested.added) {
+                added = true
+                return {
+                    ...node,
+                    children: nested.nodes,
+                }
+            }
+
+            return node
+        })
+
+        return {
+            nodes: updatedNodes,
+            added,
+        }
+    }
+
+    removeSelectedRecipeNode() {
+        if (!this.recipeActive.length) return
+        const selectedId = this.recipeActive[0]
+        if (typeof selectedId === 'string' && selectedId.startsWith('add:')) return
+
+        const numericId = typeof selectedId === 'number' ? selectedId : Number(selectedId)
+        if (Number.isNaN(numericId)) return
+
+        const removed = this.removeRecipeNodeById(this.recipes, numericId)
+        if (removed) {
+            this.recipeActive = []
+            this.saveRecipes()
+            this.showSuccess('Recipe item removed')
+        }
+    }
+
+    removeRecipeNodeById(nodes: RecipeNode[], id: number): boolean {
+        const index = nodes.findIndex((node) => node.id === id)
+        if (index !== -1) {
+            nodes.splice(index, 1)
+            return true
+        }
+
+        for (const node of nodes) {
+            if (node.children && node.children.length) {
+                const removed = this.removeRecipeNodeById(node.children, id)
+                if (removed) return true
+            }
+        }
+
+        return false
     }
 
     async loadFeaturedParts() {
@@ -945,6 +1586,46 @@ export default class CentralFiles extends Mixins(BaseMixin) {
 
     formatCategory(category: string | undefined): string {
         return this.getCategoryDisplayName(category)
+    }
+
+    openCreateDirectoryDialog() {
+        this.newDirectoryName = ''
+        this.createDirectoryDialog = true
+    }
+
+    async createDirectory() {
+        const directoryName = this.newDirectoryName.trim()
+        if (!directoryName || !this.isValidDirectoryName) return
+
+        this.creatingDirectory = true
+        try {
+            const token = localStorage.getItem('fleet_token')
+            const response = await fetch('/api/files/directory', {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    name: directoryName,
+                }),
+            })
+
+            if (response.ok) {
+                this.showSuccess(`Directory "${directoryName}" created successfully`)
+                this.createDirectoryDialog = false
+                this.newDirectoryName = ''
+                await this.refreshFiles()
+            } else {
+                const data = await response.json()
+                this.showError(data.error || 'Failed to create directory')
+            }
+        } catch (error) {
+            console.error('Error creating directory:', error)
+            this.showError('Failed to create directory')
+        } finally {
+            this.creatingDirectory = false
+        }
     }
 }
 </script>

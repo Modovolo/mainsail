@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from schemas import LoginRequest, RegisterRequest
 from services.database import DatabaseService
 from services.auth import JWTAuth
-from routes.common import require_auth
+from routes.common import require_auth, require_role
 
 logger = logging.getLogger(__name__)
 
@@ -152,13 +152,238 @@ async def change_password(request: web.Request):
     return web.json_response({'message': 'Password changed successfully'})
 
 
+# ==================== Admin User Management ====================
+
+@require_role('admin')
+async def admin_list_users(request: web.Request):
+    """List all users (admin only)"""
+    db: DatabaseService = request.app['db']
+    
+    try:
+        users = db.get_all_users()
+        return web.json_response({
+            'users': [u.to_dict() for u in users]
+        })
+    except Exception as e:
+        logger.error(f"Error listing users: {e}")
+        return web.json_response({'error': 'Failed to list users'}, status=500)
+
+
+@require_role('admin')
+async def admin_reset_user_password(request: web.Request):
+    """Reset a user's password (admin only)"""
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    
+    user_id = data.get('userId')
+    new_password = data.get('newPassword')
+    
+    if not user_id or not new_password:
+        return web.json_response({'error': 'User ID and new password required'}, status=400)
+    
+    if len(new_password) < 8:
+        return web.json_response({'error': 'Password must be at least 8 characters'}, status=400)
+    
+    db: DatabaseService = request.app['db']
+    
+    user = db.get_user_by_id(user_id)
+    if not user:
+        return web.json_response({'error': 'User not found'}, status=404)
+    
+    if db.admin_reset_password(user_id, new_password):
+        logger.info(f"Admin reset password for user {user.username}")
+        return web.json_response({'message': f'Password reset for user {user.username}'})
+    else:
+        return web.json_response({'error': 'Failed to reset password'}, status=500)
+
+
+@require_role('admin')
+async def admin_update_user_role(request: web.Request):
+    """Update a user's role (admin only)"""
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    
+    user_id = data.get('userId')
+    new_role = data.get('role')
+    
+    if not user_id or not new_role:
+        return web.json_response({'error': 'User ID and role required'}, status=400)
+    
+    if new_role not in ['user', 'admin', 'operator']:
+        return web.json_response({'error': 'Invalid role. Must be: user, admin, or operator'}, status=400)
+    
+    db: DatabaseService = request.app['db']
+    
+    # Prevent admin from demoting themselves
+    current_user_id = request['user']['sub']
+    if user_id == current_user_id and new_role != 'admin':
+        return web.json_response({'error': 'Cannot change your own role'}, status=400)
+    
+    user = db.get_user_by_id(user_id)
+    if not user:
+        return web.json_response({'error': 'User not found'}, status=404)
+    
+    if db.update_user_role(user_id, new_role):
+        logger.info(f"Admin updated role for user {user.username} to {new_role}")
+        return web.json_response({'message': f'Role updated to {new_role} for user {user.username}'})
+    else:
+        return web.json_response({'error': 'Failed to update role'}, status=500)
+
+
+@require_role('admin')
+async def admin_toggle_user_active(request: web.Request):
+    """Activate or deactivate a user (admin only)"""
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    
+    user_id = data.get('userId')
+    is_active = data.get('isActive')
+    
+    if not user_id or is_active is None:
+        return web.json_response({'error': 'User ID and isActive required'}, status=400)
+    
+    db: DatabaseService = request.app['db']
+    
+    # Prevent admin from deactivating themselves
+    current_user_id = request['user']['sub']
+    if user_id == current_user_id and not is_active:
+        return web.json_response({'error': 'Cannot deactivate your own account'}, status=400)
+    
+    user = db.get_user_by_id(user_id)
+    if not user:
+        return web.json_response({'error': 'User not found'}, status=404)
+    
+    if is_active:
+        success = db.activate_user(user_id)
+        action = 'activated'
+    else:
+        success = db.deactivate_user(user_id)
+        action = 'deactivated'
+    
+    if success:
+        logger.info(f"Admin {action} user {user.username}")
+        return web.json_response({'message': f'User {user.username} {action}'})
+    else:
+        return web.json_response({'error': f'Failed to {action.replace("d", "")} user'}, status=500)
+
+
+# ==================== Forgot Password/Username Flow ====================
+
+async def forgot_username(request: web.Request):
+    """Look up username by email address"""
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    
+    email = data.get('email', '').strip().lower()
+    
+    if not email:
+        return web.json_response({'error': 'Email address is required'}, status=400)
+    
+    db: DatabaseService = request.app['db']
+    user = db.get_user_by_email(email)
+    
+    # Always return success to prevent email enumeration
+    # But optionally return the username if found
+    if user:
+        logger.info(f"Username lookup for email: {email} - found: {user.username}")
+        return web.json_response({
+            'message': 'If an account exists with this email, the username has been returned.',
+            'username': user.username
+        })
+    else:
+        logger.info(f"Username lookup for email: {email} - not found")
+        return web.json_response({
+            'message': 'If an account exists with this email, the username has been returned.',
+            'username': None
+        })
+
+
+async def request_password_reset(request: web.Request):
+    """Request a password reset token"""
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    
+    identifier = data.get('identifier', '').strip()  # Can be username or email
+    
+    if not identifier:
+        return web.json_response({'error': 'Username or email is required'}, status=400)
+    
+    db: DatabaseService = request.app['db']
+    user = db.get_user_by_username_or_email(identifier)
+    
+    # Always return success to prevent enumeration
+    if user:
+        token = db.create_password_reset_token(user.id)
+        logger.info(f"Password reset token created for user: {user.username}")
+        # In production, you would send this via email
+        # For now, return it directly (useful for development/testing)
+        return web.json_response({
+            'message': 'If an account exists, a password reset token has been generated.',
+            'resetToken': token,  # In production, remove this and send via email
+            'expiresIn': '1 hour'
+        })
+    else:
+        logger.info(f"Password reset requested for unknown identifier: {identifier}")
+        return web.json_response({
+            'message': 'If an account exists, a password reset token has been generated.',
+            'resetToken': None
+        })
+
+
+async def reset_password_with_token(request: web.Request):
+    """Reset password using a reset token"""
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    
+    token = data.get('token', '').strip()
+    new_password = data.get('newPassword', '')
+    
+    if not token:
+        return web.json_response({'error': 'Reset token is required'}, status=400)
+    
+    if not new_password or len(new_password) < 8:
+        return web.json_response({'error': 'Password must be at least 8 characters'}, status=400)
+    
+    db: DatabaseService = request.app['db']
+    
+    if db.use_password_reset_token(token, new_password):
+        logger.info("Password reset completed using token")
+        return web.json_response({'message': 'Password has been reset successfully'})
+    else:
+        return web.json_response({'error': 'Invalid or expired reset token'}, status=400)
+
+
 def setup_auth_routes(app: web.Application):
     """Setup authentication routes"""
+    # Standard auth routes
     app.router.add_post('/api/auth/login', login)
     app.router.add_post('/api/auth/register', register)
     app.router.add_post('/api/auth/refresh', refresh)
     app.router.add_post('/api/auth/logout', logout)
     app.router.add_get('/api/auth/me', get_me)
     app.router.add_post('/api/auth/change-password', change_password)
+    
+    # Forgot password/username routes (public)
+    app.router.add_post('/api/auth/forgot-username', forgot_username)
+    app.router.add_post('/api/auth/request-password-reset', request_password_reset)
+    app.router.add_post('/api/auth/reset-password', reset_password_with_token)
+    
+    # Admin user management routes
+    app.router.add_get('/api/admin/users', admin_list_users)
+    app.router.add_post('/api/admin/users/reset-password', admin_reset_user_password)
+    app.router.add_post('/api/admin/users/role', admin_update_user_role)
+    app.router.add_post('/api/admin/users/toggle-active', admin_toggle_user_active)
     
     logger.info("Auth routes configured")
