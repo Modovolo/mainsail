@@ -12,7 +12,7 @@ export default new Vuetify({
         themes: {
             dark: {
                 primary: '#0000FF',    // Electric blue
-                secondary: '#EFEFEF',  // Light grey
+                secondary: '#FF9800',  // Orange (matches ConfigSync orange actions)
                 accent: '#0000FF',     // Electric blue
                 error: '#F44336',
                 warning: '#FF9800',

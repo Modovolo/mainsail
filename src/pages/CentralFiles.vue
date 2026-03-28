@@ -41,6 +41,7 @@
                                     hoverable
                                     :open.sync="recipeOpen"
                                     :active.sync="recipeActive"
+                                    @update:active="onRecipeActiveChanged"
                                 >
                                     <template #prepend="{ item }">
                                         <v-icon small :color="item.isAddAction ? 'success' : item.children && item.children.length ? 'primary' : 'secondary'">
@@ -126,7 +127,7 @@
                                 </div>
 
                                 <v-btn
-                                    color="secondary"
+                                    color="primary"
                                     block
                                     :disabled="!canAddRecipePart"
                                     :loading="recipeUploading"
@@ -197,7 +198,7 @@
                     <v-divider></v-divider>
                     
                     <!-- Files Table -->
-                    <v-simple-table dense class="files-table clickable-table">
+                    <v-simple-table dense class="files-table clickable-table featured-files-table">
                         <template #default>
                             <thead>
                                 <tr>
@@ -216,7 +217,7 @@
                                         <div class="d-flex align-center">
                                             <v-icon small class="mr-2" color="primary">mdi-file-document</v-icon>
                                             <div>
-                                                <div class="file-name text-truncate" style="max-width: 180px;">{{ file.name }}</div>
+                                                <div class="file-name">{{ file.name }}</div>
                                                 <div v-if="file.printTime" class="text-caption grey--text">
                                                     <v-icon x-small class="mr-1">mdi-clock-outline</v-icon>
                                                     {{ file.printTime }}
@@ -666,6 +667,8 @@ interface RecipeNode {
     id: number
     name: string
     children: RecipeNode[]
+    nodeType?: 'item' | 'gcode'
+    fileId?: string
 }
 
 interface RecipeTreeNode {
@@ -934,8 +937,33 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         return nodes.map((node) => ({
             id: node.id,
             name: node.name,
+            nodeType: node.nodeType === 'gcode' ? 'gcode' : 'item',
+            fileId: node.fileId,
             children: this.normalizeRecipeNodes(node.children || []),
         }))
+    }
+
+    onRecipeActiveChanged(active: Array<number | string>) {
+        this.recipeActive = active
+        void this.openSelectedRecipeNodeActions()
+    }
+
+    async openSelectedRecipeNodeActions() {
+        const selectedNode = this.selectedRecipeNode
+        if (!selectedNode || selectedNode.nodeType !== 'gcode' || !selectedNode.fileId) return
+
+        let file = this.files.find((entry) => entry.id === selectedNode.fileId)
+        if (!file) {
+            await this.refreshFiles()
+            file = this.files.find((entry) => entry.id === selectedNode.fileId)
+        }
+
+        if (!file) {
+            this.showError(`Unable to find repository file for "${selectedNode.name}"`)
+            return
+        }
+
+        this.openFileActionsDialog(file)
     }
 
     saveRecipes() {
@@ -1108,11 +1136,35 @@ export default class CentralFiles extends Mixins(BaseMixin) {
                 return
             }
 
-            const uploadedNodes: RecipeNode[] = this.recipeGcodeFiles.map((file) => ({
-                id: this.getNextRecipeId(),
-                name: file.name,
-                children: [],
-            }))
+            const payload = await response.json().catch(() => ({}))
+            const uploadedFiles: Array<{ id?: string; name?: string }> = payload?.files || []
+            const uploadedIdByName = new Map<string, string[]>()
+
+            uploadedFiles.forEach((file) => {
+                if (!file?.name || !file?.id) return
+                const existing = uploadedIdByName.get(file.name) || []
+                existing.push(file.id)
+                uploadedIdByName.set(file.name, existing)
+            })
+
+            const uploadedNodes: RecipeNode[] = this.recipeGcodeFiles.map((file) => {
+                const idsForName = uploadedIdByName.get(file.name) || []
+                const matchedId = idsForName.length ? idsForName.shift() : undefined
+
+                if (idsForName.length) {
+                    uploadedIdByName.set(file.name, idsForName)
+                } else {
+                    uploadedIdByName.delete(file.name)
+                }
+
+                return {
+                    id: this.getNextRecipeId(),
+                    name: file.name,
+                    nodeType: 'gcode',
+                    fileId: matchedId,
+                    children: [],
+                }
+            })
 
             const inserted = this.insertRecipeNodesAtTarget(this.recipes, targetParentId, uploadedNodes)
             if (!inserted.inserted) {
@@ -1212,28 +1264,44 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         if (Number.isNaN(numericId)) return
 
         const removed = this.removeRecipeNodeById(this.recipes, numericId)
-        if (removed) {
+        if (removed.removed) {
+            this.recipes = removed.nodes
             this.recipeActive = []
+            this.recipeOpen = this.recipeOpen.filter((openId) => Number(openId) !== numericId)
             this.saveRecipes()
             this.showSuccess('Recipe item removed')
         }
     }
 
-    removeRecipeNodeById(nodes: RecipeNode[], id: number): boolean {
-        const index = nodes.findIndex((node) => node.id === id)
-        if (index !== -1) {
-            nodes.splice(index, 1)
-            return true
-        }
+    removeRecipeNodeById(nodes: RecipeNode[], id: number): { nodes: RecipeNode[]; removed: boolean } {
+        let removed = false
+        const updatedNodes: RecipeNode[] = []
 
         for (const node of nodes) {
-            if (node.children && node.children.length) {
-                const removed = this.removeRecipeNodeById(node.children, id)
-                if (removed) return true
+            if (node.id === id) {
+                removed = true
+                continue
             }
+
+            if (node.children && node.children.length) {
+                const nested = this.removeRecipeNodeById(node.children, id)
+                if (nested.removed) {
+                    removed = true
+                    updatedNodes.push({
+                        ...node,
+                        children: nested.nodes,
+                    })
+                    continue
+                }
+            }
+
+            updatedNodes.push(node)
         }
 
-        return false
+        return {
+            nodes: updatedNodes,
+            removed,
+        }
     }
 
     async loadFeaturedParts() {
@@ -1694,6 +1762,19 @@ export default class CentralFiles extends Mixins(BaseMixin) {
 
 .file-name {
     font-weight: 500;
+}
+
+.featured-files-table {
+    max-height: 220px;
+    overflow: auto;
+}
+
+.featured-files-table table {
+    min-width: 520px;
+}
+
+.featured-files-table .file-name {
+    white-space: nowrap;
 }
 
 /* Clickable table rows */
