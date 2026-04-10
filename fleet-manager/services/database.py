@@ -17,6 +17,10 @@ from models.printer import PrinterModel, Printer
 from models.group import GroupModel, GroupMemberModel, Group, GroupMember
 from models.print_queue import PrintQueueJobModel, PrintQueueJob
 from models.printer_profile import PrinterProfileModel, PrinterProfileData
+from models.pmi import (
+    DowntimeRecordModel, DowntimeRecord,
+    PmiRecordModel, PmiChecklistItemModel, PmiRecord,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1125,3 +1129,153 @@ class DatabaseService:
             session.commit()
             session.refresh(model)
             return PrinterConfigStatus.from_model(model)
+
+    # ==================== PMI & Downtime ====================
+
+    def _get_user_group_ids(self, session, user_id: str) -> list:
+        """Get all group IDs the user belongs to (internal helper)."""
+        rows = session.query(GroupMemberModel.group_id).filter_by(user_id=user_id).all()
+        return [r[0] for r in rows]
+
+    # ── Downtime ──
+
+    def get_team_downtime_records(self, user_id: str) -> List[DowntimeRecord]:
+        """Get all downtime records for groups the user belongs to."""
+        with self.get_session() as session:
+            group_ids = self._get_user_group_ids(session, user_id)
+            if not group_ids:
+                return []
+            models = (
+                session.query(DowntimeRecordModel, UserModel.username)
+                .join(UserModel, DowntimeRecordModel.user_id == UserModel.id)
+                .filter(DowntimeRecordModel.group_id.in_(group_ids))
+                .order_by(DowntimeRecordModel.start.desc())
+                .all()
+            )
+            return [DowntimeRecord.from_model(m, username=uname) for m, uname in models]
+
+    def create_downtime_record(
+        self, user_id: str, group_id: str, printer: str,
+        start: str, end: str | None, reason: str, description: str,
+    ) -> DowntimeRecord:
+        """Create a new downtime record."""
+        with self.get_session() as session:
+            model = DowntimeRecordModel(
+                id=secrets.token_hex(16),
+                user_id=user_id,
+                group_id=group_id,
+                printer=printer,
+                start=datetime.fromisoformat(start),
+                end=datetime.fromisoformat(end) if end else None,
+                reason=reason,
+                description=description,
+            )
+            session.add(model)
+            session.commit()
+            session.refresh(model)
+            username = session.query(UserModel.username).filter_by(id=user_id).scalar()
+            return DowntimeRecord.from_model(model, username=username)
+
+    def delete_downtime_record(self, record_id: str, user_id: str) -> bool:
+        """Delete a downtime record (only if the user created it)."""
+        with self.get_session() as session:
+            model = session.query(DowntimeRecordModel).filter_by(
+                id=record_id, user_id=user_id
+            ).first()
+            if not model:
+                return False
+            session.delete(model)
+            return True
+
+    # ── PMI ──
+
+    def get_team_pmi_records(self, user_id: str) -> List[PmiRecord]:
+        """Get all PMI records for groups the user belongs to."""
+        with self.get_session() as session:
+            group_ids = self._get_user_group_ids(session, user_id)
+            if not group_ids:
+                return []
+            models = (
+                session.query(PmiRecordModel, UserModel.username)
+                .join(UserModel, PmiRecordModel.user_id == UserModel.id)
+                .filter(PmiRecordModel.group_id.in_(group_ids))
+                .order_by(PmiRecordModel.date.desc())
+                .all()
+            )
+            return [PmiRecord.from_model(m, username=uname) for m, uname in models]
+
+    def create_pmi_record(
+        self, user_id: str, group_id: str, printer: str,
+        inspector: str, date: str, pmi_type: str,
+        additional_notes: str, overall_status: str,
+        checklist: list,
+    ) -> PmiRecord:
+        """Create a new PMI record with checklist items."""
+        with self.get_session() as session:
+            passed_count = sum(1 for c in checklist if c.get('passed'))
+            model = PmiRecordModel(
+                id=secrets.token_hex(16),
+                user_id=user_id,
+                group_id=group_id,
+                printer=printer,
+                inspector=inspector,
+                date=datetime.fromisoformat(date),
+                type=pmi_type,
+                additional_notes=additional_notes,
+                overall_status=overall_status,
+                passed_count=passed_count,
+                total_checks=len(checklist),
+            )
+            session.add(model)
+            session.flush()  # get the id
+
+            for item in checklist:
+                ci = PmiChecklistItemModel(
+                    id=secrets.token_hex(16),
+                    pmi_record_id=model.id,
+                    label=item.get('label', ''),
+                    passed=bool(item.get('passed')),
+                    notes=item.get('notes', ''),
+                )
+                session.add(ci)
+
+            session.commit()
+            session.refresh(model)
+            username = session.query(UserModel.username).filter_by(id=user_id).scalar()
+            return PmiRecord.from_model(model, username=username)
+
+    def get_pmi_record(self, record_id: str, user_id: str) -> PmiRecord | None:
+        """Get a single PMI record if the user has access via group membership."""
+        with self.get_session() as session:
+            group_ids = self._get_user_group_ids(session, user_id)
+            if not group_ids:
+                return None
+            result = (
+                session.query(PmiRecordModel, UserModel.username)
+                .join(UserModel, PmiRecordModel.user_id == UserModel.id)
+                .filter(
+                    PmiRecordModel.id == record_id,
+                    PmiRecordModel.group_id.in_(group_ids),
+                )
+                .first()
+            )
+            if not result:
+                return None
+            model, username = result
+            return PmiRecord.from_model(model, username=username)
+
+    def get_team_usernames(self, user_id: str) -> List[str]:
+        """Get all unique usernames from groups the user belongs to."""
+        with self.get_session() as session:
+            group_ids = self._get_user_group_ids(session, user_id)
+            if not group_ids:
+                return []
+            rows = (
+                session.query(UserModel.username)
+                .join(GroupMemberModel, GroupMemberModel.user_id == UserModel.id)
+                .filter(GroupMemberModel.group_id.in_(group_ids))
+                .distinct()
+                .order_by(UserModel.username)
+                .all()
+            )
+            return [r[0] for r in rows]

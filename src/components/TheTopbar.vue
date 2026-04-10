@@ -605,6 +605,13 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
     }
 
     doUploadAndStart(file: File) {
+        const isFleetMode = this.$store.state.instancesDB === 'fleet'
+        const printerId = this.$store.state.socket.fleetPrinterId || this.$route.params.id
+
+        if (isFleetMode && printerId) {
+            return this.doFleetUploadAndStart(file, printerId)
+        }
+
         const formData = new FormData()
         const filename = file.name
 
@@ -640,6 +647,44 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
                     } catch (_) {}
 
                     resolve(result.data.result)
+                })
+                .catch(() => {
+                    this.uploadSnackbar.status = false
+                    this.$store.dispatch('socket/removeLoading', { name: 'btnUploadAndStart' })
+                    const text = this.$t('App.TopBar.CannotUploadTheFile').toString()
+                    this.$toast.error(text)
+                })
+        })
+    }
+
+    doFleetUploadAndStart(file: File, printerId: string) {
+        const formData = new FormData()
+        const filename = file.name
+
+        this.uploadSnackbar.filename = filename
+        this.uploadSnackbar.status = true
+        this.uploadSnackbar.percent = 0
+        this.uploadSnackbar.speed = 0
+
+        formData.append('file', file, filename)
+        formData.append('printerId', printerId)
+        formData.append('print', 'true')
+
+        return new Promise((resolve) => {
+            this.uploadSnackbar.cancelTokenSource = axios.CancelToken.source()
+            axios
+                .post('/api/files/upload-and-print', formData, {
+                    cancelToken: this.uploadSnackbar.cancelTokenSource.token,
+                    headers: { 'Content-Type': 'multipart/form-data' },
+                    onUploadProgress: (progressEvent: AxiosProgressEvent) => {
+                        this.uploadSnackbar.percent = (progressEvent.progress ?? 0) * 100
+                        this.uploadSnackbar.speed = progressEvent.rate ?? 0
+                        this.uploadSnackbar.total = progressEvent.total ?? 0
+                    },
+                })
+                .then((result) => {
+                    this.uploadSnackbar.status = false
+                    resolve(result.data)
                 })
                 .catch(() => {
                     this.uploadSnackbar.status = false

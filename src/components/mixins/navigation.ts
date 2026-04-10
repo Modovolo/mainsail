@@ -114,6 +114,7 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
                 'Machine',
                 'History',
                 'Charts',
+                'PMIs & Reporting',
             ];
             return points.filter(entry => {
                 const titleToCheck = entry.orgTitle || entry.title;

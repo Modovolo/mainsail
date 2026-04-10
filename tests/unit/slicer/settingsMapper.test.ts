@@ -13,6 +13,7 @@ function createTestSliceParams(overrides: Partial<SliceParams> = {}): SliceParam
     return {
         layer_height: 0.2,
         first_layer_height: 0.3,
+        line_width: 0,
         infill_density: 20,
         infill_pattern: 'grid',
         wall_count: 3,
@@ -24,6 +25,7 @@ function createTestSliceParams(overrides: Partial<SliceParams> = {}): SliceParam
         nozzle_temp: 210,
         bed_temp: 60,
         enable_support: false,
+        support_angle: 50,
         support_density: 15,
         support_pattern: 'grid',
         enable_non_planar: false,

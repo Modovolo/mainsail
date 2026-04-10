@@ -30,6 +30,7 @@ export type TransformMode = 'move' | 'rotate' | 'scale'
 export interface SliceParams {
     layer_height: number
     first_layer_height: number
+    line_width: number
     infill_density: number
     infill_pattern: string
     wall_count: number
@@ -42,6 +43,7 @@ export interface SliceParams {
     bed_temp: number
     enable_support: boolean
     support_density: number
+    support_angle: number
     support_pattern: string
     enable_non_planar: boolean
     max_slope_angle: number
@@ -142,4 +144,7 @@ export interface PrepareState {
 
     // Last generated G-code (for passing to PreviewPage)
     lastGcode: string | null
+
+    // Last generated toolpath data (direct slicer output for preview)
+    lastToolpaths: any[] | null
 }

@@ -61,7 +61,7 @@ function mapInfillPattern(pattern: string): SlicerConfig['infillPattern'] {
  */
 export function mapSettings(params: SliceParams, printer: PrinterProfile): SlicerConfig {
     const nozzle = printer.nozzleDiameter || DEFAULTS.nozzleDiameter
-    const lineWidth = nozzle * 1.1 // standard line width calculation
+    const lineWidth = (params.line_width && params.line_width > 0) ? params.line_width : nozzle * 1.1
 
     return {
         // Layer
@@ -111,7 +111,7 @@ export function mapSettings(params: SliceParams, printer: PrinterProfile): Slice
         // Support
         enableSupport: params.enable_support,
         supportDensity: params.support_density / 100,
-        supportAngle: 50,
+        supportAngle: params.support_angle,
 
         // Skirt/Brim
         skirtLoops: 2,

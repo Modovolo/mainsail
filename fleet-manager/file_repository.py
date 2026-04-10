@@ -272,6 +272,7 @@ def setup_file_routes(app: web.Application, fleet_manager=None):
             data = await request.json()
             file_id = data.get('fileId')
             printer_id = data.get('printerId')
+            start_print = data.get('startPrint', False)
             
             if not file_id or not printer_id:
                 return web.json_response({
@@ -306,7 +307,8 @@ def setup_file_routes(app: web.Application, fleet_manager=None):
                     'type': 'upload_file',
                     'filename': file_info['name'],
                     'content': base64.b64encode(file_content).decode('utf-8'),
-                    'size': file_info['size']
+                    'size': file_info['size'],
+                    'start_print': start_print
                 }))
                 
                 logger.info(f"File {file_info['name']} sent to printer {printer_id}")
@@ -401,12 +403,66 @@ def setup_file_routes(app: web.Application, fleet_manager=None):
                 'error': f'Failed to list printers: {str(e)}'
             }, status=500)
     
+    @require_auth
+    async def upload_and_print(request: web.Request):
+        """POST /api/files/upload-and-print - Upload a file directly to a printer and optionally start printing"""
+        try:
+            reader = await request.multipart()
+            filename = None
+            file_content = None
+            printer_id = None
+            start_print = False
+
+            async for part in reader:
+                if part.name == 'file':
+                    filename = part.filename or 'uploaded.gcode'
+                    file_content = await part.read()
+                elif part.name == 'printerId':
+                    printer_id = (await part.read()).decode('utf-8')
+                elif part.name == 'print':
+                    start_print = (await part.read()).decode('utf-8').lower() in ('true', '1', 'yes')
+
+            if not file_content or not filename:
+                return web.json_response({'error': 'No file provided'}, status=400)
+            if not printer_id:
+                return web.json_response({'error': 'printerId is required'}, status=400)
+
+            # Check if printer is connected
+            if not fleet_manager or printer_id not in fleet_manager.connected_printers:
+                return web.json_response({'error': 'Printer not connected'}, status=400)
+
+            import base64
+            ws = fleet_manager.connected_printers[printer_id]
+
+            await ws.send(json.dumps({
+                'type': 'upload_file',
+                'filename': filename,
+                'content': base64.b64encode(file_content).decode('utf-8'),
+                'size': len(file_content),
+                'start_print': start_print
+            }))
+
+            logger.info(f"File {filename} sent to printer {printer_id} (start_print={start_print})")
+
+            return web.json_response({
+                'success': True,
+                'message': f"File sent to printer",
+                'started_print': start_print
+            })
+
+        except Exception as e:
+            logger.error(f"Error in upload-and-print: {e}")
+            return web.json_response({
+                'error': f'Failed to upload and print: {str(e)}'
+            }, status=500)
+
     # Register routes
     app.router.add_get('/api/files', list_files)
     app.router.add_post('/api/files/upload', upload_files)
     app.router.add_get('/api/files/download/{id}', download_file)
     app.router.add_delete('/api/files/{id}', delete_file)
     app.router.add_post('/api/files/send', send_file_to_printer)
+    app.router.add_post('/api/files/upload-and-print', upload_and_print)
     app.router.add_get('/api/printers', list_printers)
     
     logger.info("File repository routes registered")

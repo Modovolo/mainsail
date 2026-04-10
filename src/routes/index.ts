@@ -15,6 +15,7 @@ import PrintQueue from '../pages/PrintQueue.vue'
 import Settings from '../pages/Settings.vue'
 import SlicingPage from '../pages/SlicingPage.vue'
 import MonitoringPage from '../pages/MonitoringPage.vue'
+import PMIsAndReporting from '../pages/PMIs_and_reporting.vue'
 import { AsyncComponent, Component } from 'vue'
 
 import {
@@ -36,6 +37,7 @@ import {
     mdiLogin,
     mdiPrinter3d,
     mdiPrinter3dNozzle,
+    mdiClipboardTextClock,
 } from '@mdi/js'
 
 const routes: AppRoute[] = [
@@ -281,6 +283,17 @@ const routes: AppRoute[] = [
         showInNavi: true,
         moonrakerComponent: 'timelapse',
         position: 80,
+        meta: { requiresAuth: true },
+    },
+    {
+        name: 'pmis-and-reporting',
+        title: 'PMIs & Reporting',
+        path: '/pmis-and-reporting',
+        icon: mdiClipboardTextClock,
+        component: PMIsAndReporting,
+        alwaysShow: true,
+        showInNavi: true,
+        position: 85,
         meta: { requiresAuth: true },
     },
     {

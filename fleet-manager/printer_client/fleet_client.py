@@ -589,11 +589,12 @@ class FleetClient:
         filename = data.get("filename", "uploaded.gcode")
         content_b64 = data.get("content", "")
         file_id = data.get("file_id", "unknown")
+        start_print = data.get("start_print", False)
         
         try:
             # Decode base64 content
             content = base64.b64decode(content_b64)
-            logger.info(f"Receiving file: {filename} ({len(content)} bytes)")
+            logger.info(f"Receiving file: {filename} ({len(content)} bytes, start_print={start_print})")
             
             # Upload to Moonraker using the file upload API
             async with aiohttp.ClientSession() as session:
@@ -605,6 +606,8 @@ class FleetClient:
                     filename=filename,
                     content_type='application/octet-stream'
                 )
+                if start_print:
+                    form.add_field('print', 'true')
                 
                 # Upload to Moonraker's gcodes directory
                 upload_url = f"{self.moonraker_url}/server/files/upload"
@@ -620,6 +623,7 @@ class FleetClient:
                                 "file_id": file_id,
                                 "filename": filename,
                                 "success": True,
+                                "started_print": start_print,
                                 "printer_id": self.printer_id
                             }))
                     else:

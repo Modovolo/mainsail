@@ -25,6 +25,7 @@ import {
 const DEFAULT_SLICE_PARAMS: SliceParams = {
     layer_height: 0.2,
     first_layer_height: 0.3,
+    line_width: 0,
     infill_density: 20,
     infill_pattern: 'grid',
     wall_count: 3,
@@ -37,6 +38,7 @@ const DEFAULT_SLICE_PARAMS: SliceParams = {
     bed_temp: 60,
     enable_support: false,
     support_density: 15,
+    support_angle: 50,
     support_pattern: 'grid',
     enable_non_planar: false,
     max_slope_angle: 45,
@@ -132,6 +134,7 @@ export const getDefaultState = (): PrepareState => ({
     isSlicing: false,
     lastResult: null,
     lastGcode: null,
+    lastToolpaths: null,
 })
 
 // Initial state
@@ -305,6 +308,10 @@ export const prepare: Module<PrepareState, any> = {
 
         setLastGcode(state, gcode: string | null) {
             state.lastGcode = gcode
+        },
+
+        setLastToolpaths(state, toolpaths: any[] | null) {
+            state.lastToolpaths = toolpaths
         },
 
         reset(state) {

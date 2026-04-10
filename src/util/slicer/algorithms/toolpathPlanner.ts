@@ -9,8 +9,63 @@ import { Vec2, ToolpathSegment, LayerToolpath, SlicerConfig } from '../types'
 
 const EPSILON = 1e-4
 
+const MIN_SEGMENT_LENGTH = 0.01
+const COLINEAR_EPSILON = 1e-5
+
 function dist(a: Vec2, b: Vec2): number {
     return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)
+}
+
+function pointsNear(a: Vec2, b: Vec2, eps = EPSILON): boolean {
+    return Math.abs(a.x - b.x) <= eps && Math.abs(a.y - b.y) <= eps
+}
+
+function canMerge(prev: ToolpathSegment, next: ToolpathSegment): boolean {
+    if (prev.type !== next.type) return false
+    if (Math.abs(prev.feedrate - next.feedrate) > 0.5) return false
+    if (!pointsNear(prev.to, next.from)) return false
+
+    // Keep retraction travel moves discrete.
+    if (prev.type === 'travel' && (prev.extrusionAmount < 0 || next.extrusionAmount < 0)) return false
+
+    const v1x = prev.to.x - prev.from.x
+    const v1y = prev.to.y - prev.from.y
+    const v2x = next.to.x - next.from.x
+    const v2y = next.to.y - next.from.y
+    const len1 = Math.sqrt(v1x * v1x + v1y * v1y)
+    const len2 = Math.sqrt(v2x * v2x + v2y * v2y)
+
+    if (len1 < MIN_SEGMENT_LENGTH || len2 < MIN_SEGMENT_LENGTH) {
+        return true
+    }
+
+    const cross = Math.abs(v1x * v2y - v1y * v2x)
+    const norm = len1 * len2
+    return norm > 0 && cross / norm <= COLINEAR_EPSILON
+}
+
+function sanitizeSegments(segments: ToolpathSegment[]): ToolpathSegment[] {
+    const sanitized: ToolpathSegment[] = []
+
+    for (const seg of segments) {
+        const length = dist(seg.from, seg.to)
+
+        // Drop degenerate no-op segments.
+        if (length < MIN_SEGMENT_LENGTH && Math.abs(seg.extrusionAmount) < 1e-5) {
+            continue
+        }
+
+        const prev = sanitized[sanitized.length - 1]
+        if (prev && canMerge(prev, seg)) {
+            prev.to = seg.to
+            prev.extrusionAmount += seg.extrusionAmount
+            continue
+        }
+
+        sanitized.push({ ...seg })
+    }
+
+    return sanitized
 }
 
 /**
@@ -76,7 +131,8 @@ function orderSegments(segments: ToolpathSegment[]): ToolpathSegment[] {
 function insertTravels(
     segments: ToolpathSegment[],
     z: number,
-    config: SlicerConfig
+    config: SlicerConfig,
+    startPos?: Vec2
 ): ToolpathSegment[] {
     if (segments.length === 0) return []
 
@@ -84,7 +140,7 @@ function insertTravels(
     const travelFeedrate = config.travelSpeed * 60 // mm/s → mm/min
     const minTravelForRetract = 1.5 // mm — don't retract for tiny moves
 
-    let currentPos: Vec2 = segments[0].from
+    let currentPos: Vec2 = startPos ?? segments[0].from
 
     for (const seg of segments) {
         const travelDist = dist(currentPos, seg.from)
@@ -180,31 +236,36 @@ export function planLayer(
     z: number,
     layerIndex: number,
     config: SlicerConfig,
-    prevFilament: number
+    prevFilament: number,
+    prevEndPos?: Vec2
 ): LayerToolpath {
-    // Ordering: walls first (outer then inner), then infill
-    // Group segments by type for ordering
+    // Group segments by type. Keep shell order stable as generated from contours,
+    // and only optimize ordering for fill-like segments.
     const outerWalls = shellSegments.filter((s) => s.type === 'wall-outer')
     const innerWalls = shellSegments.filter((s) => s.type === 'wall-inner')
     const floors = infillSegments.filter((s) => s.type === 'floor')
     const roofs = infillSegments.filter((s) => s.type === 'roof')
     const infill = infillSegments.filter((s) => s.type === 'infill')
 
-    // Order each group
+    // Print inner walls first, outer walls last for better surface quality.
+    // This also ensures outer-wall segments appear later in the move list,
+    // giving them rendering priority in the preview (last-drawn wins for
+    // coplanar geometry at the same layer height).
     const ordered = [
-        ...orderSegments(outerWalls),
-        ...orderSegments(innerWalls),
+        ...innerWalls,
         ...orderSegments(floors),
         ...orderSegments(roofs),
         ...orderSegments(infill),
+        ...outerWalls,
     ]
 
     // Insert travel moves
-    const withTravels = insertTravels(ordered, z, config)
+    const withTravels = insertTravels(ordered, z, config, prevEndPos)
+    const sanitized = sanitizeSegments(withTravels)
 
     // Calculate filament used in this layer
     let layerFilament = 0
-    for (const seg of withTravels) {
+    for (const seg of sanitized) {
         if (seg.extrusionAmount > 0) {
             layerFilament += seg.extrusionAmount
         }
@@ -213,7 +274,7 @@ export function planLayer(
     return {
         z,
         layerIndex,
-        segments: withTravels,
+        segments: sanitized,
         filamentUsed: prevFilament + layerFilament,
     }
 }

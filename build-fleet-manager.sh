@@ -212,6 +212,7 @@ fi
 
 echo ""
 echo -e "${GREEN}=== Deployment Complete ===${NC}"
+echo -e "Finished at: ${YELLOW}$(date '+%Y-%m-%d %H:%M:%S %Z')${NC}"
 echo ""
 echo "Current pod status:"
 kubectl get pods -n fleet

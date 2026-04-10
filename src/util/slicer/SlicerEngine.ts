@@ -10,7 +10,7 @@
  *   // result.gcode contains the generated G-code string
  */
 
-import { SlicerConfig, WorkerResponse, SliceResultData } from './types'
+import { SlicerConfig, WorkerResponse, SliceResultData, LayerToolpath } from './types'
 
 export interface SliceProgress {
     progress: number
@@ -20,6 +20,7 @@ export interface SliceProgress {
 
 export interface SliceOutput {
     gcode: string
+    toolpaths: LayerToolpath[]
     result: SliceResultData
 }
 
@@ -82,7 +83,7 @@ export class SlicerEngine {
                 break
 
             case 'complete':
-                job.resolve({ gcode: msg.gcode, result: msg.result })
+                job.resolve({ gcode: msg.gcode, toolpaths: msg.toolpaths, result: msg.result })
                 this.pendingJobs.delete(msg.id)
                 break
 

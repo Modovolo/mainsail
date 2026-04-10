@@ -141,7 +141,7 @@ export type WorkerRequest =
 /** Messages sent from slicer worker back to main thread */
 export type WorkerResponse =
     | { type: 'progress'; id: string; progress: number; stage: string; message: string }
-    | { type: 'complete'; id: string; gcode: string; result: SliceResultData }
+    | { type: 'complete'; id: string; gcode: string; toolpaths: LayerToolpath[]; result: SliceResultData }
     | { type: 'error'; id: string; error: string }
 
 /** Structured result data from slicing */

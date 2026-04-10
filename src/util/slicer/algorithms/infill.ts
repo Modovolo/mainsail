@@ -157,7 +157,10 @@ export function generateInfill(
     const segments: ToolpathSegment[] = []
 
     for (const contour of innerContours) {
+        // Only fill valid printable regions (outer loops with meaningful area).
         if (!contour.closed || contour.points.length < 3) continue
+        if (!Number.isFinite(contour.area) || contour.area <= 0) continue
+        if (Math.abs(contour.area) < 0.05) continue
 
         // Alternate angle each layer for better strength
         const baseAngle = (Math.PI / 4) + (layerIndex % 2) * (Math.PI / 2)
@@ -187,7 +190,11 @@ export function generateInfill(
             const dist = Math.sqrt(dx * dx + dy * dy)
             if (dist < EPSILON) continue
 
-            const extrusionAmount = (config.lineWidth * layerHeight * dist) / filamentArea
+            // Defensive check against malformed scanline clipping output.
+            const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 }
+            if (!pointInPolygon(mid, contour.points)) continue
+
+            const extrusionAmount = (config.lineWidth * layerHeight * dist) / filamentArea * config.extrusionMultiplier
 
             segments.push({
                 from,

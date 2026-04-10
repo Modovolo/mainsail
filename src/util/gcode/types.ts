@@ -26,6 +26,7 @@ export interface GcodeMove {
     z: number
     e: number // extrusion amount (absolute)
     f: number // feedrate mm/min
+    tool: number
     type: GcodeFeatureType
     /** True if extruding (E is increasing) */
     extruding: boolean

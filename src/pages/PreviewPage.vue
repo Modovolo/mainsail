@@ -2,6 +2,46 @@
     <div class="preview-page">
         <!-- Toolbar -->
         <div class="preview-toolbar">
+            <!-- Printer Profile Selector -->
+            <v-menu
+                v-model="showPrinterMenu"
+                :close-on-content-click="true"
+                offset-y
+                bottom
+                max-width="400">
+                <template #activator="{ on, attrs }">
+                    <v-btn text small class="printer-selector mr-4" v-bind="attrs" v-on="on">
+                        <v-icon left small>{{ mdiPrinter3d }}</v-icon>
+                        {{ activePrinterName }}
+                        <span class="text-caption ml-1 grey--text">{{ activePrinterDims }}</span>
+                        <v-icon right x-small>{{ showPrinterMenu ? mdiChevronUp : mdiChevronDown }}</v-icon>
+                    </v-btn>
+                </template>
+                <v-card>
+                    <v-card-title class="py-2 text-subtitle-2">Build Volume</v-card-title>
+                    <v-divider />
+                    <v-list dense class="py-0" style="max-height: 300px; overflow-y: auto;">
+                        <v-list-item
+                            v-for="profile in printerProfiles"
+                            :key="profile.id"
+                            :class="{ 'primary--text v-list-item--active': activePrinterId === profile.id }"
+                            @click="selectPrinterProfile(profile.id)">
+                            <v-list-item-icon class="mr-2">
+                                <v-icon small>{{ mdiPrinter3d }}</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-content>
+                                <v-list-item-title>{{ profile.name }}</v-list-item-title>
+                                <v-list-item-subtitle class="text-caption">
+                                    {{ profile.buildVolume.x }}&times;{{ profile.buildVolume.y }}&times;{{ profile.buildVolume.z }}mm
+                                </v-list-item-subtitle>
+                            </v-list-item-content>
+                        </v-list-item>
+                    </v-list>
+                </v-card>
+            </v-menu>
+
+            <v-divider vertical class="mr-4" />
+
             <v-btn-toggle v-model="colorMode" dense mandatory class="mr-4">
                 <v-btn small value="feature">
                     <v-icon small left>{{ mdiPalette }}</v-icon>
@@ -27,6 +67,13 @@
                 hide-details
                 class="mr-4 mt-0 pt-0 d-inline-flex" />
 
+            <v-checkbox
+                v-model="showModelOutline"
+                label="Outline"
+                dense
+                hide-details
+                class="mr-4 mt-0 pt-0 d-inline-flex" />
+
             <v-spacer />
 
             <v-btn icon small class="mr-2" @click="resetCamera">
@@ -39,6 +86,18 @@
 
         <!-- 3D Viewer -->
         <div ref="viewerContainer" class="preview-viewer" />
+
+        <!-- Path progress slider (horizontal, bottom) -->
+        <div v-if="parsedGcode && totalLayers > 0" class="path-slider-container">
+            <div class="text-caption mb-1">Path {{ pathProgress }}%</div>
+            <v-slider
+                v-model="pathProgress"
+                :min="0"
+                :max="100"
+                hide-details
+                class="path-slider"
+                @input="onPathProgressChange" />
+        </div>
 
         <!-- Layer Slider (vertical, right side) -->
         <div v-if="parsedGcode && totalLayers > 0" class="layer-slider-container">
@@ -69,6 +128,24 @@
                     vertical
                     hide-details
                     class="layer-slider-small" />
+            </div>
+            <div class="clip-section mt-2">
+                <v-checkbox
+                    v-model="enableClipPlane"
+                    label="Clip"
+                    dense
+                    hide-details
+                    class="mt-0 pt-0" />
+                <v-slider
+                    v-if="enableClipPlane"
+                    v-model="clipHeight"
+                    :min="0"
+                    :max="clipHeightMax"
+                    :step="0.1"
+                    vertical
+                    hide-details
+                    class="layer-slider-small"
+                    @input="onClipHeightChange" />
             </div>
         </div>
 
@@ -132,8 +209,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
 import { getGcodeParserEngine } from '@/util/gcode/ParserEngine'
 import { FEATURE_COLORS, FEATURE_COLORS_HEX } from '@/util/gcode/types'
 import type { ParsedGcode, GcodeFeatureType } from '@/util/gcode/types'
-import { takeSharedPrepareViewerState, clearSharedPrepareViewerState, setSharedPrepareViewerState } from '@/util/prepare/sharedViewer'
-import type { Platform } from '@/util/mesh'
+import { toolpathsToParsedGcode } from '@/util/gcode/toolpathConverter'
+import { mapSettings } from '@/util/slicer/settingsMapper'
 import {
     mdiPalette,
     mdiSpeedometer,
@@ -141,6 +218,8 @@ import {
     mdiCropFree,
     mdiPrinter3d,
     mdiFolder,
+    mdiChevronUp,
+    mdiChevronDown,
 } from '@mdi/js'
 
 @Component({})
@@ -152,6 +231,39 @@ export default class PreviewPage extends Mixins(BaseMixin) {
     mdiCropFree = mdiCropFree
     mdiPrinter3d = mdiPrinter3d
     mdiFolder = mdiFolder
+    mdiChevronUp = mdiChevronUp
+    mdiChevronDown = mdiChevronDown
+
+    // Printer profile selector
+    showPrinterMenu = false
+
+    get printerProfiles(): any[] {
+        return this.$store.state.prepare?.printerProfiles ?? []
+    }
+
+    get activePrinterId(): string {
+        return this.$store.state.prepare?.activePrinterId ?? 'generic'
+    }
+
+    get activeProfile(): any {
+        return this.printerProfiles.find((p: any) => p.id === this.activePrinterId) ?? this.printerProfiles[0] ?? null
+    }
+
+    get activePrinterName(): string {
+        return this.activeProfile?.name ?? 'Unknown'
+    }
+
+    get activePrinterDims(): string {
+        const v = this.activeProfile?.buildVolume
+        return v ? `${v.x}×${v.y}×${v.z}` : ''
+    }
+
+    selectPrinterProfile(id: string) {
+        this.$store.dispatch('prepare/selectPrinter', id)
+        this.syncBedFromStore()
+        this.buildBuildPlate()
+        this.resetCamera()
+    }
 
     // Three.js objects
     private renderer: THREE.WebGLRenderer | null = null
@@ -160,25 +272,20 @@ export default class PreviewPage extends Mixins(BaseMixin) {
     private controls: OrbitControls | null = null
     private renderPending = false
     private buildPlate: THREE.Group | null = null
-    private usingSharedViewer = false
-    private preserveViewerForPrepare = false
-    private hiddenModelMeshes: THREE.Object3D[] = []
-    private sourcePlatform: Platform | null = null
     private bedWidth = 220
     private bedDepth = 220
     private bedHeight = 250
     private activeBuildToken = 0
-    private readonly maxLayerMovesForPreview = 200000
     private readonly maxGlobalSegments = 2000000
+    private readonly defaultExtrusionRibbonWidthMm = 0.42
+    private readonly minRenderableSegmentMm = 0.0005
     private builtSegmentsTotal = 0
     private warnedSafetyCap = false
     private builtLayers: Set<number> = new Set()
-    private pendingLayerQueue: number[] = []
-    private isProcessingLayerQueue = false
-    private readonly initialFinishLayersCount = 6
     private readonly onControlsChange = () => this.requestRender()
+    private lastLoadedPrepareGcode: string | null = null
 
-    // Toolpath line objects (one group per layer, separate travel lines)
+    // Toolpath objects (one group per layer, separate travel lines)
     private layerMeshes: Map<number, THREE.Group> = new Map()
     private travelLines: Map<number, THREE.LineSegments> = new Map()
 
@@ -191,9 +298,23 @@ export default class PreviewPage extends Mixins(BaseMixin) {
     colorMode: 'feature' | 'speed' = 'feature'
     showTravel = false
     showRetractions = false
+    showModelOutline = true
     currentLayer = 0
     showLayerRange = false
     layerRangeStart = 0
+    pathProgress = 100
+    enableClipPlane = false
+    clipHeight = 0
+
+    // Model outline mesh
+    private modelOutlineMesh: THREE.LineSegments | null = null
+
+    // Clipping plane
+    private clipPlane: THREE.Plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0)
+
+    // Speed range (computed during build)
+    private speedMin = Infinity
+    private speedMax = 0
 
     get totalLayers(): number {
         return this.parsedGcode?.totalLayers ?? 0
@@ -222,14 +343,62 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         const legend: Record<string, string> = {}
         const types: GcodeFeatureType[] = [
             'outer-wall', 'inner-wall', 'top-solid', 'bottom-solid',
-            'infill', 'support', 'skirt', 'brim',
+            'infill', 'support', 'skirt', 'brim', 'travel',
         ]
-        if (this.showTravel) types.push('travel')
 
         for (const t of types) {
             legend[t] = FEATURE_COLORS[t]
         }
         return legend
+    }
+
+    get clipHeightMax(): number {
+        if (!this.parsedGcode) return this.bedHeight
+        return Math.max(this.parsedGcode.bounds.zMax + 1, 1)
+    }
+
+    /** Height offset per feature type (in mm) to prevent Z-fighting between coplanar ribbons */
+    private static readonly FEATURE_Y_OFFSET: Partial<Record<GcodeFeatureType, number>> = {
+        'infill': -0.01,
+        'bottom-solid': -0.005,
+        'top-solid': 0.005,
+        'inner-wall': 0.01,
+        'outer-wall': 0.02,
+    }
+
+    /** Width scale per feature type (relative to base ribbon width) */
+    private static readonly RIBBON_WIDTH_SCALE: Partial<Record<GcodeFeatureType, number>> = {
+        'outer-wall': 1.0,
+        'inner-wall': 0.9,
+        'top-solid': 1.0,
+        'bottom-solid': 1.0,
+        'infill': 0.6,
+        'support': 0.5,
+        'skirt': 0.8,
+        'brim': 1.0,
+    }
+
+    get extrusionRibbonWidthMm(): number {
+        const prepareState = this.$store.state.prepare as any
+        const params = prepareState?.sliceParams
+        const profiles = prepareState?.printerProfiles ?? []
+        const activeId = prepareState?.activePrinterId
+        const profile = profiles.find((item: any) => item.id === activeId) ?? profiles[0]
+
+        if (!params || !profile) {
+            return this.defaultExtrusionRibbonWidthMm
+        }
+
+        try {
+            const config = mapSettings(params, profile)
+            if (Number.isFinite(config.lineWidth) && config.lineWidth > 0) {
+                return config.lineWidth
+            }
+        } catch (_error) {
+            // Fall back to a sane visual width if mapping fails.
+        }
+
+        return this.defaultExtrusionRibbonWidthMm
     }
 
     formatType(type: string): string {
@@ -241,94 +410,39 @@ export default class PreviewPage extends Mixins(BaseMixin) {
     mounted() {
         this.syncBedFromStore()
 
-        const sharedViewer = takeSharedPrepareViewerState()
-        if (sharedViewer) {
-            try {
-                this.usingSharedViewer = true
-                this.renderer = sharedViewer.renderer
-                this.scene = sharedViewer.scene
-                this.camera = sharedViewer.camera
-                this.controls = sharedViewer.controls
-
-                const container = this.$refs.viewerContainer as HTMLElement
-                if (container && this.renderer?.domElement) {
-                    const parent = this.renderer.domElement.parentElement
-                    if (parent) {
-                        parent.removeChild(this.renderer.domElement)
-                    }
-                    container.appendChild(this.renderer.domElement)
-                    this.renderer.setSize(container.clientWidth, container.clientHeight)
-                    this.camera.aspect = container.clientWidth / container.clientHeight
-                    this.camera.updateProjectionMatrix()
-                    ;(this.controls as any).domElement = this.renderer.domElement
-                    this.controls.enableDamping = false
-                    this.controls.addEventListener('change', this.onControlsChange)
-                    this.controls.update()
-                }
-
-                if (sharedViewer.platform) {
-                    this.sourcePlatform = sharedViewer.platform
-                    this.hiddenModelMeshes = sharedViewer.platform.widgets.map((widget: any) => widget.mesh)
-                    for (const mesh of this.hiddenModelMeshes) {
-                        mesh.visible = false
-                    }
-                }
-            } catch (error) {
-                console.warn('Failed to attach shared prepare viewer, falling back to new preview scene', error)
-                this.usingSharedViewer = false
-                this.hiddenModelMeshes = []
-                this.renderer = null
-                this.scene = null
-                this.camera = null
-                this.controls = null
-                this.initThree()
-            }
-        } else {
-            this.initThree()
+        const prepareState = this.$store.state.prepare as any
+        if (!prepareState?.printerProfiles?.length) {
+            this.$store.dispatch('prepare/initPrinterProfiles').then(() => {
+                this.syncBedFromStore()
+                this.buildBuildPlate()
+                this.resetCamera()
+            }).catch(() => {
+                // Keep default bed dimensions if profiles cannot be loaded.
+            })
         }
+
+        this.initThree()
         this.requestRender()
 
-        // Check if we have G-code from the store (passed from PreparePage slicing)
-        const gcodeData = (this.$store.state.prepare as any)?.lastGcode
-        if (gcodeData) {
-            this.loadGcodeString(gcodeData)
-        }
+        this.loadLatestPreparedGcodeIfNeeded()
 
         window.addEventListener('resize', this.onResize)
+        window.addEventListener('keydown', this.onKeyDown)
     }
 
     beforeDestroy() {
         window.removeEventListener('resize', this.onResize)
+        window.removeEventListener('keydown', this.onKeyDown)
+        if (this._layerUpdateRAF) cancelAnimationFrame(this._layerUpdateRAF)
         this.controls?.removeEventListener('change', this.onControlsChange)
         this.activeBuildToken++
 
-        for (const mesh of this.hiddenModelMeshes) {
-            mesh.visible = true
-        }
-        this.hiddenModelMeshes = []
-
-        if (!this.preserveViewerForPrepare) {
-            this.renderer?.dispose()
-            this.controls?.dispose()
-            clearSharedPrepareViewerState()
-            this.$store.commit('prepare/reset')
-        }
+        this.removeModelOutline()
+        this.renderer?.dispose()
+        this.controls?.dispose()
     }
 
-    beforeRouteLeave(to: any, _from: any, next: any) {
-        const goingToPrepare = to?.name === 'prepare' || String(to?.path || '').startsWith('/prepare')
-        this.preserveViewerForPrepare = goingToPrepare
-
-        if (goingToPrepare && this.renderer && this.scene && this.camera && this.controls) {
-            setSharedPrepareViewerState({
-                renderer: this.renderer,
-                scene: this.scene,
-                camera: this.camera,
-                controls: this.controls,
-                platform: this.sourcePlatform,
-            })
-        }
-
+    beforeRouteLeave(_to: any, _from: any, next: any) {
         next()
     }
 
@@ -367,6 +481,7 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         this.renderer = new THREE.WebGLRenderer({ antialias: true })
         this.renderer.setPixelRatio(window.devicePixelRatio)
         this.renderer.setSize(container.clientWidth, container.clientHeight)
+        this.renderer.localClippingEnabled = true
         container.appendChild(this.renderer.domElement)
 
         // Controls
@@ -441,6 +556,75 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         this.requestRender()
     }
 
+    /** Build a transparent wireframe outline from per-layer G-code bounds */
+    private buildModelOutline() {
+        if (!this.parsedGcode || !this.scene) return
+
+        this.removeModelOutline()
+
+        const positions: number[] = []
+        const layers = this.parsedGcode.layers
+
+        for (let i = 0; i < layers.length; i++) {
+            const layer = layers[i]
+            const b = layer.bounds
+            if (!Number.isFinite(b.xMin) || !Number.isFinite(b.xMax)) continue
+
+            const y = layer.z
+            // Rectangle outline at this layer height
+            positions.push(b.xMin, y, b.yMin, b.xMax, y, b.yMin)
+            positions.push(b.xMax, y, b.yMin, b.xMax, y, b.yMax)
+            positions.push(b.xMax, y, b.yMax, b.xMin, y, b.yMax)
+            positions.push(b.xMin, y, b.yMax, b.xMin, y, b.yMin)
+
+            // Vertical edges connecting to next layer
+            if (i < layers.length - 1) {
+                const nextLayer = layers[i + 1]
+                const nb = nextLayer.bounds
+                if (!Number.isFinite(nb.xMin)) continue
+                const ny = nextLayer.z
+                positions.push(b.xMin, y, b.yMin, nb.xMin, ny, nb.yMin)
+                positions.push(b.xMax, y, b.yMin, nb.xMax, ny, nb.yMin)
+                positions.push(b.xMax, y, b.yMax, nb.xMax, ny, nb.yMax)
+                positions.push(b.xMin, y, b.yMax, nb.xMin, ny, nb.yMax)
+            }
+        }
+
+        if (positions.length === 0) return
+
+        const geo = new THREE.BufferGeometry()
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+        const mat = new THREE.LineBasicMaterial({
+            color: 0x88aaff,
+            transparent: true,
+            opacity: 0.15,
+        })
+        this.modelOutlineMesh = new THREE.LineSegments(geo, mat)
+        this.modelOutlineMesh.visible = this.showModelOutline
+        this.scene.add(this.modelOutlineMesh)
+        this.requestRender()
+    }
+
+    private removeModelOutline() {
+        if (this.modelOutlineMesh && this.scene) {
+            this.scene.remove(this.modelOutlineMesh)
+            this.modelOutlineMesh.geometry.dispose()
+            ;(this.modelOutlineMesh.material as THREE.Material).dispose()
+            this.modelOutlineMesh = null
+        }
+    }
+
+    private updateClipPlane() {
+        // Plane normal (0, -1, 0) with constant = clipHeight
+        // clips everything above clipHeight
+        this.clipPlane.set(new THREE.Vector3(0, -1, 0), this.clipHeight)
+        this.requestRender()
+    }
+
+    onClipHeightChange() {
+        this.updateClipPlane()
+    }
+
     onResize() {
         const container = this.$refs.viewerContainer as HTMLElement
         if (!container || !this.camera || !this.renderer) return
@@ -474,17 +658,51 @@ export default class PreviewPage extends Mixins(BaseMixin) {
             this.resetCamera()
             return
         }
-        const cx = (b.xMin + b.xMax) / 2
-        const cy = (b.zMin + b.zMax) / 2
-        const cz = (b.yMin + b.yMax) / 2
-        const size = Math.max(b.xMax - b.xMin, b.yMax - b.yMin, b.zMax - b.zMin) || 100
-        this.camera.position.set(cx + size, cy + size, cz + size)
-        this.controls.target.set(cx, cy, cz)
+        // Frame both the model and the build plate so the user sees context.
+        // Target the bed center horizontally, at model mid-height vertically
+        const targetX = this.bedWidth / 2
+        const targetY = (b.zMin + b.zMax) / 2
+        const targetZ = this.bedDepth / 2
+        // Size based on whichever is larger: model or bed
+        const size = Math.max(
+            this.bedWidth, this.bedDepth,
+            b.xMax - b.xMin, b.yMax - b.yMin, b.zMax - b.zMin
+        ) || 100
+        this.camera.position.set(targetX + size * 0.8, targetY + size * 0.6, targetZ + size * 0.9)
+        this.controls.target.set(targetX, targetY, targetZ)
         this.controls.update()
         this.requestRender()
     }
 
     // --- G-code Loading ---
+
+    private get isPreviewModeRoute(): boolean {
+        const path = String(this.$route.path || '')
+        const mode = String(this.$route.query.mode || '').toLowerCase()
+        return path === '/preview' || (path === '/slicing' && mode === 'preview')
+    }
+
+    private loadLatestPreparedGcodeIfNeeded() {
+        const prepareState = this.$store.state.prepare as any
+
+        // Prefer structured toolpath data (direct from slicer, no roundtrip)
+        const toolpaths = prepareState?.lastToolpaths
+        if (toolpaths && Array.isArray(toolpaths) && toolpaths.length > 0) {
+            const gcodeData = prepareState?.lastGcode
+            if (gcodeData === this.lastLoadedPrepareGcode) return
+            this.lastLoadedPrepareGcode = gcodeData
+            this.loadFromToolpaths(toolpaths, gcodeData)
+            return
+        }
+
+        // Fall back to parsing G-code text
+        const gcodeData = prepareState?.lastGcode
+        if (!gcodeData) return
+        if (gcodeData === this.lastLoadedPrepareGcode) return
+
+        this.lastLoadedPrepareGcode = gcodeData
+        this.loadGcodeString(gcodeData)
+    }
 
     loadGcodeFile() {
         (this.$refs.gcodeInput as HTMLInputElement)?.click()
@@ -505,6 +723,18 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         }
         reader.readAsText(file)
         input.value = ''
+    }
+
+    @Watch('$route.query.mode', { immediate: true })
+    onRouteModeChanged() {
+        if (!this.isPreviewModeRoute) return
+        this.loadLatestPreparedGcodeIfNeeded()
+    }
+
+    @Watch('$store.state.prepare.lastGcode')
+    onPrepareGcodeChanged() {
+        if (!this.isPreviewModeRoute) return
+        this.loadLatestPreparedGcodeIfNeeded()
     }
 
     async loadGcodeString(gcode: string) {
@@ -529,17 +759,26 @@ export default class PreviewPage extends Mixins(BaseMixin) {
                 return
             }
 
+            const isMainsailGenerated = /Generated by Mainsail Slicer/i.test(gcode)
+            this.alignParsedToBuildVolume(parsed, isMainsailGenerated)
+
             this.parsedGcode = parsed
             this.currentLayer = Math.max(parsed.totalLayers - 1, 0)
-            this.layerRangeStart = 0
+            this.layerRangeStart = this.currentLayer
             this.showLayerRange = false
-            this.loadingMessage = 'Building finish layers...'
+            this.pathProgress = 100
+            this.loadingMessage = 'Building preview layers...'
 
             await this.$nextTick()
             await this.buildAllLayers(buildToken)
 
             if (buildToken !== this.activeBuildToken) return
 
+            this.buildModelOutline()
+            if (this.enableClipPlane) {
+                this.clipHeight = this.clipHeightMax
+                this.updateClipPlane()
+            }
             this.updateLayerVisibility()
             this.fitView()
         } catch (error: any) {
@@ -549,6 +788,171 @@ export default class PreviewPage extends Mixins(BaseMixin) {
                 this.isLoading = false
             }
         }
+    }
+
+    /**
+     * Load preview directly from structured slicer toolpath data.
+     * Bypasses the G-code text → parse roundtrip, ensuring the preview
+     * shows exactly what the slicer produced with no information loss.
+     */
+    async loadFromToolpaths(toolpaths: any[], _gcodeText?: string) {
+        this.isLoading = true
+        this.loadingMessage = 'Converting toolpath data...'
+        const buildToken = ++this.activeBuildToken
+
+        await this.$nextTick()
+
+        try {
+            const parsed = toolpathsToParsedGcode(toolpaths)
+
+            if (buildToken !== this.activeBuildToken) return
+
+            if (!parsed || parsed.totalLayers <= 0) {
+                this.parsedGcode = null
+                this.$toast.error('No printable layers found in toolpath data')
+                return
+            }
+
+            // Mainsail-generated toolpaths are already in bed-space coordinates
+            this.alignParsedToBuildVolume(parsed, true)
+
+            this.parsedGcode = parsed
+            this.currentLayer = Math.max(parsed.totalLayers - 1, 0)
+            this.layerRangeStart = this.currentLayer
+            this.showLayerRange = false
+            this.pathProgress = 100
+            this.loadingMessage = 'Building preview layers...'
+
+            await this.$nextTick()
+            await this.buildAllLayers(buildToken)
+
+            if (buildToken !== this.activeBuildToken) return
+
+            this.buildModelOutline()
+            if (this.enableClipPlane) {
+                this.clipHeight = this.clipHeightMax
+                this.updateClipPlane()
+            }
+            this.updateLayerVisibility()
+            this.fitView()
+        } catch (error: any) {
+            console.error('Failed to load toolpath data:', error)
+            // Fall back to G-code parsing if toolpath conversion fails
+            if (_gcodeText) {
+                this.loadGcodeString(_gcodeText)
+            }
+        } finally {
+            if (buildToken === this.activeBuildToken) {
+                this.isLoading = false
+            }
+        }
+    }
+
+    private alignParsedToBuildVolume(parsed: ParsedGcode, isMainsailGenerated = false) {
+        const b = parsed.bounds
+        if (!Number.isFinite(b.xMin) || !Number.isFinite(b.xMax) || !Number.isFinite(b.yMin) || !Number.isFinite(b.yMax)) {
+            return
+        }
+
+        // Slicer output produced in Prepare already uses bed-space coordinates.
+        // Applying heuristic remapping here can shift valid toolpaths incorrectly.
+        if (isMainsailGenerated) {
+            return
+        }
+
+        const explicitOrigin = this.getActiveBedOriginMode()
+        if (explicitOrigin === 'center') {
+            this.applyParsedOffset(parsed, this.bedWidth / 2, this.bedDepth / 2)
+            return
+        }
+        if (explicitOrigin === 'front-left') {
+            return
+        }
+
+        const cx = (b.xMin + b.xMax) / 2
+        const cy = (b.yMin + b.yMax) / 2
+
+        const candidates = [
+            { dx: 0, dy: 0 },
+            { dx: this.bedWidth / 2, dy: this.bedDepth / 2 },
+            { dx: -b.xMin, dy: -b.yMin },
+            { dx: this.bedWidth / 2 - cx, dy: this.bedDepth / 2 - cy },
+        ]
+
+        let best = candidates[0]
+        let bestScore = Number.POSITIVE_INFINITY
+        for (const candidate of candidates) {
+            const score = this.scoreOffsetFit(b, candidate.dx, candidate.dy)
+            if (score < bestScore) {
+                bestScore = score
+                best = candidate
+            }
+        }
+
+        if (Math.abs(best.dx) < 0.0001 && Math.abs(best.dy) < 0.0001) {
+            return
+        }
+
+        this.applyParsedOffset(parsed, best.dx, best.dy)
+    }
+
+    private getActiveBedOriginMode(): 'front-left' | 'center' | null {
+        const prepareState = this.$store.state.prepare as any
+        const profiles = prepareState?.printerProfiles ?? []
+        const activeId = prepareState?.activePrinterId
+        const profile = profiles.find((item: any) => item.id === activeId) ?? profiles[0]
+        const mode = String(profile?.bedOrigin ?? '').toLowerCase()
+
+        if (mode === 'front-left' || mode === 'center') {
+            return mode
+        }
+
+        return null
+    }
+
+    private scoreOffsetFit(
+        bounds: ParsedGcode['bounds'],
+        dx: number,
+        dy: number
+    ): number {
+        const xMin = bounds.xMin + dx
+        const xMax = bounds.xMax + dx
+        const yMin = bounds.yMin + dy
+        const yMax = bounds.yMax + dy
+
+        const overflowLeft = Math.max(0, -xMin)
+        const overflowRight = Math.max(0, xMax - this.bedWidth)
+        const overflowBottom = Math.max(0, -yMin)
+        const overflowTop = Math.max(0, yMax - this.bedDepth)
+        const overflow = overflowLeft + overflowRight + overflowBottom + overflowTop
+
+        const centerX = (xMin + xMax) / 2
+        const centerY = (yMin + yMax) / 2
+        const centerDistance =
+            Math.abs(centerX - this.bedWidth / 2) +
+            Math.abs(centerY - this.bedDepth / 2)
+
+        // Penalize out-of-bed placement heavily, then prefer bed-centered fit.
+        return overflow * 10000 + centerDistance
+    }
+
+    private applyParsedOffset(parsed: ParsedGcode, dx: number, dy: number) {
+        for (const layer of parsed.layers) {
+            for (const move of layer.moves) {
+                move.x += dx
+                move.y += dy
+            }
+
+            if (Number.isFinite(layer.bounds.xMin)) layer.bounds.xMin += dx
+            if (Number.isFinite(layer.bounds.xMax)) layer.bounds.xMax += dx
+            if (Number.isFinite(layer.bounds.yMin)) layer.bounds.yMin += dy
+            if (Number.isFinite(layer.bounds.yMax)) layer.bounds.yMax += dy
+        }
+
+        parsed.bounds.xMin += dx
+        parsed.bounds.xMax += dx
+        parsed.bounds.yMin += dy
+        parsed.bounds.yMax += dy
     }
 
     // --- Toolpath Visualization ---
@@ -562,17 +966,20 @@ export default class PreviewPage extends Mixins(BaseMixin) {
 
         this.clearBuiltLayers()
 
-        const top = this.parsedGcode.totalLayers - 1
-        const initialStart = Math.max(0, top - this.initialFinishLayersCount + 1)
-        const finishLayers: number[] = []
-        for (let idx = top; idx >= initialStart; idx--) {
-            finishLayers.push(idx)
+        const total = this.parsedGcode.totalLayers
+        for (let idx = 0; idx < total; idx++) {
+            if (buildToken !== this.activeBuildToken) return
+
+            this.buildSingleLayer(idx)
+
+            if (idx % 8 === 0 || idx === total - 1) {
+                const progress = Math.round(((idx + 1) / total) * 100)
+                this.loadingMessage = `Building preview layers... ${progress}%`
+                this.updateLayerVisibility()
+                await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+            }
         }
 
-        this.enqueueLayersForBuild(finishLayers, true, buildToken)
-
-        // Build at least the top-most finish layer before removing loading overlay
-        await this.processLayerQueue(buildToken, 1)
         this.requestRender()
     }
 
@@ -587,56 +994,10 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         this.layerMeshes.clear()
         this.travelLines.clear()
         this.builtLayers.clear()
-        this.pendingLayerQueue = []
         this.builtSegmentsTotal = 0
         this.warnedSafetyCap = false
-        this.isProcessingLayerQueue = false
-    }
-
-    private enqueueLayersForBuild(layerIndices: number[], highPriority = false, buildToken: number = this.activeBuildToken) {
-        if (!this.parsedGcode) return
-        const maxLayer = this.parsedGcode.totalLayers - 1
-
-        const normalized = layerIndices
-            .map((idx) => Math.max(0, Math.min(maxLayer, idx)))
-            .filter((idx, pos, arr) => arr.indexOf(idx) === pos)
-            .filter((idx) => !this.builtLayers.has(idx) && !this.pendingLayerQueue.includes(idx))
-
-        if (!normalized.length) return
-
-        if (highPriority) {
-            this.pendingLayerQueue = [...normalized, ...this.pendingLayerQueue]
-        } else {
-            this.pendingLayerQueue.push(...normalized)
-        }
-
-        this.processLayerQueue(buildToken)
-    }
-
-    private async processLayerQueue(buildToken: number = this.activeBuildToken, stopAfterBuilt = Infinity) {
-        if (this.isProcessingLayerQueue || !this.parsedGcode || !this.scene) return
-        this.isProcessingLayerQueue = true
-
-        let builtCount = 0
-        try {
-            while (this.pendingLayerQueue.length && buildToken === this.activeBuildToken && builtCount < stopAfterBuilt) {
-                const layerIndex = this.pendingLayerQueue.shift()!
-                if (this.builtLayers.has(layerIndex)) continue
-
-                const built = this.buildSingleLayer(layerIndex)
-                if (built) {
-                    builtCount += 1
-                }
-
-                this.updateLayerVisibility()
-                await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-            }
-        } finally {
-            this.isProcessingLayerQueue = false
-            if (this.pendingLayerQueue.length && buildToken === this.activeBuildToken) {
-                this.processLayerQueue(buildToken)
-            }
-        }
+        this.speedMin = Infinity
+        this.speedMax = 0
     }
 
     private buildSingleLayer(layerIndex: number): boolean {
@@ -656,7 +1017,8 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         const group = new THREE.Group()
         group.name = `layer-${layer.layerIndex}`
 
-        const segmentsByType = new Map<GcodeFeatureType, number[]>()
+        // Collect segments by type, including feedrate for speed coloring
+        const segmentsByType = new Map<GcodeFeatureType, { positions: number[]; feedrates: number[] }>()
         let prevX = 0
         let prevY = 0
 
@@ -670,9 +1032,7 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         }
 
         const travelPositions: number[] = []
-        const moveStride = Math.max(1, Math.ceil(layer.moves.length / this.maxLayerMovesForPreview))
-
-        for (let moveIndex = 0; moveIndex < layer.moves.length; moveIndex += moveStride) {
+        for (let moveIndex = 0; moveIndex < layer.moves.length; moveIndex++) {
             if (this.builtSegmentsTotal >= this.maxGlobalSegments) break
 
             const move = layer.moves[moveIndex]
@@ -682,11 +1042,18 @@ export default class PreviewPage extends Mixins(BaseMixin) {
             } else {
                 const type = move.type as GcodeFeatureType
                 if (!segmentsByType.has(type)) {
-                    segmentsByType.set(type, [])
+                    segmentsByType.set(type, { positions: [], feedrates: [] })
                 }
-                const positions = segmentsByType.get(type)!
-                positions.push(prevX, layer.z, prevY)
-                positions.push(move.x, layer.z, move.y)
+                const bucket = segmentsByType.get(type)!
+                bucket.positions.push(prevX, layer.z, prevY)
+                bucket.positions.push(move.x, layer.z, move.y)
+                bucket.feedrates.push(move.f)
+
+                // Track speed range
+                if (move.f > 0) {
+                    if (move.f < this.speedMin) this.speedMin = move.f
+                    if (move.f > this.speedMax) this.speedMax = move.f
+                }
             }
 
             this.builtSegmentsTotal += 1
@@ -694,18 +1061,42 @@ export default class PreviewPage extends Mixins(BaseMixin) {
             prevY = move.y
         }
 
-        for (const [type, positions] of segmentsByType) {
-            if (!positions.length) continue
+        const clipPlanes = this.enableClipPlane ? [this.clipPlane] : []
 
-            const geometry = new THREE.BufferGeometry()
-            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+        for (const [type, bucket] of segmentsByType) {
+            if (!bucket.positions.length) continue
 
-            const material = new THREE.LineBasicMaterial({
-                color: FEATURE_COLORS_HEX[type] ?? 0xffffff,
-                linewidth: 1,
-            })
+            const widthScale = PreviewPage.RIBBON_WIDTH_SCALE[type] ?? 1.0
+            const halfWidth = (this.extrusionRibbonWidthMm * widthScale) / 2
+            const yOffset = PreviewPage.FEATURE_Y_OFFSET[type] ?? 0
 
-            group.add(new THREE.LineSegments(geometry, material))
+            // Apply per-type Y offset to resolve Z-fighting between coplanar ribbons
+            if (yOffset !== 0) {
+                for (let p = 1; p < bucket.positions.length; p += 3) {
+                    bucket.positions[p] += yOffset
+                }
+            }
+
+            const useSpeedColor = this.colorMode === 'speed'
+            const geometry = this.buildRibbonGeometry(bucket.positions, halfWidth, useSpeedColor ? bucket.feedrates : undefined)
+            if (!geometry) continue
+
+            let material: THREE.Material
+            if (useSpeedColor && geometry.getAttribute('color')) {
+                material = new THREE.MeshBasicMaterial({
+                    vertexColors: true,
+                    side: THREE.DoubleSide,
+                    clippingPlanes: clipPlanes,
+                })
+            } else {
+                material = new THREE.MeshBasicMaterial({
+                    color: FEATURE_COLORS_HEX[type] ?? 0xffffff,
+                    side: THREE.DoubleSide,
+                    clippingPlanes: clipPlanes,
+                })
+            }
+
+            group.add(new THREE.Mesh(geometry, material))
         }
 
         this.scene.add(group)
@@ -719,6 +1110,7 @@ export default class PreviewPage extends Mixins(BaseMixin) {
                 linewidth: 1,
                 transparent: true,
                 opacity: 0.3,
+                clippingPlanes: clipPlanes,
             })
             const travelLine = new THREE.LineSegments(travelGeo, travelMat)
             travelLine.visible = this.showTravel
@@ -730,22 +1122,91 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         return true
     }
 
+    private buildRibbonGeometry(
+        segmentPositions: number[],
+        halfWidth: number = this.extrusionRibbonWidthMm / 2,
+        feedrates?: number[],
+    ): THREE.BufferGeometry | null {
+        const vertices: number[] = []
+        const indices: number[] = []
+        const colors: number[] = []
+        let segmentCount = 0
+
+        const hasSpeed = feedrates && feedrates.length > 0
+        const speedRange = this.speedMax - this.speedMin
+
+        for (let i = 0; i + 5 < segmentPositions.length; i += 6) {
+            const segIndex = i / 6
+            const x1 = segmentPositions[i]
+            const y1 = segmentPositions[i + 1]
+            const z1 = segmentPositions[i + 2]
+            const x2 = segmentPositions[i + 3]
+            const y2 = segmentPositions[i + 4]
+            const z2 = segmentPositions[i + 5]
+
+            const dx = x2 - x1
+            const dz = z2 - z1
+            const length = Math.hypot(dx, dz)
+            if (!Number.isFinite(length) || length <= this.minRenderableSegmentMm) {
+                continue
+            }
+
+            const nx = -dz / length
+            const nz = dx / length
+            const ox = nx * halfWidth
+            const oz = nz * halfWidth
+            const y = (y1 + y2) / 2
+
+            const base = vertices.length / 3
+            vertices.push(
+                x1 + ox, y, z1 + oz,
+                x1 - ox, y, z1 - oz,
+                x2 + ox, y, z2 + oz,
+                x2 - ox, y, z2 - oz,
+            )
+            indices.push(
+                base, base + 2, base + 1,
+                base + 2, base + 3, base + 1,
+            )
+
+            // Speed color: blue (slow) → green → red (fast)
+            if (hasSpeed) {
+                const f = feedrates[segIndex] ?? 0
+                const t = speedRange > 0 ? Math.max(0, Math.min(1, (f - this.speedMin) / speedRange)) : 0.5
+                const r = t < 0.5 ? 0 : (t - 0.5) * 2
+                const g = t < 0.5 ? t * 2 : (1 - t) * 2
+                const b = t < 0.5 ? 1 - t * 2 : 0
+                // 4 vertices per segment
+                colors.push(r, g, b, r, g, b, r, g, b, r, g, b)
+            }
+
+            segmentCount += 1
+        }
+
+        if (segmentCount === 0) {
+            return null
+        }
+
+        const geometry = new THREE.BufferGeometry()
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
+        geometry.setIndex(indices)
+        geometry.userData.segmentCount = segmentCount
+
+        if (hasSpeed && colors.length > 0) {
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+        }
+
+        return geometry
+    }
+
     /**
      * Show/hide layers based on the current layer slider position.
      */
     updateLayerVisibility() {
         if (!this.parsedGcode || this.totalLayers <= 0) return
 
-        const start = this.showLayerRange ? Math.max(0, this.layerRangeStart) : 0
         const end = Math.min(Math.max(0, this.currentLayer), this.totalLayers - 1)
-
-        const neededLayers: number[] = []
-        for (let idx = start; idx <= end; idx++) {
-            neededLayers.push(idx)
-        }
-        // Build exactly what the slider/range needs, prioritizing current end layer first.
-        const orderedNeededLayers = [...neededLayers].sort((a, b) => Math.abs(a - end) - Math.abs(b - end))
-        this.enqueueLayersForBuild(orderedNeededLayers, true)
+        const start = this.showLayerRange ? Math.max(0, this.layerRangeStart) : 0
 
         for (const [idx, group] of this.layerMeshes) {
             group.visible = idx >= start && idx <= end
@@ -753,12 +1214,96 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         for (const [idx, line] of this.travelLines) {
             line.visible = this.showTravel && idx >= start && idx <= end
         }
+
+        this.applyPathProgressToVisibleLayers(end)
         this.requestRender()
+    }
+
+    private applyPathProgressToVisibleLayers(end: number) {
+        for (const [idx, group] of this.layerMeshes) {
+            const progress = idx === end ? this.pathProgress : 100
+            for (const child of group.children) {
+                const geometry = (child as any).geometry as THREE.BufferGeometry | undefined
+                if (!geometry) continue
+
+                const indexedSegments = Number(geometry.userData.segmentCount ?? 0)
+                if (indexedSegments > 0 && geometry.index) {
+                    const visibleSegments = progress >= 100
+                        ? indexedSegments
+                        : Math.max(0, Math.min(indexedSegments, Math.floor((indexedSegments * progress) / 100)))
+                    geometry.setDrawRange(0, visibleSegments * 6)
+                    continue
+                }
+
+                const positionAttr = geometry.getAttribute('position')
+                if (!positionAttr) continue
+
+                const totalVertices = positionAttr.count
+                const visibleVertices = progress >= 100
+                    ? totalVertices
+                    : Math.max(0, Math.min(totalVertices, Math.floor((totalVertices * progress) / 100)))
+                const evenVertices = visibleVertices - (visibleVertices % 2)
+                geometry.setDrawRange(0, evenVertices)
+            }
+        }
+
+        for (const [idx, line] of this.travelLines) {
+            const geometry = line.geometry as THREE.BufferGeometry
+            const positionAttr = geometry.getAttribute('position')
+            if (!positionAttr) continue
+
+            const totalVertices = positionAttr.count
+            const progress = idx === end && this.showTravel ? this.pathProgress : 100
+            const visibleVertices = progress >= 100
+                ? totalVertices
+                : Math.max(0, Math.min(totalVertices, Math.floor((totalVertices * progress) / 100)))
+            const evenVertices = visibleVertices - (visibleVertices % 2)
+            geometry.setDrawRange(0, evenVertices)
+        }
     }
 
     // --- Watchers ---
 
+    private _layerUpdateRAF = 0
+
+    onKeyDown(e: KeyboardEvent) {
+        if (this.totalLayers <= 0) return
+        if (e.key === 'ArrowUp') {
+            e.preventDefault()
+            if (this.currentLayer < this.totalLayers - 1) {
+                this.currentLayer++
+                this.scheduleLayerUpdate()
+            }
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault()
+            if (this.currentLayer > 0) {
+                this.currentLayer--
+                this.scheduleLayerUpdate()
+            }
+        }
+    }
+
+    /**
+     * Debounce layer visibility updates to the next animation frame.
+     * When holding an arrow key, multiple keydowns fire per frame —
+     * this coalesces them into a single update and lets Vue repaint
+     * the layer number text between frames.
+     */
+    private scheduleLayerUpdate() {
+        if (this._layerUpdateRAF) return
+        this._layerUpdateRAF = requestAnimationFrame(() => {
+            this._layerUpdateRAF = 0
+            this.pathProgress = 100
+            this.updateLayerVisibility()
+        })
+    }
+
     onLayerChange() {
+        this.pathProgress = 100
+        this.updateLayerVisibility()
+    }
+
+    onPathProgressChange() {
         this.updateLayerVisibility()
     }
 
@@ -779,7 +1324,31 @@ export default class PreviewPage extends Mixins(BaseMixin) {
 
     @Watch('colorMode')
     onColorModeChange() {
-        // Feature colors are default; speed-based coloring would require rebuild
+        // Rebuild all layers to apply new color scheme
+        if (!this.parsedGcode) return
+        this.buildAllLayers()
+        this.updateLayerVisibility()
+    }
+
+    @Watch('showModelOutline')
+    onShowModelOutlineChange() {
+        if (this.modelOutlineMesh) {
+            this.modelOutlineMesh.visible = this.showModelOutline
+            this.requestRender()
+        }
+    }
+
+    @Watch('enableClipPlane')
+    onEnableClipPlaneChange() {
+        if (this.enableClipPlane) {
+            this.clipHeight = this.clipHeightMax
+            this.updateClipPlane()
+        }
+        // Rebuild layers to add/remove clipping planes from materials
+        if (this.parsedGcode) {
+            this.buildAllLayers()
+            this.updateLayerVisibility()
+        }
     }
 }
 </script>
@@ -809,6 +1378,21 @@ export default class PreviewPage extends Mixins(BaseMixin) {
 .preview-viewer {
     width: 100%;
     height: 100%;
+}
+
+.path-slider-container {
+    position: absolute;
+    left: 16px;
+    right: 96px;
+    bottom: 16px;
+    z-index: 10;
+    background: rgba(30, 30, 30, 0.85);
+    border-radius: 8px;
+    padding: 8px 12px 4px;
+}
+
+.path-slider {
+    margin: 0;
 }
 
 .layer-slider-container {
@@ -847,6 +1431,12 @@ export default class PreviewPage extends Mixins(BaseMixin) {
     align-items: center;
 }
 
+.clip-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
 .preview-info {
     position: absolute;
     left: 8px;
@@ -861,5 +1451,10 @@ export default class PreviewPage extends Mixins(BaseMixin) {
     left: 50%;
     transform: translate(-50%, -50%);
     text-align: center;
+}
+
+.printer-selector {
+    text-transform: none !important;
+    letter-spacing: normal !important;
 }
 </style>

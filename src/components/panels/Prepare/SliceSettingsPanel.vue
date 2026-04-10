@@ -33,7 +33,7 @@
         <!-- Quality Presets -->
         <div class="mb-4">
             <div class="text-subtitle-2 mb-2">Quality Preset</div>
-            <v-btn-toggle v-model="qualityPreset" mandatory color="primary" class="d-flex">
+            <v-btn-toggle :value="storeQualityPreset" mandatory color="primary" class="d-flex" @change="setPreset">
                 <v-btn small value="draft" class="flex-grow-1">Draft</v-btn>
                 <v-btn small value="normal" class="flex-grow-1">Normal</v-btn>
                 <v-btn small value="fine" class="flex-grow-1">Fine</v-btn>
@@ -54,7 +54,7 @@
                 </v-expansion-panel-header>
                 <v-expansion-panel-content>
                     <v-text-field
-                        v-model.number="params.layer_height"
+                        :value="params.layer_height"
                         label="Layer Height"
                         type="number"
                         step="0.01"
@@ -64,9 +64,10 @@
                         outlined
                         dense
                         hide-details
-                        class="mb-3" />
+                        class="mb-3"
+                        @input="setParam('layer_height', Number($event))" />
                     <v-text-field
-                        v-model.number="params.first_layer_height"
+                        :value="params.first_layer_height"
                         label="First Layer Height"
                         type="number"
                         step="0.01"
@@ -75,7 +76,22 @@
                         suffix="mm"
                         outlined
                         dense
-                        hide-details />
+                        hide-details
+                        class="mb-3"
+                        @input="setParam('first_layer_height', Number($event))" />
+                    <v-text-field
+                        :value="params.line_width"
+                        label="Line Width"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="2.0"
+                        suffix="mm"
+                        hint="0 = auto (nozzle × 1.1)"
+                        persistent-hint
+                        outlined
+                        dense
+                        @input="setParam('line_width', Number($event))" />
                 </v-expansion-panel-content>
             </v-expansion-panel>
 
@@ -89,7 +105,7 @@
                 </v-expansion-panel-header>
                 <v-expansion-panel-content>
                     <v-text-field
-                        v-model.number="params.wall_count"
+                        :value="params.wall_count"
                         label="Wall Count"
                         type="number"
                         step="1"
@@ -98,9 +114,10 @@
                         outlined
                         dense
                         hide-details
-                        class="mb-3" />
+                        class="mb-3"
+                        @input="setParam('wall_count', Number($event))" />
                     <v-text-field
-                        v-model.number="params.infill_density"
+                        :value="params.infill_density"
                         label="Infill Density"
                         type="number"
                         step="5"
@@ -110,19 +127,21 @@
                         outlined
                         dense
                         hide-details
-                        class="mb-3" />
+                        class="mb-3"
+                        @input="setParam('infill_density', Number($event))" />
                     <v-select
-                        v-model="params.infill_pattern"
+                        :value="params.infill_pattern"
                         :items="infillPatterns"
                         label="Infill Pattern"
                         outlined
                         dense
                         hide-details
-                        class="mb-3" />
+                        class="mb-3"
+                        @input="setParam('infill_pattern', $event)" />
                     <v-row dense>
                         <v-col cols="6">
                             <v-text-field
-                                v-model.number="params.top_layers"
+                                :value="params.top_layers"
                                 label="Top Layers"
                                 type="number"
                                 step="1"
@@ -130,11 +149,12 @@
                                 max="10"
                                 outlined
                                 dense
-                                hide-details />
+                                hide-details
+                                @input="setParam('top_layers', Number($event))" />
                         </v-col>
                         <v-col cols="6">
                             <v-text-field
-                                v-model.number="params.bottom_layers"
+                                :value="params.bottom_layers"
                                 label="Bottom Layers"
                                 type="number"
                                 step="1"
@@ -142,7 +162,8 @@
                                 max="10"
                                 outlined
                                 dense
-                                hide-details />
+                                hide-details
+                                @input="setParam('bottom_layers', Number($event))" />
                         </v-col>
                     </v-row>
                 </v-expansion-panel-content>
@@ -158,7 +179,7 @@
                 </v-expansion-panel-header>
                 <v-expansion-panel-content>
                     <v-text-field
-                        v-model.number="params.print_speed"
+                        :value="params.print_speed"
                         label="Print Speed"
                         type="number"
                         step="5"
@@ -168,9 +189,10 @@
                         outlined
                         dense
                         hide-details
-                        class="mb-3" />
+                        class="mb-3"
+                        @input="setParam('print_speed', Number($event))" />
                     <v-text-field
-                        v-model.number="params.travel_speed"
+                        :value="params.travel_speed"
                         label="Travel Speed"
                         type="number"
                         step="10"
@@ -180,9 +202,10 @@
                         outlined
                         dense
                         hide-details
-                        class="mb-3" />
+                        class="mb-3"
+                        @input="setParam('travel_speed', Number($event))" />
                     <v-text-field
-                        v-model.number="params.first_layer_speed"
+                        :value="params.first_layer_speed"
                         label="First Layer Speed"
                         type="number"
                         step="5"
@@ -191,7 +214,8 @@
                         suffix="mm/s"
                         outlined
                         dense
-                        hide-details />
+                        hide-details
+                        @input="setParam('first_layer_speed', Number($event))" />
                 </v-expansion-panel-content>
             </v-expansion-panel>
 
@@ -205,7 +229,7 @@
                 </v-expansion-panel-header>
                 <v-expansion-panel-content>
                     <v-text-field
-                        v-model.number="params.nozzle_temp"
+                        :value="params.nozzle_temp"
                         label="Nozzle Temperature"
                         type="number"
                         step="5"
@@ -215,9 +239,10 @@
                         outlined
                         dense
                         hide-details
-                        class="mb-3" />
+                        class="mb-3"
+                        @input="setParam('nozzle_temp', Number($event))" />
                     <v-text-field
-                        v-model.number="params.bed_temp"
+                        :value="params.bed_temp"
                         label="Bed Temperature"
                         type="number"
                         step="5"
@@ -226,7 +251,8 @@
                         suffix="°C"
                         outlined
                         dense
-                        hide-details />
+                        hide-details
+                        @input="setParam('bed_temp', Number($event))" />
                 </v-expansion-panel-content>
             </v-expansion-panel>
 
@@ -240,14 +266,28 @@
                 </v-expansion-panel-header>
                 <v-expansion-panel-content>
                     <v-switch
-                        v-model="params.enable_support"
+                        :input-value="params.enable_support"
                         label="Enable Support"
                         dense
                         hide-details
-                        class="mt-0 mb-3" />
+                        class="mt-0 mb-3"
+                        @change="setParam('enable_support', $event)" />
                     <template v-if="params.enable_support">
                         <v-text-field
-                            v-model.number="params.support_density"
+                            :value="params.support_angle"
+                            label="Overhang Threshold"
+                            type="number"
+                            step="5"
+                            min="0"
+                            max="90"
+                            suffix="°"
+                            outlined
+                            dense
+                            hide-details
+                            class="mb-3"
+                            @input="setParam('support_angle', Number($event))" />
+                        <v-text-field
+                            :value="params.support_density"
                             label="Support Density"
                             type="number"
                             step="5"
@@ -257,14 +297,16 @@
                             outlined
                             dense
                             hide-details
-                            class="mb-3" />
+                            class="mb-3"
+                            @input="setParam('support_density', Number($event))" />
                         <v-select
-                            v-model="params.support_pattern"
+                            :value="params.support_pattern"
                             :items="supportPatterns"
                             label="Support Pattern"
                             outlined
                             dense
-                            hide-details />
+                            hide-details
+                            @input="setParam('support_pattern', $event)" />
                     </template>
                 </v-expansion-panel-content>
             </v-expansion-panel>
@@ -280,17 +322,18 @@
                 </v-expansion-panel-header>
                 <v-expansion-panel-content>
                     <v-switch
-                        v-model="params.enable_non_planar"
+                        :input-value="params.enable_non_planar"
                         label="Non-Planar Slicing"
                         dense
                         hide-details
-                        class="mt-0 mb-2" />
+                        class="mt-0 mb-2"
+                        @change="setParam('enable_non_planar', $event)" />
                     <div v-if="params.enable_non_planar" class="text-caption grey--text mb-3">
                         Curve toolpaths to follow surface contours
                     </div>
                     <v-text-field
                         v-if="params.enable_non_planar"
-                        v-model.number="params.max_slope_angle"
+                        :value="params.max_slope_angle"
                         label="Max Slope Angle"
                         type="number"
                         step="5"
@@ -300,27 +343,30 @@
                         outlined
                         dense
                         hide-details
-                        class="mb-4" />
+                        class="mb-4"
+                        @input="setParam('max_slope_angle', Number($event))" />
 
                     <v-divider class="my-3" />
 
                     <v-switch
-                        v-model="params.enable_idex"
+                        :input-value="params.enable_idex"
                         label="IDEX Mode"
                         dense
                         hide-details
-                        class="mt-0 mb-2" />
+                        class="mt-0 mb-2"
+                        @change="setParam('enable_idex', $event)" />
                     <div v-if="!params.enable_idex" class="text-caption grey--text mb-3">
                         Dual extruder printing modes
                     </div>
                     <v-select
                         v-if="params.enable_idex"
-                        v-model="params.idex_mode"
+                        :value="params.idex_mode"
                         :items="idexModes"
                         label="IDEX Mode"
                         outlined
                         dense
-                        hide-details />
+                        hide-details
+                        @input="setParam('idex_mode', $event)" />
                 </v-expansion-panel-content>
             </v-expansion-panel>
         </v-expansion-panels>
@@ -343,10 +389,10 @@
 
 <script lang="ts">
 import Component from 'vue-class-component'
-import { Mixins, Prop, Watch } from 'vue-property-decorator'
+import { Mixins, Prop } from 'vue-property-decorator'
 import BaseMixin from '@/components/mixins/base'
+import type { SliceParams } from '@/store/prepare/types'
 import {
-    mdiTune,
     mdiDotsVertical,
     mdiContentSave,
     mdiFolderOpen,
@@ -360,60 +406,8 @@ import {
     mdiPrinter3dNozzle,
 } from '@mdi/js'
 
-export interface SliceParams {
-    layer_height: number
-    first_layer_height: number
-    infill_density: number
-    infill_pattern: string
-    wall_count: number
-    top_layers: number
-    bottom_layers: number
-    print_speed: number
-    travel_speed: number
-    first_layer_speed: number
-    nozzle_temp: number
-    bed_temp: number
-    enable_support: boolean
-    support_density: number
-    support_pattern: string
-    enable_non_planar: boolean
-    max_slope_angle: number
-    enable_idex: boolean
-    idex_mode: string
-}
-
-const DEFAULT_PARAMS: SliceParams = {
-    layer_height: 0.2,
-    first_layer_height: 0.3,
-    infill_density: 20,
-    infill_pattern: 'grid',
-    wall_count: 3,
-    top_layers: 4,
-    bottom_layers: 4,
-    print_speed: 60,
-    travel_speed: 150,
-    first_layer_speed: 20,
-    nozzle_temp: 210,
-    bed_temp: 60,
-    enable_support: false,
-    support_density: 15,
-    support_pattern: 'grid',
-    enable_non_planar: false,
-    max_slope_angle: 45,
-    enable_idex: false,
-    idex_mode: 'normal',
-}
-
-const QUALITY_PRESETS: Record<string, Partial<SliceParams>> = {
-    draft: { layer_height: 0.3, first_layer_height: 0.35, wall_count: 2, infill_density: 10, print_speed: 80 },
-    normal: { layer_height: 0.2, first_layer_height: 0.3, wall_count: 3, infill_density: 20, print_speed: 60 },
-    fine: { layer_height: 0.12, first_layer_height: 0.2, wall_count: 4, infill_density: 25, print_speed: 45 },
-    ultra: { layer_height: 0.08, first_layer_height: 0.15, wall_count: 5, infill_density: 30, print_speed: 30 },
-}
-
 @Component
 export default class SliceSettingsPanel extends Mixins(BaseMixin) {
-    mdiTune = mdiTune
     mdiDotsVertical = mdiDotsVertical
     mdiContentSave = mdiContentSave
     mdiFolderOpen = mdiFolderOpen
@@ -428,12 +422,8 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
 
     @Prop({ type: Boolean, default: false }) declare readonly canSlice: boolean
     @Prop({ type: Boolean, default: false }) declare readonly isSlicing: boolean
-    @Prop({ type: Object, default: () => ({ ...DEFAULT_PARAMS }) }) declare readonly value: SliceParams
 
-    qualityPreset = 'normal'
     openPanels: number[] = [0, 1]
-
-    params: SliceParams = { ...DEFAULT_PARAMS }
 
     infillPatterns = [
         { text: 'Grid', value: 'grid' },
@@ -455,35 +445,24 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
         { text: 'Duplicate', value: 'duplicate' },
     ]
 
-    private isUpdatingFromProp = false
-
-    @Watch('value', { immediate: true, deep: true })
-    onValueChange(): void {
-        this.isUpdatingFromProp = true
-        this.params = { ...this.value }
-        this.$nextTick(() => {
-            this.isUpdatingFromProp = false
-        })
+    get params(): SliceParams {
+        return this.$store.state.prepare.sliceParams
     }
 
-    @Watch('params', { deep: true })
-    onParamsChange(): void {
-        if (!this.isUpdatingFromProp) {
-            this.$emit('input', { ...this.params })
-        }
+    get storeQualityPreset(): string {
+        return this.$store.state.prepare.qualityPreset
     }
 
-    @Watch('qualityPreset')
-    onPresetChange(): void {
-        const preset = QUALITY_PRESETS[this.qualityPreset]
-        if (preset) {
-            Object.assign(this.params, preset)
-        }
+    setParam(key: keyof SliceParams, value: any): void {
+        this.$store.commit('prepare/setSliceParams', { [key]: value })
+    }
+
+    setPreset(preset: string): void {
+        this.$store.commit('prepare/setQualityPreset', preset)
     }
 
     resetToDefaults(): void {
-        this.params = { ...DEFAULT_PARAMS }
-        this.qualityPreset = 'normal'
+        this.$store.commit('prepare/setQualityPreset', 'normal')
     }
 }
 </script>

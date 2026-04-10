@@ -7,8 +7,11 @@
  * Supported commands:
  * - G0/G1: Linear moves (with optional X Y Z E F parameters)
  * - G2/G3: Arc moves (converted to linear approximation)
+ * - G20/G21: Inch/mm units
  * - G28: Home
  * - G92: Set position
+ * - G90/G91: Absolute/relative XYZ coordinates
+ * - Tn/M6: Tool change
  * - M82/M83: Absolute/relative extrusion
  * - ;TYPE: Feature type comments
  * - ;LAYER_CHANGE / ;LAYER: Layer markers
@@ -86,6 +89,49 @@ function extractParam(line: string, param: string): number | null {
     return match ? parseFloat(match[1]) : null
 }
 
+function normalizeAngle(angle: number): number {
+    while (angle <= -Math.PI) angle += Math.PI * 2
+    while (angle > Math.PI) angle -= Math.PI * 2
+    return angle
+}
+
+function computeArcCenterFromRadius(
+    sx: number,
+    sy: number,
+    ex: number,
+    ey: number,
+    radius: number,
+    clockwise: boolean
+): { cx: number; cy: number } | null {
+    const dx = ex - sx
+    const dy = ey - sy
+    const chord = Math.sqrt(dx * dx + dy * dy)
+    if (chord === 0 || chord > 2 * Math.abs(radius)) return null
+
+    const mx = (sx + ex) / 2
+    const my = (sy + ey) / 2
+    const h = Math.sqrt(Math.max(0, radius * radius - (chord * chord) / 4))
+
+    const ux = -dy / chord
+    const uy = dx / chord
+
+    const c1 = { cx: mx + ux * h, cy: my + uy * h }
+    const c2 = { cx: mx - ux * h, cy: my - uy * h }
+
+    const selectCenter = (center: { cx: number; cy: number }) => {
+        const a0 = Math.atan2(sy - center.cy, sx - center.cx)
+        const a1 = Math.atan2(ey - center.cy, ex - center.cx)
+        let delta = normalizeAngle(a1 - a0)
+        if (clockwise && delta > 0) delta -= Math.PI * 2
+        if (!clockwise && delta < 0) delta += Math.PI * 2
+        return { center, delta }
+    }
+
+    const o1 = selectCenter(c1)
+    const o2 = selectCenter(c2)
+    return Math.abs(o1.delta) <= Math.abs(o2.delta) ? o1.center : o2.center
+}
+
 /**
  * Parse G-code text into structured layer data.
  *
@@ -102,9 +148,14 @@ export function parseGcode(
 
     // Parser state
     let x = 0, y = 0, z = 0, e = 0, f = 1000
+    let unitScale = 1
+    let relativeXYZ = false
     let relativeE = false
+    let currentTool = 0
     let currentType: GcodeFeatureType = 'unknown'
     let currentLayerZ = -1
+    let pendingLayerFromComment = false
+    let pendingLayerZ: number | null = null
     const metadata: Record<string, string> = {}
 
     // Result
@@ -143,6 +194,7 @@ export function parseGcode(
         const move: GcodeMove = {
             x: nx, y: ny, z: nz,
             e: ne, f: nf,
+            tool: currentTool,
             type,
             extruding,
         }
@@ -195,19 +247,22 @@ export function parseGcode(
             }
             // Layer change marker
             if (comment === 'LAYER_CHANGE' || comment.startsWith('LAYER_CHANGE')) {
-                // Layer will be created when we see the next Z move
+                // Promote to a new layer on the next extrusion move.
+                pendingLayerFromComment = true
                 continue
             }
             // Layer number
             if (comment.startsWith('LAYER:')) {
-                // Informational only, we track layers by Z
+                // Promote to a new layer on the next extrusion move.
+                pendingLayerFromComment = true
                 continue
             }
             // Z height from comment
             if (comment.startsWith('Z:')) {
                 const cz = parseFloat(comment.substring(2))
                 if (!isNaN(cz)) {
-                    ensureLayer(cz)
+                    pendingLayerZ = cz
+                    pendingLayerFromComment = true
                 }
                 continue
             }
@@ -226,26 +281,126 @@ export function parseGcode(
         // Parse G-code commands
         const cmd = command.split(' ')[0].toUpperCase()
 
+        if (cmd.startsWith('T') && cmd.length > 1) {
+            const tool = parseInt(cmd.slice(1), 10)
+            if (!Number.isNaN(tool)) {
+                currentTool = tool
+            }
+            continue
+        }
+
         switch (cmd) {
             case 'G0':
             case 'G1': {
-                const nx = extractParam(command, 'X') ?? x
-                const ny = extractParam(command, 'Y') ?? y
-                const nz = extractParam(command, 'Z') ?? z
-                const nf = extractParam(command, 'F') ?? f
+                const xVal = extractParam(command, 'X')
+                const yVal = extractParam(command, 'Y')
+                const zVal = extractParam(command, 'Z')
+
+                const sx = unitScale
+                const nx = xVal === null ? x : (relativeXYZ ? x + xVal * sx : xVal * sx)
+                const ny = yVal === null ? y : (relativeXYZ ? y + yVal * sx : yVal * sx)
+                const nz = zVal === null ? z : (relativeXYZ ? z + zVal * sx : zVal * sx)
+                const nf = (extractParam(command, 'F') ?? f / sx) * sx
                 let ne = e
 
                 const eVal = extractParam(command, 'E')
                 if (eVal !== null) {
-                    ne = relativeE ? e + eVal : eVal
+                    const se = unitScale
+                    ne = relativeE ? e + eVal * se : eVal * se
                 }
 
-                // Z change triggers new layer
-                if (Math.abs(nz - z) > 0.001) {
+                const extruding = ne > e + 0.0001
+                const zChanged = Math.abs(nz - z) > 0.001
+
+                // Layer advancement should follow print layers, not travel Z-hops.
+                if (pendingLayerFromComment && extruding) {
+                    const targetZ = pendingLayerZ !== null ? pendingLayerZ : nz
+                    ensureLayer(targetZ)
+                    pendingLayerFromComment = false
+                    pendingLayerZ = null
+                } else if (extruding && (currentLayer === null || zChanged)) {
                     ensureLayer(nz)
                 }
 
                 addMove(nx, ny, nz, ne, nf)
+                break
+            }
+
+            case 'G2':
+            case 'G3': {
+                const clockwise = cmd === 'G2'
+                const sx = unitScale
+
+                const xVal = extractParam(command, 'X')
+                const yVal = extractParam(command, 'Y')
+                const zVal = extractParam(command, 'Z')
+                const iVal = extractParam(command, 'I')
+                const jVal = extractParam(command, 'J')
+                const rVal = extractParam(command, 'R')
+
+                const nx = xVal === null ? x : (relativeXYZ ? x + xVal * sx : xVal * sx)
+                const ny = yVal === null ? y : (relativeXYZ ? y + yVal * sx : yVal * sx)
+                const nz = zVal === null ? z : (relativeXYZ ? z + zVal * sx : zVal * sx)
+                const nf = (extractParam(command, 'F') ?? f / sx) * sx
+
+                let ne = e
+                const eVal = extractParam(command, 'E')
+                if (eVal !== null) {
+                    const se = unitScale
+                    ne = relativeE ? e + eVal * se : eVal * se
+                }
+
+                const extruding = ne > e + 0.0001
+                const zChanged = Math.abs(nz - z) > 0.001
+
+                if (pendingLayerFromComment && extruding) {
+                    const targetZ = pendingLayerZ !== null ? pendingLayerZ : nz
+                    ensureLayer(targetZ)
+                    pendingLayerFromComment = false
+                    pendingLayerZ = null
+                } else if (extruding && (currentLayer === null || zChanged)) {
+                    ensureLayer(nz)
+                }
+
+                let cx: number | null = null
+                let cy: number | null = null
+
+                if (iVal !== null || jVal !== null) {
+                    cx = x + (iVal ?? 0) * sx
+                    cy = y + (jVal ?? 0) * sx
+                } else if (rVal !== null) {
+                    const center = computeArcCenterFromRadius(x, y, nx, ny, rVal * sx, clockwise)
+                    if (center) {
+                        cx = center.cx
+                        cy = center.cy
+                    }
+                }
+
+                if (cx === null || cy === null) {
+                    addMove(nx, ny, nz, ne, nf)
+                    break
+                }
+
+                const startAngle = Math.atan2(y - cy, x - cx)
+                const endAngle = Math.atan2(ny - cy, nx - cx)
+                let delta = normalizeAngle(endAngle - startAngle)
+                if (clockwise && delta > 0) delta -= Math.PI * 2
+                if (!clockwise && delta < 0) delta += Math.PI * 2
+
+                const radius = Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy))
+                const arcLength = Math.abs(delta) * radius
+                const segments = Math.max(8, Math.min(512, Math.ceil(arcLength / 1.0)))
+
+                for (let step = 1; step <= segments; step++) {
+                    const t = step / segments
+                    const angle = startAngle + delta * t
+                    const px = cx + Math.cos(angle) * radius
+                    const py = cy + Math.sin(angle) * radius
+                    const pz = z + (nz - z) * t
+                    const pe = e + (ne - e) * t
+                    addMove(px, py, pz, pe, nf)
+                }
+
                 break
             }
 
@@ -255,16 +410,34 @@ export function parseGcode(
                 break
             }
 
+            case 'G20': {
+                unitScale = 25.4
+                break
+            }
+
+            case 'G21': {
+                unitScale = 1
+                break
+            }
+
             case 'G92': {
                 // Set position
                 const nx = extractParam(command, 'X')
                 const ny = extractParam(command, 'Y')
                 const nz = extractParam(command, 'Z')
                 const ne = extractParam(command, 'E')
-                if (nx !== null) x = nx
-                if (ny !== null) y = ny
-                if (nz !== null) z = nz
-                if (ne !== null) e = ne
+                if (nx !== null) x = nx * unitScale
+                if (ny !== null) y = ny * unitScale
+                if (nz !== null) z = nz * unitScale
+                if (ne !== null) e = ne * unitScale
+                break
+            }
+
+            case 'M6': {
+                const tool = extractParam(command, 'T')
+                if (tool !== null) {
+                    currentTool = Math.max(0, Math.floor(tool))
+                }
                 break
             }
 
@@ -278,6 +451,16 @@ export function parseGcode(
                 break
             }
 
+            case 'G90': {
+                relativeXYZ = false
+                break
+            }
+
+            case 'G91': {
+                relativeXYZ = true
+                break
+            }
+
             // We skip M104/M109/M140/M190 (temperatures),
             // M106/M107 (fan), M84 (motors), etc.
             // They don't affect toolpath visualization.
@@ -285,8 +468,9 @@ export function parseGcode(
     }
 
     // Push last layer
-    if (currentLayer && currentLayer.moves.length > 0) {
-        layers.push(currentLayer)
+    const lastLayer = currentLayer as GcodeLayer | null
+    if (lastLayer !== null && lastLayer.moves.length > 0) {
+        layers.push(lastLayer)
     }
 
     // Fix layer indices after collecting all layers

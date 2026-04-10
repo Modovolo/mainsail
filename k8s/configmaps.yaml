@@ -195,6 +195,8 @@ data:
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header X-Forwarded-Proto $scheme;
+                # Strip fleet JWT tokens - Moonraker uses trusted IP auth
+                proxy_set_header Authorization "";
             }
 
             # Moonraker WebSocket
@@ -224,6 +226,8 @@ data:
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header X-Forwarded-Proto $scheme;
+                # Strip fleet JWT tokens - Moonraker uses trusted IP auth
+                proxy_set_header Authorization "";
             }
 
             # Printer endpoints
@@ -234,6 +238,8 @@ data:
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header X-Forwarded-Proto $scheme;
+                # Strip fleet JWT tokens - Moonraker uses trusted IP auth
+                proxy_set_header Authorization "";
             }
 
             # Machine endpoints
@@ -244,6 +250,8 @@ data:
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header X-Forwarded-Proto $scheme;
+                # Strip fleet JWT tokens - Moonraker uses trusted IP auth
+                proxy_set_header Authorization "";
             }
 
             # Access endpoints
@@ -254,6 +262,8 @@ data:
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header X-Forwarded-Proto $scheme;
+                # Strip fleet JWT tokens - Moonraker uses trusted IP auth
+                proxy_set_header Authorization "";
             }
         }
     }

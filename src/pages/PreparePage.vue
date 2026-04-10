@@ -512,7 +512,6 @@
                 </div>
                 <div class="panel-content">
                     <slice-settings-panel
-                        v-model="sliceParams"
                         :can-slice="hasWidgets"
                         :is-slicing="isSlicing"
                         @slice="startSlicing"
@@ -617,14 +616,75 @@
                         </v-col>
                     </v-row>
                 </v-card-text>
-                <v-card-actions>
+
+                <!-- Upload Tagging Panel -->
+                <v-expand-transition>
+                    <div v-if="showUploadTagging">
+                        <v-divider />
+                        <v-card-text class="pb-0">
+                            <div class="text-subtitle-2 mb-2">File Metadata</div>
+                            <v-row dense>
+                                <v-col cols="12" sm="4">
+                                    <v-text-field
+                                        v-model="uploadVersion"
+                                        label="Version"
+                                        placeholder="e.g., 1.0, 2.1"
+                                        outlined
+                                        dense
+                                        prepend-icon="mdi-tag"
+                                        hint="Version number"
+                                        persistent-hint
+                                    ></v-text-field>
+                                </v-col>
+                                <v-col cols="12" sm="4">
+                                    <v-combobox
+                                        v-model="uploadCategory"
+                                        :items="uploadTaggingCategoryOptions"
+                                        item-text="text"
+                                        item-value="value"
+                                        label="Category (Optional)"
+                                        outlined
+                                        dense
+                                        clearable
+                                        prepend-icon="mdi-shape"
+                                        hint="Select or type new"
+                                        persistent-hint
+                                        :return-object="false"
+                                    ></v-combobox>
+                                </v-col>
+                                <v-col cols="12" sm="4">
+                                    <v-text-field
+                                        v-model="uploadPrintTime"
+                                        label="Print Time (Optional)"
+                                        :placeholder="sliceResult ? sliceResult.estimated_time_formatted : 'e.g., 2h 30m'"
+                                        outlined
+                                        dense
+                                        prepend-icon="mdi-clock-outline"
+                                        hint="Estimated print time"
+                                        persistent-hint
+                                    ></v-text-field>
+                                </v-col>
+                            </v-row>
+                        </v-card-text>
+                        <v-card-actions>
+                            <v-spacer />
+                            <v-btn text @click="showUploadTagging = false">Cancel</v-btn>
+                            <v-btn color="info" @click="uploadGcodeToMoonraker">
+                                <v-icon left>{{ icons.mdiCloudUpload }}</v-icon>
+                                Upload
+                            </v-btn>
+                        </v-card-actions>
+                    </div>
+                </v-expand-transition>
+
+                <v-card-actions v-if="!showUploadTagging">
                     <v-spacer />
                     <v-btn text @click="showResultDialog = false">Close</v-btn>
                     <v-btn color="primary" @click="previewGcode">
                         <v-icon left>{{ icons.mdiEye }}</v-icon>
                         Preview
                     </v-btn>
-                    <v-btn color="info" @click="uploadGcodeToMoonraker">
+                    <v-btn color="info" @click="showUploadTagging = true">
                         <v-icon left>{{ icons.mdiCloudUpload }}</v-icon>
                         Upload to Printer
                     </v-btn>
@@ -826,7 +886,6 @@ import SliceSettingsPanel from '@/components/panels/Prepare/SliceSettingsPanel.v
 import { getSlicerEngine } from '@/util/slicer/SlicerEngine'
 import { mapSettings } from '@/util/slicer/settingsMapper'
 import type { SlicerConfig } from '@/util/slicer/types'
-import { setSharedPrepareViewerState, clearSharedPrepareViewerState } from '@/util/prepare/sharedViewer'
 import {
     mdiCube,
     mdiCubeOutline,
@@ -877,28 +936,6 @@ import {
     mdiPencil,
     mdiPlus,
 } from '@mdi/js'
-
-interface SliceParams {
-    layer_height: number
-    first_layer_height: number
-    infill_density: number
-    infill_pattern: string
-    wall_count: number
-    top_layers: number
-    bottom_layers: number
-    print_speed: number
-    travel_speed: number
-    first_layer_speed: number
-    nozzle_temp: number
-    bed_temp: number
-    enable_support: boolean
-    support_density: number
-    support_pattern: string
-    enable_non_planar: boolean
-    max_slope_angle: number
-    enable_idex: boolean
-    idex_mode: string
-}
 
 interface SliceResult {
     layer_count: number
@@ -998,7 +1035,6 @@ export default class PreparePage extends Mixins(BaseMixin) {
     private renderPending = false
     raycaster = new THREE.Raycaster()
     mouse = new THREE.Vector2()
-    private preserveViewerForPreview = false
     private lastHoverRaycastAt = 0
     private readonly hoverRaycastIntervalMs = 33
     private lastHoverWidgetId: string | null = null
@@ -1018,27 +1054,20 @@ export default class PreparePage extends Mixins(BaseMixin) {
     qualityPreset = 'normal'
     sliceResult: SliceResult | null = null
     jobId = ''
+
+    // Upload tagging fields
+    showUploadTagging = false
+    uploadVersion = '1.0'
+    uploadCategory: string | null = null
+    uploadPrintTime = ''
+    uploadTaggingCategoryOptions = [
+        { text: 'Propeller', value: 'propeller' },
+        { text: 'Truss', value: 'truss' },
+        { text: 'Control Box', value: 'control-box' },
+    ]
     
-    sliceParams: SliceParams = {
-        layer_height: 0.2,
-        first_layer_height: 0.3,
-        infill_density: 20,
-        infill_pattern: 'grid',
-        wall_count: 3,
-        top_layers: 4,
-        bottom_layers: 4,
-        print_speed: 60,
-        travel_speed: 150,
-        first_layer_speed: 20,
-        nozzle_temp: 210,
-        bed_temp: 60,
-        enable_support: false,
-        support_density: 15,
-        support_pattern: 'grid',
-        enable_non_planar: false,
-        max_slope_angle: 45,
-        enable_idex: false,
-        idex_mode: 'normal',
+    get sliceParams() {
+        return this.$store.state.prepare.sliceParams
     }
     
     infillPatterns = [
@@ -1158,8 +1187,6 @@ export default class PreparePage extends Mixins(BaseMixin) {
     // --- Lifecycle ---
     
     mounted() {
-        this.preserveViewerForPreview = false
-        clearSharedPrepareViewerState()
 
         // Load printer profiles from PostgreSQL via fleet API
         this.$store.dispatch('prepare/initPrinterProfiles')
@@ -1186,41 +1213,12 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.containerResizeObserver?.disconnect()
         this.containerResizeObserver = null
 
-        if (!this.preserveViewerForPreview) {
-            this.disposeThreeJS()
-            // Reset store state when leaving page
-            this.$store.commit('prepare/reset')
-            clearSharedPrepareViewerState()
-        }
+        this.disposeThreeJS()
+        // Reset store state when leaving page
+        this.$store.commit('prepare/reset')
     }
 
-    private handoffViewerToPreview() {
-        if (!this.renderer || !this.scene || !this.camera || !this.controls) return
-
-        this.preserveViewerForPreview = true
-        setSharedPrepareViewerState({
-            renderer: this.renderer,
-            scene: this.scene,
-            camera: this.camera,
-            controls: this.controls,
-            platform: this.platform,
-        })
-    }
-
-    beforeRouteLeave(to: any, _from: any, next: any) {
-        const goingToPreview = to?.name === 'preview' || to?.path === '/preview'
-        this.preserveViewerForPreview = goingToPreview
-
-        if (goingToPreview && this.renderer && this.scene && this.camera && this.controls) {
-            setSharedPrepareViewerState({
-                renderer: this.renderer,
-                scene: this.scene,
-                camera: this.camera,
-                controls: this.controls,
-                platform: this.platform,
-            })
-        }
-
+    beforeRouteLeave(_to: any, _from: any, next: any) {
         next()
     }
     
@@ -1233,15 +1231,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
     
     @Watch('qualityPreset')
     onQualityPresetChange(preset: string) {
-        const presets: Record<string, Partial<SliceParams>> = {
-            draft: { layer_height: 0.3, infill_density: 10, print_speed: 80 },
-            normal: { layer_height: 0.2, infill_density: 20, print_speed: 60 },
-            fine: { layer_height: 0.12, infill_density: 20, print_speed: 45 },
-            ultra: { layer_height: 0.08, infill_density: 25, print_speed: 30 },
-        }
-        if (presets[preset]) {
-            Object.assign(this.sliceParams, presets[preset])
-        }
+        this.$store.commit('prepare/setQualityPreset', preset)
     }
     
     @Watch('viewMode')
@@ -2405,9 +2395,10 @@ export default class PreparePage extends Mixins(BaseMixin) {
                 this.slicingMessage = progress.message
             })
             
-            // Store the G-code
+            // Store the G-code and structured toolpath data
             this.lastGcodeOutput = output.gcode
             this.$store.commit('prepare/setLastGcode', output.gcode)
+            this.$store.commit('prepare/setLastToolpaths', output.toolpaths)
             
             // Show results
             this.sliceResult = {
@@ -2458,8 +2449,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
     
     previewGcode() {
         this.showResultDialog = false
-        this.handoffViewerToPreview()
-        this.$router.push({ path: '/preview' })
+        this.$router.push({ path: '/slicing', query: { mode: 'preview' } })
     }
     
     async downloadGcode() {
@@ -2501,21 +2491,32 @@ export default class PreparePage extends Mixins(BaseMixin) {
             const formData = new FormData()
             formData.append('file', blob, filename)
             formData.append('root', 'gcodes')
-            
-            const token = localStorage.getItem('fleet_token')
-            const headers: Record<string, string> = {}
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`
+
+            // Add tagging metadata
+            if (this.uploadVersion) {
+                formData.append('version', this.uploadVersion)
+            }
+            if (this.uploadCategory) {
+                formData.append('category', this.uploadCategory)
+            }
+            if (this.uploadPrintTime) {
+                formData.append('printTime', this.uploadPrintTime)
+            } else if (this.sliceResult?.estimated_time_formatted) {
+                formData.append('printTime', this.sliceResult.estimated_time_formatted)
             }
             
             const response = await axios.post('/api/files/upload', formData, {
                 headers: {
-                    ...headers,
                     'Content-Type': 'multipart/form-data',
                 },
             })
             
             this.showResultDialog = false
+            this.showUploadTagging = false
+            // Reset tagging fields
+            this.uploadVersion = '1.0'
+            this.uploadCategory = null
+            this.uploadPrintTime = ''
             this.$toast?.success?.(`Uploaded ${filename}`)
         } catch (error: any) {
             console.error('Upload failed:', error)

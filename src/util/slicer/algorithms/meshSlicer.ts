@@ -54,7 +54,9 @@ function findZBounds(triangles: Triangle[]): { zMin: number; zMax: number } {
  * Returns the 2D intersection point or null if edge doesn't cross the plane.
  */
 function edgePlaneIntersect(p1: Vec3, p2: Vec3, z: number): Vec2 | null {
-    if ((p1.z < z && p2.z < z) || (p1.z > z && p2.z > z)) return null
+    // Both strictly below or strictly above the plane
+    if ((p1.z < z - EPSILON && p2.z < z - EPSILON) || (p1.z > z + EPSILON && p2.z > z + EPSILON)) return null
+    // Edge is coplanar — skip and let the Z-nudge mechanism handle it
     if (Math.abs(p1.z - p2.z) < EPSILON) return null
 
     const t = (z - p1.z) / (p2.z - p1.z)
@@ -68,7 +70,15 @@ function edgePlaneIntersect(p1: Vec3, p2: Vec3, z: number): Vec2 | null {
 
 /**
  * Intersect a triangle with a Z-plane.
- * Returns 0 or 1 line segment (two points).
+ * Returns 0 or 1 DIRECTED line segment (two points ordered by face normal).
+ *
+ * The segment direction is determined by the triangle's face normal so that
+ * when segments are chained, outer boundaries wind CCW (positive area) and
+ * holes wind CW (negative area).  This is the standard approach used by
+ * production slicers (PrusaSlicer, Slic3r).
+ *
+ * The ordering criterion: the segment's 2D left-normal (-dy, dx) should
+ * point in the same direction as the face normal's XY projection.
  */
 function trianglePlaneIntersect(tri: Triangle, z: number): [Vec2, Vec2] | null {
     const pts: Vec2[] = []
@@ -98,7 +108,28 @@ function trianglePlaneIntersect(tri: Triangle, z: number): [Vec2, Vec2] | null {
                 }
             }
         }
-        return best
+        pts[0] = best[0]
+        pts[1] = best[1]
+    }
+
+    // Compute face normal N = (B-A) × (C-A)
+    const e1x = tri.b.x - tri.a.x, e1y = tri.b.y - tri.a.y, e1z = tri.b.z - tri.a.z
+    const e2x = tri.c.x - tri.a.x, e2y = tri.c.y - tri.a.y, e2z = tri.c.z - tri.a.z
+    const nx = e1y * e2z - e1z * e2y
+    const ny = e1z * e2x - e1x * e2z
+
+    // Segment direction: d = pts[1] - pts[0]
+    const dx = pts[1].x - pts[0].x
+    const dy = pts[1].y - pts[0].y
+
+    // Left-normal of segment (-dy, dx) should oppose face normal XY (nx, ny)
+    // for outer surfaces (outward normal), giving CCW winding.
+    // Equivalently: right-normal (dy, -dx) should align with face normal.
+    // dot = (-dy)*nx + dx*ny; swap when dot > 0.
+    const dot = -dy * nx + dx * ny
+
+    if (dot > 0) {
+        return [pts[1], pts[0]]
     }
 
     return [pts[0], pts[1]]
@@ -106,12 +137,14 @@ function trianglePlaneIntersect(tri: Triangle, z: number): [Vec2, Vec2] | null {
 
 /**
  * Chain line segments into closed contours.
- * Segments are unordered — we build chains by matching endpoints.
+ * Segments are directed (from trianglePlaneIntersect face-normal ordering).
+ * Prefers head-to-tail matching to preserve winding direction; falls back to
+ * reversed matching for floating-point gaps.
  */
 function chainSegments(segments: [Vec2, Vec2][]): Contour[] {
     if (segments.length === 0) return []
 
-    const tolerance = 0.01 // mm
+    const tolerance = 0.05 // mm — generous to handle FP gaps in complex meshes
     const tolSq = tolerance * tolerance
     const used = new Array(segments.length).fill(false)
     const contours: Contour[] = []
@@ -129,6 +162,8 @@ function chainSegments(segments: [Vec2, Vec2][]): Contour[] {
 
         while (changed) {
             changed = false
+
+            // Pass 1: directed matching (head-to-tail) — preserves winding
             for (let i = 0; i < segments.length; i++) {
                 if (used[i]) continue
                 const [a, b] = segments[i]
@@ -139,18 +174,34 @@ function chainSegments(segments: [Vec2, Vec2][]): Contour[] {
                     chain.push(b)
                     used[i] = true
                     changed = true
-                } else if (ptEq(tail, b)) {
-                    chain.push(a)
-                    used[i] = true
-                    changed = true
+                    break
                 } else if (ptEq(head, b)) {
                     chain.unshift(a)
                     used[i] = true
                     changed = true
+                    break
+                }
+            }
+
+            if (changed) continue
+
+            // Pass 2: reversed matching (fallback for FP issues)
+            for (let i = 0; i < segments.length; i++) {
+                if (used[i]) continue
+                const [a, b] = segments[i]
+                const head = chain[0]
+                const tail = chain[chain.length - 1]
+
+                if (ptEq(tail, b)) {
+                    chain.push(a)
+                    used[i] = true
+                    changed = true
+                    break
                 } else if (ptEq(head, a)) {
                     chain.unshift(b)
                     used[i] = true
                     changed = true
+                    break
                 }
             }
         }
@@ -159,11 +210,19 @@ function chainSegments(segments: [Vec2, Vec2][]): Contour[] {
         const closed = chain.length > 2 && ptEq(chain[0], chain[chain.length - 1])
         if (closed) chain.pop() // remove duplicate closing point
 
+        // Force-close contours that are nearly closed (gap < 0.5mm).
+        // Complex meshes often produce contours whose endpoints are very close
+        // but just outside the chaining tolerance. Leaving them open causes
+        // shells.ts to discard them, creating missing-layer gaps.
+        const forceClose = !closed && chain.length > 4 &&
+            Math.sqrt((chain[0].x - chain[chain.length - 1].x) ** 2 +
+                       (chain[0].y - chain[chain.length - 1].y) ** 2) < 0.5
+
         const area = computeSignedArea(chain)
 
         contours.push({
             points: chain,
-            closed,
+            closed: closed || forceClose,
             area,
         })
     }
@@ -200,6 +259,35 @@ export interface SliceProgress {
     stage: string
     progress: number
     message: string
+}
+
+/** Compute the 2D bounding box of a set of contours */
+function contourBounds(contours: Contour[]): { xMin: number; xMax: number; yMin: number; yMax: number } | null {
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity
+    for (const c of contours) {
+        for (const p of c.points) {
+            if (p.x < xMin) xMin = p.x
+            if (p.x > xMax) xMax = p.x
+            if (p.y < yMin) yMin = p.y
+            if (p.y > yMax) yMax = p.y
+        }
+    }
+    if (!Number.isFinite(xMin)) return null
+    return { xMin, xMax, yMin, yMax }
+}
+
+/** Check if two bounding boxes overlap with a tolerance margin */
+function boundsOverlap(
+    a: { xMin: number; xMax: number; yMin: number; yMax: number },
+    b: { xMin: number; xMax: number; yMin: number; yMax: number },
+    tolerance: number
+): boolean {
+    return (
+        a.xMin <= b.xMax + tolerance &&
+        a.xMax >= b.xMin - tolerance &&
+        a.yMin <= b.yMax + tolerance &&
+        a.yMax >= b.yMin - tolerance
+    )
 }
 
 /**
@@ -240,25 +328,59 @@ export function sliceMesh(
     const layers: SliceLayer[] = []
 
     for (let li = 0; li < zHeights.length; li++) {
-        const layerZ = zHeights[li]
-        const segments: [Vec2, Vec2][] = []
+        const nominalZ = zHeights[li]
 
-        // Find all triangles that intersect this Z plane
-        for (let ti = 0; ti < triangles.length; ti++) {
-            if (triZRanges[ti].zMin > layerZ || triZRanges[ti].zMax < layerZ) continue
-            const seg = trianglePlaneIntersect(triangles[ti], layerZ)
-            if (seg) segments.push(seg)
+        // Try the nominal Z first; if no usable contours are produced
+        // (degenerate plane coinciding with mesh edges/vertices), nudge Z
+        // slightly with increasingly aggressive offsets.
+        let contours: Contour[] = []
+        let fallbackContours: Contour[] = []
+        for (const offset of [0, 1e-4, -1e-4, 5e-4, -5e-4, 1e-3, -1e-3, 2e-3, -2e-3, 5e-3, -5e-3]) {
+            const layerZ = nominalZ + offset
+            const segments: [Vec2, Vec2][] = []
+
+            for (let ti = 0; ti < triangles.length; ti++) {
+                if (triZRanges[ti].zMin > layerZ + EPSILON || triZRanges[ti].zMax < layerZ - EPSILON) continue
+                const seg = trianglePlaneIntersect(triangles[ti], layerZ)
+                if (seg) segments.push(seg)
+            }
+
+            if (segments.length === 0) continue
+
+            const candidateContours = sortContours(chainSegments(segments))
+            // Accept this Z offset if we got at least one usable contour
+            // (closed, or open with enough area to be force-closed by shells)
+            const hasUsable = candidateContours.some((c) => c.closed || Math.abs(c.area) > 0.1)
+            if (hasUsable) {
+                contours = candidateContours
+                break
+            }
+            // Keep the best fallback (most contours / largest area) in case
+            // none of the offsets produce ideal contours
+            if (candidateContours.length > fallbackContours.length) {
+                fallbackContours = candidateContours
+            }
         }
 
-        // Chain segments into contours
-        let contours = chainSegments(segments)
-        contours = sortContours(contours)
+        // If no offset produced "usable" contours, fall back to whatever
+        // we found rather than skipping the layer entirely, but only if the
+        // fallback contours have reasonable area (>= 1.0mm²).
+        if (contours.length === 0 && fallbackContours.length > 0) {
+            const usableFallback = fallbackContours.filter((c) => c.closed || Math.abs(c.area) > 0.1)
+            if (usableFallback.length > 0) {
+                contours = fallbackContours
+            }
+        }
+
+        // Skip layers that produced no usable geometry
+        const usableContours = contours.filter((c) => c.closed || Math.abs(c.area) > 0.1)
+        if (usableContours.length === 0) continue
 
         layers.push({
-            z: layerZ,
-            layerIndex: li,
+            z: nominalZ,
+            layerIndex: layers.length,
             layerHeight: li === 0 ? config.firstLayerHeight : config.layerHeight,
-            contours,
+            contours: usableContours,
         })
 
         // Report progress
@@ -266,9 +388,14 @@ export function sliceMesh(
             onProgress({
                 stage: 'slicing',
                 progress: (li / zHeights.length) * 100,
-                message: `Slicing layer ${li + 1}/${zHeights.length} (Z=${layerZ.toFixed(2)}mm)`,
+                message: `Slicing layer ${li + 1}/${zHeights.length} (Z=${nominalZ.toFixed(2)}mm)`,
             })
         }
+    }
+
+    // Re-index layers sequentially
+    for (let i = 0; i < layers.length; i++) {
+        layers[i].layerIndex = i
     }
 
     return layers

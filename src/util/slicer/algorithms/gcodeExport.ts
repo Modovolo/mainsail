@@ -5,7 +5,7 @@
  * Generates standard Marlin/Klipper-compatible G-code.
  */
 
-import { LayerToolpath, SlicerConfig, SlicedModel, Vec3 } from '../types'
+import { LayerToolpath, SlicerConfig } from '../types'
 
 /**
  * Format a G-code coordinate value
@@ -15,6 +15,7 @@ function fmt(val: number, decimals = 3): string {
 }
 
 const PRIME_MAX_CROSS_SECTION_MM2 = 0.55
+const MIN_GCODE_SEGMENT_LENGTH = 0.01
 
 /**
  * Generate the G-code start sequence
@@ -65,7 +66,7 @@ function generateStartGcode(config: SlicerConfig): string {
 /**
  * Generate the G-code end sequence
  */
-function generateEndGcode(config: SlicerConfig): string {
+function generateEndGcode(): string {
     const lines: string[] = [
         '',
         ';TYPE:Custom',
@@ -112,6 +113,12 @@ export function exportGcode(layers: LayerToolpath[], config: SlicerConfig): stri
     let currentType = ''
     let lastFeedrate = 0
     let isRetracted = false
+    // Track nozzle XY so we can insert missing travel moves.
+    // Prime line ends at (60, 5).
+    let curX = 60
+    let curY = 5
+    const travelFeedrate = config.travelSpeed * 60
+    const minTravelForRetract = 1.5
 
     for (const layer of layers) {
         // Layer change
@@ -119,8 +126,21 @@ export function exportGcode(layers: LayerToolpath[], config: SlicerConfig): stri
         lines.push(`;LAYER_CHANGE`)
         lines.push(`;Z:${fmt(layer.z)}`)
         lines.push(`;LAYER:${layer.layerIndex}`)
+
+        // Z-gap warning: detect jumps larger than 2× layer height
+        const zJump = layer.z - currentZ
+        if (currentZ > 0 && zJump > config.layerHeight * 2) {
+            lines.push(`; WARNING: Z gap of ${fmt(zJump)}mm detected (expected ~${fmt(config.layerHeight)}mm)`)
+        }
+
         lines.push(`G1 Z${fmt(layer.z)} F3000`)
         currentZ = layer.z
+
+        // Periodic E reset every 50 layers to prevent floating-point drift
+        if (layer.layerIndex > 0 && layer.layerIndex % 50 === 0) {
+            lines.push(`G92 E0 ; reset E counter`)
+            currentE = 0
+        }
 
         // Set per-layer temperatures and fan
         if (layer.layerIndex === 1) {
@@ -133,6 +153,13 @@ export function exportGcode(layers: LayerToolpath[], config: SlicerConfig): stri
         }
 
         for (const seg of layer.segments) {
+            const dx = seg.to.x - seg.from.x
+            const dy = seg.to.y - seg.from.y
+            const segLen = Math.sqrt(dx * dx + dy * dy)
+            if (segLen < MIN_GCODE_SEGMENT_LENGTH && Math.abs(seg.extrusionAmount) < 1e-5) {
+                continue
+            }
+
             // Type comments
             const tc = typeComment(seg.type)
             if (tc && tc !== currentType) {
@@ -155,7 +182,29 @@ export function exportGcode(layers: LayerToolpath[], config: SlicerConfig): stri
                 const f = seg.feedrate !== lastFeedrate ? ` F${Math.round(seg.feedrate)}` : ''
                 lines.push(`G0 X${fmt(seg.to.x)} Y${fmt(seg.to.y)}${f}`)
                 lastFeedrate = seg.feedrate
+                curX = seg.to.x
+                curY = seg.to.y
             } else {
+                // Safety: if nozzle isn't at seg.from, insert a travel first.
+                const gapX = seg.from.x - curX
+                const gapY = seg.from.y - curY
+                const gap = Math.sqrt(gapX * gapX + gapY * gapY)
+                if (gap > 0.01) {
+                    // Retract for long gaps
+                    if (gap > minTravelForRetract && !isRetracted) {
+                        currentE -= config.retractDistance
+                        lines.push(`G1 E${fmt(currentE, 5)} F${config.retractSpeed * 60}`)
+                        isRetracted = true
+                        if (config.retractLift > 0) {
+                            lines.push(`G1 Z${fmt(currentZ + config.retractLift)} F3000`)
+                        }
+                    }
+                    lines.push(`G0 X${fmt(seg.from.x)} Y${fmt(seg.from.y)} F${travelFeedrate}`)
+                    lastFeedrate = travelFeedrate
+                    curX = seg.from.x
+                    curY = seg.from.y
+                }
+
                 // Un-retract if needed
                 if (isRetracted) {
                     // Drop z-hop
@@ -172,11 +221,13 @@ export function exportGcode(layers: LayerToolpath[], config: SlicerConfig): stri
                 const f = seg.feedrate !== lastFeedrate ? ` F${Math.round(seg.feedrate)}` : ''
                 lines.push(`G1 X${fmt(seg.to.x)} Y${fmt(seg.to.y)} E${fmt(currentE, 5)}${f}`)
                 lastFeedrate = seg.feedrate
+                curX = seg.to.x
+                curY = seg.to.y
             }
         }
     }
 
-    lines.push(generateEndGcode(config))
+    lines.push(generateEndGcode())
 
     return lines.join('\n')
 }

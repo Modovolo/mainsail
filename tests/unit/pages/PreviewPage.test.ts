@@ -1,39 +1,35 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import PreviewPage from '@/pages/PreviewPage.vue'
-import { clearSharedPrepareViewerState } from '@/util/prepare/sharedViewer'
 
 vi.mock('three/examples/jsm/controls/OrbitControls', () => ({
     OrbitControls: vi.fn(),
 }))
 
-vi.mock('@/util/prepare/sharedViewer', () => ({
-    takeSharedPrepareViewerState: vi.fn(() => null),
-    clearSharedPrepareViewerState: vi.fn(),
-}))
-
-function createVm(route: { path?: string; name?: string } = {}) {
+function createVm() {
     const vm: any = {
         $store: {
-        commit: vi.fn(),
-        state: {
-            prepare: {},
+            commit: vi.fn(),
+            state: {
+                prepare: {},
+            },
         },
-    },
         $route: {
-        path: route.path ?? '/preview',
-        name: route.name ?? 'preview',
-    },
+            path: '/preview',
+            name: 'preview',
+        },
         controls: {
-        removeEventListener: vi.fn(),
-        dispose: vi.fn(),
-    },
+            removeEventListener: vi.fn(),
+            dispose: vi.fn(),
+        },
         renderer: {
-        dispose: vi.fn(),
-    },
-        hiddenModelMeshes: [{ visible: false }, { visible: false }],
+            dispose: vi.fn(),
+        },
+        modelOutlineMesh: null,
+        scene: null,
         onResize: vi.fn(),
         onControlsChange: vi.fn(),
         activeBuildToken: 0,
+        removeModelOutline: vi.fn(),
     }
 
     return vm
@@ -51,21 +47,22 @@ describe('PreviewPage state teardown', () => {
         vi.clearAllMocks()
     })
 
-    it('does not reset prepare store when destroying on /prepare', () => {
-        const vm = createVm({ path: '/prepare', name: 'prepare' })
+    it('disposes renderer and controls on destroy', () => {
+        const vm = createVm()
 
         runBeforeDestroy(vm)
 
-        expect(clearSharedPrepareViewerState).toHaveBeenCalledTimes(1)
-        expect(vm.$store.commit).not.toHaveBeenCalledWith('prepare/reset')
+        expect(vm.renderer.dispose).toHaveBeenCalled()
+        expect(vm.controls.dispose).toHaveBeenCalled()
+        expect(vm.removeModelOutline).toHaveBeenCalled()
     })
 
-    it('resets prepare store when destroying away from /prepare', () => {
-        const vm = createVm({ path: '/monitoring', name: 'monitoring' })
+    it('increments build token to cancel in-flight builds', () => {
+        const vm = createVm()
+        vm.activeBuildToken = 5
 
         runBeforeDestroy(vm)
 
-        expect(clearSharedPrepareViewerState).toHaveBeenCalledTimes(1)
-        expect(vm.$store.commit).toHaveBeenCalledWith('prepare/reset')
+        expect(vm.activeBuildToken).toBe(6)
     })
 })
