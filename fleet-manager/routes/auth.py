@@ -1,6 +1,7 @@
 """
 Authentication Routes
 """
+import os
 import json
 import logging
 
@@ -9,10 +10,12 @@ from pydantic import ValidationError
 
 from schemas import LoginRequest, RegisterRequest
 from services.database import DatabaseService
-from services.auth import JWTAuth
+from services.auth import JWTAuth, REFRESH_TOKEN_EXPIRE_DAYS
 from routes.common import require_auth, require_role
 
 logger = logging.getLogger(__name__)
+
+SECURE_COOKIES = os.environ.get('SECURE_COOKIES', 'true').lower() not in ('0', 'false', 'no')
 
 
 async def login(request: web.Request):
@@ -35,11 +38,20 @@ async def login(request: web.Request):
     access_token = jwt_auth.create_access_token(user)
     refresh_token = jwt_auth.create_refresh_token(user)
     
-    return web.json_response({
+    response = web.json_response({
         'token': access_token,
-        'refreshToken': refresh_token,
         'user': user.to_dict()
     })
+    response.set_cookie(
+        'refresh_token',
+        refresh_token,
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        httponly=True,
+        secure=SECURE_COOKIES,
+        samesite='Strict',
+        path='/api/auth',
+    )
+    return response
 
 
 async def register(request: web.Request):
@@ -70,12 +82,15 @@ async def register(request: web.Request):
 
 async def refresh(request: web.Request):
     """Refresh token endpoint"""
-    try:
-        data = await request.json()
-    except json.JSONDecodeError:
-        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    # Read refresh token from HttpOnly cookie (preferred) or JSON body (legacy)
+    refresh_token = request.cookies.get('refresh_token')
+    if not refresh_token:
+        try:
+            data = await request.json()
+            refresh_token = data.get('refreshToken')
+        except (json.JSONDecodeError, Exception):
+            pass
     
-    refresh_token = data.get('refreshToken')
     if not refresh_token:
         return web.json_response({'error': 'Refresh token required'}, status=400)
     
@@ -83,7 +98,10 @@ async def refresh(request: web.Request):
     
     result = jwt_auth.refresh_access_token(refresh_token)
     if not result:
-        return web.json_response({'error': 'Invalid or expired refresh token'}, status=401)
+        # Clear invalid cookie
+        response = web.json_response({'error': 'Invalid or expired refresh token'}, status=401)
+        response.del_cookie('refresh_token', path='/api/auth')
+        return response
     
     new_token, user = result
     return web.json_response({
@@ -95,15 +113,20 @@ async def refresh(request: web.Request):
 async def logout(request: web.Request):
     """Logout endpoint"""
     try:
-        data = await request.json()
-        refresh_token = data.get('refreshToken')
+        # Read refresh token from cookie (preferred) or JSON body (legacy)
+        refresh_token = request.cookies.get('refresh_token')
+        if not refresh_token:
+            data = await request.json()
+            refresh_token = data.get('refreshToken')
         if refresh_token:
             db: DatabaseService = request.app['db']
             db.revoke_refresh_token(refresh_token)
     except:
         pass
     
-    return web.json_response({'message': 'Logged out successfully'})
+    response = web.json_response({'message': 'Logged out successfully'})
+    response.del_cookie('refresh_token', path='/api/auth')
+    return response
 
 
 @require_auth

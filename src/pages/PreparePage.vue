@@ -669,9 +669,9 @@
                         <v-card-actions>
                             <v-spacer />
                             <v-btn text @click="showUploadTagging = false">Cancel</v-btn>
-                            <v-btn color="info" @click="uploadGcodeToMoonraker">
+                            <v-btn color="info" @click="openSendToPrinterDialog">
                                 <v-icon left>{{ icons.mdiCloudUpload }}</v-icon>
-                                Upload
+                                Upload &amp; Send to Printer
                             </v-btn>
                         </v-card-actions>
                     </div>
@@ -688,9 +688,103 @@
                         <v-icon left>{{ icons.mdiCloudUpload }}</v-icon>
                         Upload to Printer
                     </v-btn>
+                    <v-btn color="warning" @click="openQueueJobDialog">
+                        <v-icon left>mdi-playlist-plus</v-icon>
+                        Queue Job
+                    </v-btn>
                     <v-btn color="success" @click="downloadGcode">
                         <v-icon left>{{ icons.mdiDownload }}</v-icon>
                         Download G-code
+                    </v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
+        <!-- Send to Printer Dialog -->
+        <v-dialog v-model="showSendToPrinterDialog" max-width="500">
+            <v-card>
+                <v-card-title class="primary white--text">
+                    <v-icon left color="white">mdi-printer-3d</v-icon>
+                    Send G-Code to Printer
+                </v-card-title>
+                <v-card-text class="pa-6">
+                    <v-select
+                        v-model="sendToPrinterId"
+                        :items="fleetPrinters"
+                        item-text="name"
+                        item-value="printerId"
+                        label="Select Printer"
+                        outlined
+                        prepend-icon="mdi-printer-3d"
+                        :loading="loadingFleetPrinters"
+                        no-data-text="No printers available"
+                    ></v-select>
+                </v-card-text>
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn text @click="showSendToPrinterDialog = false">Cancel</v-btn>
+                    <v-btn
+                        color="primary"
+                        :disabled="!sendToPrinterId"
+                        :loading="sendingToPrinter"
+                        @click="uploadAndSendToPrinter"
+                    >
+                        <v-icon left>mdi-send</v-icon>
+                        Send
+                    </v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
+        <!-- Queue Job Dialog -->
+        <v-dialog v-model="showQueueJobDialog" max-width="500">
+            <v-card>
+                <v-card-title class="warning white--text">
+                    <v-icon left color="white">mdi-playlist-plus</v-icon>
+                    Add to Print Queue
+                </v-card-title>
+                <v-card-text class="pa-6">
+                    <v-text-field
+                        :value="queueGcodeFilename"
+                        label="G-Code File"
+                        outlined
+                        readonly
+                        prepend-icon="mdi-file-document"
+                        class="mb-2"
+                    ></v-text-field>
+                    <v-row dense>
+                        <v-col cols="6">
+                            <v-text-field
+                                v-model.number="queueCopies"
+                                type="number"
+                                min="1"
+                                max="100"
+                                label="Number of Copies"
+                                outlined
+                                prepend-icon="mdi-content-copy"
+                            ></v-text-field>
+                        </v-col>
+                        <v-col cols="6">
+                            <v-select
+                                v-model="queuePriority"
+                                :items="queuePriorityOptions"
+                                label="Priority"
+                                outlined
+                                prepend-icon="mdi-flag"
+                            ></v-select>
+                        </v-col>
+                    </v-row>
+                </v-card-text>
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn text @click="showQueueJobDialog = false">Cancel</v-btn>
+                    <v-btn
+                        color="warning"
+                        :loading="queuingJob"
+                        @click="uploadAndQueueJob"
+                    >
+                        <v-icon left>mdi-playlist-plus</v-icon>
+                        Add to Queue
                     </v-btn>
                 </v-card-actions>
             </v-card>
@@ -807,6 +901,17 @@
                                 class="mt-0" />
                         </v-col>
                         <v-col cols="6">
+                            <v-text-field
+                                v-model.number="printerProfileForm.bedHeaterControllerCount"
+                                label="Bed Heater Controllers"
+                                type="number"
+                                :min="1"
+                                :max="16"
+                                outlined
+                                dense
+                                hide-details />
+                        </v-col>
+                        <v-col cols="6">
                             <v-checkbox
                                 v-model="printerProfileForm.heatedChamber"
                                 label="Heated Chamber"
@@ -843,6 +948,42 @@
                             dense
                             hide-details />
                     </template>
+
+                    <v-divider class="my-4" />
+                    <div class="text-subtitle-2 mb-2">Custom G-code</div>
+                    <v-textarea
+                        v-model="printerProfileForm.customStartGcode"
+                        label="Start G-code"
+                        placeholder="e.g. PRINT_START ETMP={nozzle_temp} BTMP={bed_temp}"
+                        hint="Leave blank for default. Variables: {nozzle_temp}, {bed_temp}, {first_layer_temperature}, {layer_height}, etc."
+                        persistent-hint
+                        outlined
+                        dense
+                        rows="4"
+                        auto-grow
+                        class="mb-3 monospace-textarea" />
+                    <v-textarea
+                        v-model="printerProfileForm.customLayerChangeGcode"
+                        label="Layer Change G-code"
+                        placeholder="e.g. TIMELAPSE_TAKE_FRAME"
+                        hint="Inserted at every layer change. Variables: {layer_num}, {layer_z}, {layer_height}, {total_layer_count}, etc."
+                        persistent-hint
+                        outlined
+                        dense
+                        rows="3"
+                        auto-grow
+                        class="mb-3 monospace-textarea" />
+                    <v-textarea
+                        v-model="printerProfileForm.customEndGcode"
+                        label="End G-code"
+                        placeholder="e.g. PRINT_END"
+                        hint="Leave blank for default."
+                        persistent-hint
+                        outlined
+                        dense
+                        rows="3"
+                        auto-grow
+                        class="monospace-textarea" />
                 </v-card-text>
                 <v-card-actions>
                     <v-btn
@@ -955,9 +1096,13 @@ const EMPTY_PRINTER_PROFILE: PrinterProfile = {
     filamentDiameter: 1.75,
     bedShape: 'rectangular',
     heatedBed: true,
+    bedHeaterControllerCount: 1,
     heatedChamber: false,
     autoBedLeveling: false,
     directDrive: false,
+    customStartGcode: '',
+    customEndGcode: '',
+    customLayerChangeGcode: '',
 }
 
 const DEG90 = Math.PI / 2
@@ -1065,6 +1210,20 @@ export default class PreparePage extends Mixins(BaseMixin) {
         { text: 'Truss', value: 'truss' },
         { text: 'Control Box', value: 'control-box' },
     ]
+
+    // Send to Printer dialog
+    showSendToPrinterDialog = false
+    sendToPrinterId: string | null = null
+    sendingToPrinter = false
+    fleetPrinters: Array<{ printerId: string; name: string; isActive: boolean }> = []
+    loadingFleetPrinters = false
+
+    // Queue Job dialog
+    showQueueJobDialog = false
+    queueCopies = 1
+    queuePriority = 'Normal'
+    queuePriorityOptions = ['Low', 'Normal', 'High', 'Urgent']
+    queuingJob = false
     
     get sliceParams() {
         return this.$store.state.prepare.sliceParams
@@ -2474,9 +2633,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         URL.revokeObjectURL(url)
     }
     
-    async uploadGcodeToMoonraker() {
-        if (!this.lastGcodeOutput) return
-        
+    getGcodeFilename(): string {
         let filename = 'model'
         if (this.platform && this.platform.widgets.length > 0) {
             const name = this.platform.widgets[0].name
@@ -2484,44 +2641,168 @@ export default class PreparePage extends Mixins(BaseMixin) {
                 filename = name.replace(/\.[^.]+$/, '')
             }
         }
-        filename += `_${this.sliceParams.layer_height}mm.gcode`
-        
-        try {
-            const blob = new Blob([this.lastGcodeOutput], { type: 'text/plain' })
-            const formData = new FormData()
-            formData.append('file', blob, filename)
-            formData.append('root', 'gcodes')
+        return filename + `_${this.sliceParams.layer_height}mm.gcode`
+    }
 
-            // Add tagging metadata
-            if (this.uploadVersion) {
-                formData.append('version', this.uploadVersion)
-            }
-            if (this.uploadCategory) {
-                formData.append('category', this.uploadCategory)
-            }
-            if (this.uploadPrintTime) {
-                formData.append('printTime', this.uploadPrintTime)
-            } else if (this.sliceResult?.estimated_time_formatted) {
-                formData.append('printTime', this.sliceResult.estimated_time_formatted)
-            }
-            
-            const response = await axios.post('/api/files/upload', formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            })
-            
-            this.showResultDialog = false
-            this.showUploadTagging = false
-            // Reset tagging fields
-            this.uploadVersion = '1.0'
-            this.uploadCategory = null
-            this.uploadPrintTime = ''
-            this.$toast?.success?.(`Uploaded ${filename}`)
-        } catch (error: any) {
-            console.error('Upload failed:', error)
-            this.$toast?.error?.(`Upload failed: ${error.message}`)
+    get queueGcodeFilename(): string {
+        return this.getGcodeFilename()
+    }
+
+    buildUploadFormData(filename: string): FormData {
+        const blob = new Blob([this.lastGcodeOutput!], { type: 'text/plain' })
+        const formData = new FormData()
+        formData.append('files', blob, filename)
+
+        if (this.uploadVersion) {
+            formData.append('version', this.uploadVersion)
         }
+        if (this.uploadCategory) {
+            formData.append('category', this.uploadCategory)
+        }
+        if (this.uploadPrintTime) {
+            formData.append('printTime', this.uploadPrintTime)
+        } else if (this.sliceResult?.estimated_time_formatted) {
+            formData.append('printTime', this.sliceResult.estimated_time_formatted)
+        }
+
+        return formData
+    }
+
+    async uploadGcodeToCentralFiles(): Promise<{ ok: boolean; fileId?: string }> {
+        if (!this.lastGcodeOutput) return { ok: false }
+
+        const filename = this.getGcodeFilename()
+        const formData = this.buildUploadFormData(filename)
+
+        try {
+            const response = await axios.post('/api/files/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            })
+            const uploadedFiles = response.data?.files || []
+            const fileId = uploadedFiles[0]?.id || undefined
+            return { ok: true, fileId }
+        } catch (error: any) {
+            console.error('Upload to central files failed:', error)
+            this.$toast?.error?.(`Upload failed: ${error.message}`)
+            return { ok: false }
+        }
+    }
+
+    resetUploadFields() {
+        this.showUploadTagging = false
+        this.uploadVersion = '1.0'
+        this.uploadCategory = null
+        this.uploadPrintTime = ''
+    }
+
+    async loadFleetPrinters() {
+        this.loadingFleetPrinters = true
+        try {
+            const token = localStorage.getItem('fleet_token')
+            const response = await fetch('/api/printers/accessible', {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+            })
+            if (response.ok) {
+                const data = await response.json()
+                this.fleetPrinters = data.printers || []
+            }
+        } catch (error) {
+            console.error('Error loading printers:', error)
+        } finally {
+            this.loadingFleetPrinters = false
+        }
+    }
+
+    openSendToPrinterDialog() {
+        this.sendToPrinterId = null
+        this.showSendToPrinterDialog = true
+        this.loadFleetPrinters()
+    }
+
+    async uploadAndSendToPrinter() {
+        if (!this.sendToPrinterId || !this.lastGcodeOutput) return
+
+        this.sendingToPrinter = true
+        try {
+            // Upload to central files first
+            const upload = await this.uploadGcodeToCentralFiles()
+            if (!upload.ok || !upload.fileId) {
+                this.$toast?.error?.('Failed to upload file')
+                return
+            }
+
+            // Send to the selected printer
+            const token = localStorage.getItem('fleet_token')
+            const response = await fetch('/api/files/send', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({
+                    fileId: upload.fileId,
+                    printerId: this.sendToPrinterId,
+                }),
+            })
+
+            if (response.ok) {
+                const filename = this.getGcodeFilename()
+                this.$toast?.success?.(`Uploaded and sent ${filename} to printer`)
+                this.showSendToPrinterDialog = false
+                this.showResultDialog = false
+                this.resetUploadFields()
+            } else {
+                const err = await response.json().catch(() => ({}))
+                this.$toast?.error?.(err.error || 'Failed to send file to printer')
+            }
+        } catch (error: any) {
+            console.error('Send to printer failed:', error)
+            this.$toast?.error?.(`Failed to send to printer: ${error.message}`)
+        } finally {
+            this.sendingToPrinter = false
+        }
+    }
+
+    openQueueJobDialog() {
+        this.queueCopies = 1
+        this.queuePriority = 'Normal'
+        this.showQueueJobDialog = true
+    }
+
+    async uploadAndQueueJob() {
+        if (!this.lastGcodeOutput) return
+
+        this.queuingJob = true
+        try {
+            // Upload to central files first
+            const upload = await this.uploadGcodeToCentralFiles()
+            if (!upload.ok || !upload.fileId) {
+                this.$toast?.error?.('Failed to upload file')
+                return
+            }
+
+            // Add to print queue
+            await axios.post('/api/print-queue/add', {
+                fileId: upload.fileId,
+                copies: this.queueCopies,
+                priority: this.queuePriority,
+            })
+
+            this.$toast?.success?.(`Added ${this.queueCopies} job(s) to print queue`)
+            this.showQueueJobDialog = false
+            this.showResultDialog = false
+            this.resetUploadFields()
+        } catch (error: any) {
+            console.error('Queue job failed:', error)
+            this.$toast?.error?.(error.response?.data?.error || `Failed to queue job: ${error.message}`)
+        } finally {
+            this.queuingJob = false
+        }
+    }
+
+    async uploadGcodeToMoonraker() {
+        if (!this.lastGcodeOutput) return
+        this.openSendToPrinterDialog()
     }
 }
 </script>
@@ -2534,6 +2815,11 @@ export default class PreparePage extends Mixins(BaseMixin) {
     right: 0;
     bottom: 0;
     overflow: hidden;
+}
+
+.monospace-textarea >>> textarea {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 12px;
 }
 
 /* Full-screen 3D viewer */

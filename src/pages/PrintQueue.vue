@@ -429,6 +429,7 @@
 import Component from 'vue-class-component'
 import { Mixins } from 'vue-property-decorator'
 import BaseMixin from '@/components/mixins/base'
+import axios from 'axios'
 
 interface QueueJob {
     id: string
@@ -541,19 +542,11 @@ export default class PrintQueue extends Mixins(BaseMixin) {
 
     async refreshQueue() {
         try {
-            const token = localStorage.getItem('fleet_token')
-            const response = await fetch('/api/print-queue', {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            })
-            if (response.ok) {
-                const data = await response.json()
-                this.queuedJobs = data.queued || []
-                this.printingJobs = data.printing || []
-                this.printers = data.printers || []
-                this.completedToday = data.completedToday || 0
-            }
+            const { data } = await axios.get('/api/print-queue')
+            this.queuedJobs = data.queued || []
+            this.printingJobs = data.printing || []
+            this.printers = data.printers || []
+            this.completedToday = data.completedToday || 0
         } catch (error) {
             console.error('Error loading queue:', error)
         }
@@ -562,16 +555,8 @@ export default class PrintQueue extends Mixins(BaseMixin) {
     async loadRepositoryFiles() {
         this.loadingFiles = true
         try {
-            const token = localStorage.getItem('fleet_token')
-            const response = await fetch('/api/files', {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            })
-            if (response.ok) {
-                const data = await response.json()
-                this.repositoryFiles = data.files || []
-            }
+            const { data } = await axios.get('/api/files')
+            this.repositoryFiles = data.files || []
         } catch (error) {
             console.error('Error loading files:', error)
         } finally {
@@ -584,33 +569,20 @@ export default class PrintQueue extends Mixins(BaseMixin) {
 
         this.addingJob = true
         try {
-            const token = localStorage.getItem('fleet_token')
-            const response = await fetch('/api/print-queue/add', {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    fileId: this.selectedFile,
-                    copies: this.copies,
-                    priority: this.priority,
-                }),
+            await axios.post('/api/print-queue/add', {
+                fileId: this.selectedFile,
+                copies: this.copies,
+                priority: this.priority,
             })
 
-            if (response.ok) {
-                this.showSuccess(`Added ${this.copies} job(s) to queue`)
-                this.selectedFile = null
-                this.copies = 1
-                this.priority = 'Normal'
-                await this.refreshQueue()
-            } else {
-                const data = await response.json()
-                this.showError(data.error || 'Failed to add job')
-            }
-        } catch (error) {
+            this.showSuccess(`Added ${this.copies} job(s) to queue`)
+            this.selectedFile = null
+            this.copies = 1
+            this.priority = 'Normal'
+            await this.refreshQueue()
+        } catch (error: any) {
             console.error('Error adding job:', error)
-            this.showError('Failed to add job to queue')
+            this.showError(error.response?.data?.error || 'Failed to add job')
         } finally {
             this.addingJob = false
         }
@@ -626,21 +598,8 @@ export default class PrintQueue extends Mixins(BaseMixin) {
 
     async updatePosition(jobId: string, newPosition: number) {
         try {
-            const token = localStorage.getItem('fleet_token')
-            const response = await fetch(`/api/print-queue/${jobId}/position`, {
-                method: 'PUT',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ position: newPosition }),
-            })
-
-            if (response.ok) {
-                await this.refreshQueue()
-            } else {
-                this.showError('Failed to update position')
-            }
+            await axios.put(`/api/print-queue/${jobId}/position`, { position: newPosition })
+            await this.refreshQueue()
         } catch (error) {
             console.error('Error updating position:', error)
             this.showError('Failed to update position')
@@ -649,20 +608,9 @@ export default class PrintQueue extends Mixins(BaseMixin) {
 
     async removeFromQueue(job: QueueJob) {
         try {
-            const token = localStorage.getItem('fleet_token')
-            const response = await fetch(`/api/print-queue/${job.id}`, {
-                method: 'DELETE',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            })
-
-            if (response.ok) {
-                this.showSuccess('Job removed from queue')
-                await this.refreshQueue()
-            } else {
-                this.showError('Failed to remove job')
-            }
+            await axios.delete(`/api/print-queue/${job.id}`)
+            this.showSuccess('Job removed from queue')
+            await this.refreshQueue()
         } catch (error) {
             console.error('Error removing job:', error)
             this.showError('Failed to remove job')
@@ -671,54 +619,30 @@ export default class PrintQueue extends Mixins(BaseMixin) {
 
     async cancelJob(job: QueueJob) {
         try {
-            const token = localStorage.getItem('fleet_token')
             // For non-queued jobs (started directly on printer), use printer_id
             // For queued jobs, use the queue job id
             const cancelId = job.isQueued === false ? job.printerId : job.id
             
-            const response = await fetch(`/api/print-queue/${cancelId}/cancel`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            })
-
-            if (response.ok) {
-                this.showSuccess('Print cancelled')
-                await this.refreshQueue()
-            } else {
-                const data = await response.json()
-                this.showError(data.error || 'Failed to cancel print')
-            }
-        } catch (error) {
+            await axios.post(`/api/print-queue/${cancelId}/cancel`)
+            this.showSuccess('Print cancelled')
+            await this.refreshQueue()
+        } catch (error: any) {
             console.error('Error cancelling job:', error)
-            this.showError('Failed to cancel print')
+            this.showError(error.response?.data?.error || 'Failed to cancel print')
         }
     }
 
     async togglePause(job: QueueJob) {
         try {
-            const token = localStorage.getItem('fleet_token')
             const printerId = job.printerId
             const action = job.status === 'paused' ? 'resume' : 'pause'
             
-            const response = await fetch(`/api/print-queue/${printerId}/${action}`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            })
-
-            if (response.ok) {
-                this.showSuccess(action === 'pause' ? 'Print paused' : 'Print resumed')
-                await this.refreshQueue()
-            } else {
-                const data = await response.json()
-                this.showError(data.error || `Failed to ${action} print`)
-            }
-        } catch (error) {
+            await axios.post(`/api/print-queue/${printerId}/${action}`)
+            this.showSuccess(action === 'pause' ? 'Print paused' : 'Print resumed')
+            await this.refreshQueue()
+        } catch (error: any) {
             console.error(`Error ${job.status === 'paused' ? 'resuming' : 'pausing'} job:`, error)
-            this.showError(`Failed to ${job.status === 'paused' ? 'resume' : 'pause'} print`)
+            this.showError(error.response?.data?.error || `Failed to ${job.status === 'paused' ? 'resume' : 'pause'} print`)
         }
     }
 

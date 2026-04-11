@@ -10,6 +10,7 @@ import Machine from '../pages/Machine.vue'
 import Login from '../pages/Login.vue'
 import MyPrinters from '../pages/MyPrinters.vue'
 import CentralFiles from '../pages/CentralFiles.vue'
+import BuildPlateComposer from '../pages/BuildPlateComposer.vue'
 import ConfigSync from '../pages/ConfigSync.vue'
 import PrintQueue from '../pages/PrintQueue.vue'
 import Settings from '../pages/Settings.vue'
@@ -25,6 +26,7 @@ import {
     mdiWebcam,
     mdiConsoleLine,
     mdiGrid,
+    mdiGridLarge,
     mdiFileDocumentMultipleOutline,
     mdiFolderNetwork,
     mdiPlaylistPlay,
@@ -143,6 +145,17 @@ const routes: AppRoute[] = [
         alwaysShow: true,
         showInNavi: true,
         position: 8,
+        meta: { requiresAuth: true },
+    },
+    {
+        name: 'build-plate',
+        title: 'Build Plate Composer',
+        path: '/build-plate',
+        icon: mdiGridLarge,
+        component: BuildPlateComposer,
+        alwaysShow: true,
+        showInNavi: true,
+        position: 8.5,
         meta: { requiresAuth: true },
     },
     {

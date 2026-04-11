@@ -24,7 +24,11 @@ describe('Infill coverage check', () => {
             nozzleDiameter: 0.4, filamentDiameter: 1.75, extrusionMultiplier: 1.0,
             lineWidth: 0.44, buildVolumeX: 220, buildVolumeY: 220, buildVolumeZ: 250,
             enableSupport: false, supportDensity: 0.15, supportAngle: 50,
-            skirtLoops: 2, skirtDistance: 5, brimWidth: 0, fanSpeed: 255, fanStartLayer: 2,
+            skirtLoops: 2, skirtDistance: 5, brimWidth: 0,
+            adhesionType: 'none', adhesionBrimWidth: 5, adhesionBrimLines: 5,
+            mouseEarDiameter: 10, mouseEarLayers: 1, mouseEarPositions: [],
+            raftPadPositions: [], raftPadLayers: 3, raftPadGap: 0.15,
+            fanSpeed: 255, fanStartLayer: 2,
         }
 
         const layers = sliceMesh(parsed.vertices, config)

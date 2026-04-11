@@ -41,7 +41,7 @@ export interface SliceLayer {
 }
 
 /** Move type for toolpath segments */
-export type MoveType = 'travel' | 'wall-outer' | 'wall-inner' | 'floor' | 'roof' | 'infill' | 'support' | 'skirt' | 'brim'
+export type MoveType = 'travel' | 'wall-outer' | 'wall-inner' | 'floor' | 'roof' | 'infill' | 'support' | 'skirt' | 'brim' | 'adhesion-brim' | 'adhesion-mouse-ear' | 'adhesion-raft'
 
 /** A single toolpath segment (extrusion or travel move) */
 export interface ToolpathSegment {
@@ -128,9 +128,25 @@ export interface SlicerConfig {
     skirtDistance: number
     brimWidth: number
 
+    // Bed Adhesion
+    adhesionType: string
+    adhesionBrimWidth: number
+    adhesionBrimLines: number
+    mouseEarDiameter: number
+    mouseEarLayers: number
+    mouseEarPositions: Array<{ x: number; y: number }>
+    raftPadPositions: Array<{ x: number; y: number; width?: number; depth?: number }>
+    raftPadLayers: number
+    raftPadGap: number
+
     // Fan
     fanSpeed: number // 0-255
     fanStartLayer: number
+
+    // Custom G-code (optional, overrides default start/end sequences)
+    customStartGcode?: string
+    customEndGcode?: string
+    customLayerChangeGcode?: string
 }
 
 /** Messages sent from main thread to slicer worker */

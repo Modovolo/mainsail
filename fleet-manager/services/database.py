@@ -21,6 +21,7 @@ from models.pmi import (
     DowntimeRecordModel, DowntimeRecord,
     PmiRecordModel, PmiChecklistItemModel, PmiRecord,
 )
+from models.gcode_recipe import GcodeRecipeModel, GcodeRecipeData
 
 logger = logging.getLogger(__name__)
 
@@ -1279,3 +1280,128 @@ class DatabaseService:
                 .all()
             )
             return [r[0] for r in rows]
+
+    # ── G-code Recipes ─────────────────────────────────────────────
+
+    def get_recipe_tree(self, group_id: str) -> List[GcodeRecipeData]:
+        """Return top-level recipe nodes with children recursively."""
+        with self.get_session() as session:
+            roots = (
+                session.query(GcodeRecipeModel)
+                .filter_by(group_id=group_id, parent_id=None)
+                .order_by(GcodeRecipeModel.position)
+                .all()
+            )
+            return [self._recipe_to_tree(m, session) for m in roots]
+
+    def _recipe_to_tree(self, model: GcodeRecipeModel, session) -> GcodeRecipeData:
+        """Recursively build a recipe tree from a model node."""
+        children = (
+            session.query(GcodeRecipeModel)
+            .filter_by(parent_id=model.id)
+            .order_by(GcodeRecipeModel.position)
+            .all()
+        )
+        child_dicts = [self._recipe_to_tree(c, session).to_dict() for c in children]
+        return GcodeRecipeData.from_model(model, children=child_dicts)
+
+    def create_recipe(
+        self,
+        group_id: str,
+        created_by: str,
+        name: str,
+        node_type: str = 'item',
+        parent_id: Optional[str] = None,
+        file_id: Optional[str] = None,
+        position: int = 0,
+    ) -> GcodeRecipeData:
+        """Create a single recipe node."""
+        with self.get_session() as session:
+            model = GcodeRecipeModel(
+                id=secrets.token_hex(16),
+                group_id=group_id,
+                parent_id=parent_id,
+                name=name,
+                node_type=node_type,
+                file_id=file_id,
+                position=position,
+                created_by=created_by,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            session.add(model)
+            session.commit()
+            return GcodeRecipeData.from_model(model)
+
+    def update_recipe(self, recipe_id: str, data: Dict[str, Any]) -> Optional[GcodeRecipeData]:
+        """Update fields on a single recipe node."""
+        with self.get_session() as session:
+            model = session.query(GcodeRecipeModel).filter_by(id=recipe_id).first()
+            if not model:
+                return None
+            if 'name' in data:
+                model.name = data['name']
+            if 'nodeType' in data:
+                model.node_type = data['nodeType']
+            if 'fileId' in data:
+                model.file_id = data['fileId']
+            if 'position' in data:
+                model.position = data['position']
+            model.updated_at = datetime.utcnow()
+            session.commit()
+            return GcodeRecipeData.from_model(model)
+
+    def delete_recipe(self, recipe_id: str) -> bool:
+        """Delete a recipe node (children cascade via FK)."""
+        with self.get_session() as session:
+            model = session.query(GcodeRecipeModel).filter_by(id=recipe_id).first()
+            if not model:
+                return False
+            self._delete_recipe_subtree(session, model.id)
+            session.commit()
+            return True
+
+    def _delete_recipe_subtree(self, session, node_id: str):
+        """Delete a node and all descendants depth-first."""
+        children = session.query(GcodeRecipeModel).filter_by(parent_id=node_id).all()
+        for child in children:
+            self._delete_recipe_subtree(session, child.id)
+        session.query(GcodeRecipeModel).filter_by(id=node_id).delete()
+
+    def sync_recipes(self, group_id: str, user_id: str, nodes: List[Dict]) -> List[GcodeRecipeData]:
+        """
+        Replace the entire recipe tree for a group.
+        Deletes all existing rows then inserts the new tree.
+        """
+        with self.get_session() as session:
+            session.query(GcodeRecipeModel).filter_by(group_id=group_id).delete()
+            self._insert_recipe_nodes(session, group_id, user_id, nodes, parent_id=None)
+            session.commit()
+        return self.get_recipe_tree(group_id)
+
+    def _insert_recipe_nodes(
+        self, session, group_id: str, user_id: str,
+        nodes: List[Dict], parent_id: Optional[str],
+    ):
+        """Recursively insert recipe nodes."""
+        for idx, node in enumerate(nodes):
+            name = (node.get('name') or '').strip()
+            if not name:
+                continue
+            model = GcodeRecipeModel(
+                id=secrets.token_hex(16),
+                group_id=group_id,
+                parent_id=parent_id,
+                name=name,
+                node_type=node.get('nodeType', 'item'),
+                file_id=node.get('fileId'),
+                position=idx,
+                created_by=user_id,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            session.add(model)
+            session.flush()  # get model.id for children
+            children = node.get('children')
+            if isinstance(children, list) and children:
+                self._insert_recipe_nodes(session, group_id, user_id, children, parent_id=model.id)

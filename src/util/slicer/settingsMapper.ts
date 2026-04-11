@@ -25,7 +25,7 @@ const DEFAULTS: SlicerConfig = {
     nozzleTemp: 210,
     bedTemp: 60,
     firstLayerNozzleTemp: 215,
-    firstLayerBedTemp: 65,
+    firstLayerBedTemp: 60,
     retractDistance: 1.0,
     retractSpeed: 40,
     retractLift: 0.2,
@@ -42,6 +42,15 @@ const DEFAULTS: SlicerConfig = {
     skirtLoops: 2,
     skirtDistance: 5,
     brimWidth: 0,
+    adhesionType: 'none',
+    adhesionBrimWidth: 5,
+    adhesionBrimLines: 5,
+    mouseEarDiameter: 10,
+    mouseEarLayers: 1,
+    mouseEarPositions: [],
+    raftPadPositions: [],
+    raftPadLayers: 3,
+    raftPadGap: 0.15,
     fanSpeed: 255,
     fanStartLayer: 2,
 }
@@ -90,7 +99,7 @@ export function mapSettings(params: SliceParams, printer: PrinterProfile): Slice
         nozzleTemp: params.nozzle_temp,
         bedTemp: params.bed_temp,
         firstLayerNozzleTemp: params.nozzle_temp + 5,
-        firstLayerBedTemp: params.bed_temp + 5,
+        firstLayerBedTemp: params.bed_temp,
 
         // Retraction
         retractDistance: printer.directDrive ? 0.8 : 1.5,
@@ -118,9 +127,25 @@ export function mapSettings(params: SliceParams, printer: PrinterProfile): Slice
         skirtDistance: 5,
         brimWidth: 0,
 
+        // Bed Adhesion
+        adhesionType: params.adhesion_type || 'none',
+        adhesionBrimWidth: params.brim_width || 5,
+        adhesionBrimLines: params.brim_lines || 5,
+        mouseEarDiameter: params.mouse_ear_diameter || 10,
+        mouseEarLayers: params.mouse_ear_layers || 1,
+        mouseEarPositions: [],  // populated by PreparePage from adhesion markers
+        raftPadPositions: [],   // populated by PreparePage from adhesion markers
+        raftPadLayers: params.raft_pad_layers || 3,
+        raftPadGap: params.raft_pad_gap || 0.15,
+
         // Fan
         fanSpeed: 255,
         fanStartLayer: 2,
+
+        // Custom G-code templates from printer profile
+        customStartGcode: printer.customStartGcode,
+        customEndGcode: printer.customEndGcode,
+        customLayerChangeGcode: printer.customLayerChangeGcode,
     }
 }
 

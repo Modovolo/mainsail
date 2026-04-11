@@ -600,7 +600,13 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
             }
 
             this.$refs.fileUploadAndStart.value = ''
-            if (this.currentPage !== '/') await this.$router.push('/')
+            // In fleet mode on a printer page, stay on the printer dashboard
+            // so the WebSocket connection is not torn down by beforeDestroy
+            const isFleetMode = this.$store.state.instancesDB === 'fleet'
+            const onPrinterPage = this.$route.path.startsWith('/printer/')
+            if (!isFleetMode || !onPrinterPage) {
+                if (this.currentPage !== '/') await this.$router.push('/')
+            }
         }
     }
 

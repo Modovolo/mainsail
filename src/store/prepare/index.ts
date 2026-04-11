@@ -20,6 +20,9 @@ import {
     SliceJob,
     SliceResult,
     WidgetSummary,
+    AdhesionMarker,
+    AdhesionType,
+    FootprintData,
 } from './types'
 
 const DEFAULT_SLICE_PARAMS: SliceParams = {
@@ -44,6 +47,13 @@ const DEFAULT_SLICE_PARAMS: SliceParams = {
     max_slope_angle: 45,
     enable_idex: false,
     idex_mode: 'normal',
+    adhesion_type: 'none',
+    brim_width: 5.0,
+    brim_lines: 5,
+    mouse_ear_diameter: 10.0,
+    mouse_ear_layers: 1,
+    raft_pad_layers: 3,
+    raft_pad_gap: 0.15,
 }
 
 const QUALITY_PRESETS: Record<string, Partial<SliceParams>> = {
@@ -64,6 +74,7 @@ const BUILTIN_PRINTER_PROFILES: PrinterProfile[] = [
         filamentDiameter: 1.75,
         bedShape: 'rectangular',
         heatedBed: true,
+        bedHeaterControllerCount: 1,
         heatedChamber: false,
         autoBedLeveling: false,
         directDrive: false,
@@ -78,6 +89,7 @@ const BUILTIN_PRINTER_PROFILES: PrinterProfile[] = [
         filamentDiameter: 1.75,
         bedShape: 'rectangular',
         heatedBed: true,
+        bedHeaterControllerCount: 1,
         heatedChamber: false,
         autoBedLeveling: true,
         directDrive: true,
@@ -92,6 +104,7 @@ const BUILTIN_PRINTER_PROFILES: PrinterProfile[] = [
         filamentDiameter: 1.75,
         bedShape: 'rectangular',
         heatedBed: true,
+        bedHeaterControllerCount: 1,
         heatedChamber: true,
         autoBedLeveling: true,
         directDrive: true,
@@ -106,6 +119,7 @@ const BUILTIN_PRINTER_PROFILES: PrinterProfile[] = [
         filamentDiameter: 1.75,
         bedShape: 'rectangular',
         heatedBed: true,
+        bedHeaterControllerCount: 1,
         heatedChamber: true,
         autoBedLeveling: true,
         directDrive: true,
@@ -135,6 +149,8 @@ export const getDefaultState = (): PrepareState => ({
     lastResult: null,
     lastGcode: null,
     lastToolpaths: null,
+    adhesionMarkers: [],
+    footprintData: null,
 })
 
 // Initial state
@@ -159,6 +175,9 @@ export const prepare: Module<PrepareState, any> = {
         activePrinter: (state) => state.printerProfiles.find((p) => p.id === state.activePrinterId) || null,
         widgetSummaries: (state) => state.widgetSummaries,
         selectedWidgetIds: (state) => state.selectedWidgetIds,
+        adhesionMarkers: (state) => state.adhesionMarkers,
+        confirmedAdhesionMarkers: (state) => state.adhesionMarkers.filter((m) => m.confirmed),
+        footprintData: (state) => state.footprintData,
     },
     mutations: {
         setHasWidgets(state, value: boolean) {
@@ -314,6 +333,28 @@ export const prepare: Module<PrepareState, any> = {
             state.lastToolpaths = toolpaths
         },
 
+        // Adhesion
+        setAdhesionMarkers(state, markers: AdhesionMarker[]) {
+            state.adhesionMarkers = markers
+        },
+        addAdhesionMarker(state, marker: AdhesionMarker) {
+            state.adhesionMarkers.push(marker)
+        },
+        removeAdhesionMarker(state, id: string) {
+            state.adhesionMarkers = state.adhesionMarkers.filter((m) => m.id !== id)
+        },
+        confirmAdhesionMarker(state, id: string) {
+            const m = state.adhesionMarkers.find((m) => m.id === id)
+            if (m) m.confirmed = true
+        },
+        clearAdhesionMarkers(state) {
+            state.adhesionMarkers = []
+            state.footprintData = null
+        },
+        setFootprintData(state, data: FootprintData | null) {
+            state.footprintData = data
+        },
+
         reset(state) {
             // Preserve profiles and printer settings across resets
             const { profiles, activeProfileId, printerProfiles, customPrinterProfiles, activePrinterId, sliceParams } = state
@@ -453,6 +494,64 @@ export const prepare: Module<PrepareState, any> = {
         },
         cancelSlicing({ commit }) {
             commit('cancelJob')
+        },
+
+        // --- Adhesion actions ---
+
+        async fetchFootprint(
+            { commit, state },
+            { uploadId, slicerUrl }: { uploadId: string; slicerUrl: string }
+        ) {
+            try {
+                const params = state.sliceParams
+                const response = await axios.get(
+                    `${slicerUrl}/api/upload/${encodeURIComponent(uploadId)}/footprint`,
+                    {
+                        params: {
+                            first_layer_height: params.first_layer_height,
+                            corner_angle_threshold: 100,
+                        },
+                    }
+                )
+                const data = response.data as FootprintData
+                commit('setFootprintData', data)
+                return data
+            } catch (error) {
+                console.error('Failed to fetch footprint:', error)
+                throw error
+            }
+        },
+
+        applySuggestedMarkers({ commit, state }) {
+            const fp = state.footprintData
+            if (!fp || !fp.suggestions) return
+
+            const markers: AdhesionMarker[] = fp.suggestions.map((s, idx) => ({
+                id: `suggest-${idx}-${Date.now().toString(36)}`,
+                type: s.type === 'raft_pad' ? ('raft_pad' as const) : ('mouse_ear' as const),
+                x: s.x,
+                y: s.y,
+                confirmed: false,
+                reason: s.reason,
+                priority: s.priority,
+            }))
+            commit('setAdhesionMarkers', [...state.adhesionMarkers, ...markers])
+        },
+
+        addManualMarker(
+            { commit },
+            { type, x, y }: { type: 'mouse_ear' | 'raft_pad'; x: number; y: number }
+        ) {
+            const marker: AdhesionMarker = {
+                id: `manual-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 5)}`,
+                type,
+                x,
+                y,
+                confirmed: true,
+                width: type === 'raft_pad' ? 15 : undefined,
+                depth: type === 'raft_pad' ? 15 : undefined,
+            }
+            commit('addAdhesionMarker', marker)
         },
     },
 }

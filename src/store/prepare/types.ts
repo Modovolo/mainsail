@@ -27,6 +27,34 @@ export type PrepareAction =
 
 export type TransformMode = 'move' | 'rotate' | 'scale'
 
+export type AdhesionType = 'none' | 'brim' | 'mouse_ears' | 'raft_pads' | 'combined'
+
+export interface AdhesionMarker {
+    id: string
+    type: 'mouse_ear' | 'raft_pad'
+    x: number
+    y: number
+    confirmed: boolean
+    reason?: string
+    priority?: number
+    width?: number  // raft pad only
+    depth?: number  // raft pad only
+}
+
+export interface FootprintData {
+    contours: [number, number][][]
+    bounds: { min_x: number; max_x: number; min_y: number; max_y: number }
+    contact_area: number
+    suggestions: Array<{
+        type: string
+        x: number
+        y: number
+        reason: string
+        priority: number
+        angle: number
+    }>
+}
+
 export interface SliceParams {
     layer_height: number
     first_layer_height: number
@@ -49,6 +77,14 @@ export interface SliceParams {
     max_slope_angle: number
     enable_idex: boolean
     idex_mode: string
+    // Bed adhesion
+    adhesion_type: AdhesionType
+    brim_width: number
+    brim_lines: number
+    mouse_ear_diameter: number
+    mouse_ear_layers: number
+    raft_pad_layers: number
+    raft_pad_gap: number
 }
 
 export interface SliceProfile {
@@ -72,10 +108,20 @@ export interface PrinterProfile {
     filamentDiameter: number
     bedShape: 'rectangular' | 'circular'
     heatedBed: boolean
+    bedHeaterControllerCount: number
     heatedChamber: boolean
     autoBedLeveling: boolean
     directDrive: boolean
     multiExtruderType?: 'single' | 'dual' | 'idex' | 'toolchanger'
+    customStartGcode?: string
+    customEndGcode?: string
+    customLayerChangeGcode?: string
+    /** Clearance between nozzle tip and gantry/X-bar for sequential printing (mm) */
+    gantryHeight?: number
+    /** Printhead extent [left, right] from nozzle center (mm) */
+    printheadBoundsX?: [number, number]
+    /** Printhead extent [front, back] from nozzle center (mm) */
+    printheadBoundsY?: [number, number]
 }
 
 export interface SliceJob {
@@ -147,4 +193,8 @@ export interface PrepareState {
 
     // Last generated toolpath data (direct slicer output for preview)
     lastToolpaths: any[] | null
+
+    // Bed adhesion
+    adhesionMarkers: AdhesionMarker[]
+    footprintData: FootprintData | null
 }

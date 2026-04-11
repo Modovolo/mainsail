@@ -14,6 +14,9 @@ export type GcodeFeatureType =
     | 'support'
     | 'skirt'
     | 'brim'
+    | 'adhesion-brim'
+    | 'adhesion-mouse-ear'
+    | 'adhesion-raft'
     | 'travel'
     | 'retract'
     | 'custom'
@@ -65,6 +68,9 @@ export const FEATURE_COLORS: Record<GcodeFeatureType, string> = {
     'support': '#00cccc',
     'skirt': '#999999',
     'brim': '#888888',
+    'adhesion-brim': '#66cc66',
+    'adhesion-mouse-ear': '#ffdd44',
+    'adhesion-raft': '#4488ff',
     'travel': '#0066ff',
     'retract': '#ff00ff',
     'custom': '#666666',
@@ -81,6 +87,9 @@ export const FEATURE_COLORS_HEX: Record<GcodeFeatureType, number> = {
     'support': 0x00cccc,
     'skirt': 0x999999,
     'brim': 0x888888,
+    'adhesion-brim': 0x66cc66,
+    'adhesion-mouse-ear': 0xffdd44,
+    'adhesion-raft': 0x4488ff,
     'travel': 0x0066ff,
     'retract': 0xff00ff,
     'custom': 0x666666,

@@ -433,6 +433,7 @@
 import { Component, Mixins } from 'vue-property-decorator'
 import BaseMixin from '@/components/mixins/base'
 import { mdiPlus, mdiDelete, mdiCheck, mdiClose } from '@mdi/js'
+import axios from 'axios'
 
 interface DowntimeRecord {
     id: string
@@ -466,14 +467,6 @@ interface PmiRecord {
     passedCount: number
     totalChecks: number
     username?: string
-}
-
-function authHeaders(): Record<string, string> {
-    const token = localStorage.getItem('fleet_token')
-    return {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-    }
 }
 
 @Component
@@ -590,11 +583,8 @@ export default class PMIsAndReporting extends Mixins(BaseMixin) {
 
     async fetchPrinterNames() {
         try {
-            const res = await fetch('/api/printers/accessible', { headers: authHeaders() })
-            if (res.ok) {
-                const data = await res.json()
-                this.printerNames = (data.printers || []).map((p: any) => p.name)
-            }
+            const { data } = await axios.get('/api/printers/accessible')
+            this.printerNames = (data.printers || []).map((p: any) => p.name)
         } catch (err) {
             console.error('Failed to load printer names:', err)
         }
@@ -602,11 +592,8 @@ export default class PMIsAndReporting extends Mixins(BaseMixin) {
 
     async fetchTeamUsernames() {
         try {
-            const res = await fetch('/api/pmi/team-members', { headers: authHeaders() })
-            if (res.ok) {
-                const data = await res.json()
-                this.teamUsernames = data.usernames || []
-            }
+            const { data } = await axios.get('/api/pmi/team-members')
+            this.teamUsernames = data.usernames || []
         } catch (err) {
             console.error('Failed to load team usernames:', err)
         }
@@ -614,11 +601,8 @@ export default class PMIsAndReporting extends Mixins(BaseMixin) {
 
     async fetchDowntime() {
         try {
-            const res = await fetch('/api/pmi/downtime', { headers: authHeaders() })
-            if (res.ok) {
-                const data = await res.json()
-                this.downtimeRecords = data.records || []
-            }
+            const { data } = await axios.get('/api/pmi/downtime')
+            this.downtimeRecords = data.records || []
         } catch (err) {
             console.error('Failed to load downtime records:', err)
         }
@@ -626,11 +610,8 @@ export default class PMIsAndReporting extends Mixins(BaseMixin) {
 
     async fetchPmi() {
         try {
-            const res = await fetch('/api/pmi/inspections', { headers: authHeaders() })
-            if (res.ok) {
-                const data = await res.json()
-                this.pmiRecords = data.records || []
-            }
+            const { data } = await axios.get('/api/pmi/inspections')
+            this.pmiRecords = data.records || []
         } catch (err) {
             console.error('Failed to load PMI records:', err)
         }
@@ -639,25 +620,16 @@ export default class PMIsAndReporting extends Mixins(BaseMixin) {
     // ── Downtime methods ──
     async submitDowntime() {
         try {
-            const res = await fetch('/api/pmi/downtime', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    printer: this.downtimeEntry.printer || '',
-                    start: this.downtimeEntry.start || '',
-                    end: this.downtimeEntry.end || null,
-                    reason: this.downtimeEntry.reason || '',
-                    description: this.downtimeEntry.description || '',
-                }),
+            await axios.post('/api/pmi/downtime', {
+                printer: this.downtimeEntry.printer || '',
+                start: this.downtimeEntry.start || '',
+                end: this.downtimeEntry.end || null,
+                reason: this.downtimeEntry.reason || '',
+                description: this.downtimeEntry.description || '',
             })
-            if (res.ok) {
-                await this.fetchDowntime()
-            } else {
-                const data = await res.json()
-                console.error('Error creating downtime:', data.error)
-            }
-        } catch (err) {
-            console.error('Failed to save downtime:', err)
+            await this.fetchDowntime()
+        } catch (err: any) {
+            console.error('Failed to save downtime:', err.response?.data?.error || err)
         }
         this.downtimeEntry = {}
         this.showDowntimeDialog = false
@@ -665,13 +637,8 @@ export default class PMIsAndReporting extends Mixins(BaseMixin) {
 
     async deleteDowntime(item: DowntimeRecord) {
         try {
-            const res = await fetch(`/api/pmi/downtime/${item.id}`, {
-                method: 'DELETE',
-                headers: authHeaders(),
-            })
-            if (res.ok) {
-                this.downtimeRecords = this.downtimeRecords.filter((r) => r.id !== item.id)
-            }
+            await axios.delete(`/api/pmi/downtime/${item.id}`)
+            this.downtimeRecords = this.downtimeRecords.filter((r) => r.id !== item.id)
         } catch (err) {
             console.error('Failed to delete downtime:', err)
         }
@@ -699,27 +666,18 @@ export default class PMIsAndReporting extends Mixins(BaseMixin) {
 
     async submitPmi() {
         try {
-            const res = await fetch('/api/pmi/inspections', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    printer: this.pmiForm.printer,
-                    inspector: this.pmiForm.inspector,
-                    date: this.pmiForm.date,
-                    type: this.pmiForm.type,
-                    additionalNotes: this.pmiForm.additionalNotes,
-                    overallStatus: this.pmiForm.overallStatus,
-                    checklist: this.pmiChecklist,
-                }),
+            await axios.post('/api/pmi/inspections', {
+                printer: this.pmiForm.printer,
+                inspector: this.pmiForm.inspector,
+                date: this.pmiForm.date,
+                type: this.pmiForm.type,
+                additionalNotes: this.pmiForm.additionalNotes,
+                overallStatus: this.pmiForm.overallStatus,
+                checklist: this.pmiChecklist,
             })
-            if (res.ok) {
-                await this.fetchPmi()
-            } else {
-                const data = await res.json()
-                console.error('Error creating PMI:', data.error)
-            }
-        } catch (err) {
-            console.error('Failed to save PMI:', err)
+            await this.fetchPmi()
+        } catch (err: any) {
+            console.error('Failed to save PMI:', err.response?.data?.error || err)
         }
         this.pmiForm = { printer: '', inspector: '', date: '', type: '', additionalNotes: '', overallStatus: '' }
         this.resetPmiChecklist()

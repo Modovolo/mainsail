@@ -230,9 +230,10 @@ data:
                 proxy_set_header Authorization "";
             }
 
-            # Printer endpoints
-            location /printer/ {
-                proxy_pass http://moonraker/printer/;
+            # Moonraker printer API endpoints (exact sub-paths only, so SPA
+            # routes like /printer/<uuid> fall through to the mainsail location)
+            location ~ ^/printer/(info|objects|restart|firmware_restart|emergency_stop|query_endstops|gcode)(/|$) {
+                proxy_pass http://moonraker;
                 proxy_http_version 1.1;
                 proxy_set_header Host $host;
                 proxy_set_header X-Real-IP $remote_addr;

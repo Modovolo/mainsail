@@ -283,6 +283,7 @@ import FarmPrinterPanel from '@/components/panels/FarmPrinterPanel.vue'
 import PrinterGroupTransferDialog from '@/components/dialogs/PrinterGroupTransferDialog.vue'
 import { EventBus, FARM_UPLOAD_DROP } from '@/plugins/eventBus'
 import { FarmPrinterState } from '@/store/farm/printer/types'
+import axios from 'axios'
 import {
     mdiPlus,
     mdiPencil,
@@ -335,6 +336,7 @@ class PageFarm extends Mixins(BaseMixin) {
     public fleetLoading = false
     private fleetWebSocket: WebSocket | null = null
     private fleetWsReconnectTimer: ReturnType<typeof setTimeout> | null = null
+    private destroying = false
 
     // File upload state
     public selectedFile: File | null = null
@@ -928,26 +930,17 @@ class PageFarm extends Mixins(BaseMixin) {
         
         this.fleetLoading = true
         try {
-            const token = localStorage.getItem('fleet_token')
-            if (!token) return
-            
-            const response = await fetch('/api/printers/accessible', {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            
-            if (response.ok) {
-                const data = await response.json()
-                // The API now returns full status data
-                this.fleetPrinters = (data.printers || []).map((p: any) => ({
-                    ...p,
-                    printerId: p.id,
-                    isActive: p.online,
-                    state: p.state || (p.online ? 'standby' : 'offline'),
-                    progress: p.progress || 0,
-                    eta: p.eta || null,
-                    filename: p.filename || '',
-                }))
-            }
+            const { data } = await axios.get('/api/printers/accessible')
+            // The API now returns full status data
+            this.fleetPrinters = (data.printers || []).map((p: any) => ({
+                ...p,
+                printerId: p.id,
+                isActive: p.online,
+                state: p.state || (p.online ? 'standby' : 'offline'),
+                progress: p.progress || 0,
+                eta: p.eta || null,
+                filename: p.filename || '',
+            }))
         } catch (error) {
             console.error('Failed to load fleet printers:', error)
         } finally {
@@ -971,10 +964,19 @@ class PageFarm extends Mixins(BaseMixin) {
         })
     }
 
+    /**
+     * Get the current access token from the Vuex store (preferred) or localStorage fallback.
+     * Always reads the latest value so WebSocket reconnections use a refreshed token.
+     */
+    private getFreshToken(): string | null {
+        const storeToken = this.$store.getters['auth/token'] as string | null | undefined
+        return (storeToken ?? localStorage.getItem('fleet_token'))?.replace(/^Bearer\s+/i, '').trim() || null
+    }
+
     connectFleetWebSocket(): void {
         if (!this.isFleetMode) return
         
-        const token = localStorage.getItem('fleet_token')
+        const token = this.getFreshToken()
         if (!token) return
         
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -997,6 +999,7 @@ class PageFarm extends Mixins(BaseMixin) {
             }
             
             this.fleetWebSocket.onclose = () => {
+                if (this.destroying) return
                 console.log('Fleet WebSocket disconnected, reconnecting...')
                 this.fleetWsReconnectTimer = setTimeout(() => {
                     this.connectFleetWebSocket()
@@ -1171,6 +1174,7 @@ class PageFarm extends Mixins(BaseMixin) {
     }
 
     beforeDestroy() {
+        this.destroying = true
         EventBus.$off(FARM_UPLOAD_DROP, this.farmDropListener)
         
         // Clean up fleet WebSocket

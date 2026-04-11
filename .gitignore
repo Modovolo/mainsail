@@ -23,3 +23,8 @@ components.d.ts
 i18n-extract
 k8s/secrets.yaml
 k8s/secrets.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class

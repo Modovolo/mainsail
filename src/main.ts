@@ -65,6 +65,9 @@ Vue.component('EChart', ECharts)
 
 Vue.use(VueResize)
 
+// Ensure cookies (including HttpOnly refresh token) are sent with same-origin requests
+axios.defaults.withCredentials = true
+
 function normalizeToken(token: string | null | undefined): string {
     return (token ?? '').replace(/^Bearer\s+/i, '').trim()
 }

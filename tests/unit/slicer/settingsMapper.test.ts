@@ -32,6 +32,13 @@ function createTestSliceParams(overrides: Partial<SliceParams> = {}): SliceParam
         max_slope_angle: 45,
         enable_idex: false,
         idex_mode: 'normal',
+        adhesion_type: 'none',
+        brim_width: 8,
+        brim_lines: 5,
+        mouse_ear_diameter: 10,
+        mouse_ear_layers: 2,
+        raft_pad_layers: 3,
+        raft_pad_gap: 0.15,
         ...overrides,
     }
 }
@@ -47,6 +54,7 @@ function createTestPrinterProfile(overrides: Partial<PrinterProfile> = {}): Prin
         filamentDiameter: 1.75,
         bedShape: 'rectangular',
         heatedBed: true,
+        bedHeaterControllerCount: 1,
         heatedChamber: false,
         autoBedLeveling: true,
         directDrive: false,
@@ -191,13 +199,13 @@ describe('mapSettings', () => {
             expect(config.bedTemp).toBe(70)
         })
 
-        it('should set first layer bed temp 5 degrees higher', () => {
+        it('should set first layer bed temp equal to bed temp', () => {
             const params = createTestSliceParams({ bed_temp: 60 })
             const printer = createTestPrinterProfile()
 
             const config = mapSettings(params, printer)
 
-            expect(config.firstLayerBedTemp).toBe(65)
+            expect(config.firstLayerBedTemp).toBe(60)
         })
     })
 

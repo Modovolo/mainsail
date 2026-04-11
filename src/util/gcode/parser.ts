@@ -59,6 +59,16 @@ function parseFeatureType(typeStr: string): GcodeFeatureType {
     if (t.includes('support')) {
         return 'support'
     }
+    // Adhesion helpers (must be checked before generic skirt/brim)
+    if (t === 'adhesion-brim') {
+        return 'adhesion-brim'
+    }
+    if (t === 'adhesion-mouse-ear') {
+        return 'adhesion-mouse-ear'
+    }
+    if (t === 'adhesion-raft') {
+        return 'adhesion-raft'
+    }
     // Skirt
     if (t.includes('skirt')) {
         return 'skirt'

@@ -88,13 +88,11 @@ export const actions: ActionTree<AuthState, RootState> = {
             const { refreshToken, user } = response.data
 
             commit('setToken', token)
-            commit('setRefreshToken', refreshToken)
             commit('setUser', user)
             commit('setAuthenticated', true)
 
-            // Store tokens in localStorage
+            // Store access token in localStorage (refresh token is in HttpOnly cookie)
             localStorage.setItem('fleet_token', token)
-            localStorage.setItem('fleet_refresh_token', refreshToken)
 
             // Set axios default header
             axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
@@ -120,22 +118,17 @@ export const actions: ActionTree<AuthState, RootState> = {
 
         commit('clearAuth')
         localStorage.removeItem('fleet_token')
-        localStorage.removeItem('fleet_refresh_token')
         delete axios.defaults.headers.common['Authorization']
 
         Vue.$toast.info('Logged out')
     },
 
     async refreshToken({ commit, state, dispatch }) {
-        const refreshToken = state.refreshToken || localStorage.getItem('fleet_refresh_token')
-        
-        if (!refreshToken) {
-            dispatch('logout')
-            return false
-        }
-
         try {
-            const response = await axios.post('/api/auth/refresh', { refreshToken })
+            // Refresh token is sent automatically as HttpOnly cookie.
+            // Also send legacy body for backward compat during rollout.
+            const refreshToken = state.refreshToken || localStorage.getItem('fleet_refresh_token')
+            const response = await axios.post('/api/auth/refresh', refreshToken ? { refreshToken } : {})
             const token = normalizeToken(response.data?.token)
 
             commit('setToken', token)
@@ -143,8 +136,14 @@ export const actions: ActionTree<AuthState, RootState> = {
             axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
 
             return true
-        } catch (error) {
-            dispatch('logout')
+        } catch (error: any) {
+            const status = error.response?.status
+            // Only force-logout when the server explicitly rejects the refresh
+            // token (401/403). Transient network errors or 5xx responses should
+            // NOT destroy the local session — the user can retry later.
+            if (status === 401 || status === 403) {
+                dispatch('logout')
+            }
             return false
         }
     },
@@ -166,10 +165,12 @@ export const actions: ActionTree<AuthState, RootState> = {
             return true
         } catch (error: any) {
             if (error.response?.status === 401) {
-                // Try to refresh token
+                // Try to refresh token — refreshToken handles logout
+                // internally when the refresh token is genuinely expired.
                 return await dispatch('refreshToken')
             }
-            dispatch('logout')
+            // For network errors or non-auth failures, don't destroy the
+            // session. The user may simply be offline temporarily.
             return false
         }
     },

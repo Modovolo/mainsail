@@ -26,6 +26,7 @@ class PrinterProfileModel(Base):
     filament_diameter = Column(Float, nullable=False, default=1.75)
     bed_shape = Column(String(50), nullable=False, default='rectangular')
     heated_bed = Column(Boolean, nullable=False, default=True)
+    bed_heater_controller_count = Column(Integer, nullable=False, default=1)
     heated_chamber = Column(Boolean, nullable=False, default=False)
     auto_bed_leveling = Column(Boolean, nullable=False, default=False)
     direct_drive = Column(Boolean, nullable=False, default=False)
@@ -47,6 +48,7 @@ class PrinterProfileData:
     filament_diameter: float
     bed_shape: str
     heated_bed: bool
+    bed_heater_controller_count: int
     heated_chamber: bool
     auto_bed_leveling: bool
     direct_drive: bool
@@ -68,6 +70,7 @@ class PrinterProfileData:
             'filamentDiameter': self.filament_diameter,
             'bedShape': self.bed_shape,
             'heatedBed': self.heated_bed,
+            'bedHeaterControllerCount': self.bed_heater_controller_count,
             'heatedChamber': self.heated_chamber,
             'autoBedLeveling': self.auto_bed_leveling,
             'directDrive': self.direct_drive,
@@ -90,6 +93,7 @@ class PrinterProfileData:
             filament_diameter=model.filament_diameter,
             bed_shape=model.bed_shape,
             heated_bed=model.heated_bed,
+            bed_heater_controller_count=model.bed_heater_controller_count,
             heated_chamber=model.heated_chamber,
             auto_bed_leveling=model.auto_bed_leveling,
             direct_drive=model.direct_drive,

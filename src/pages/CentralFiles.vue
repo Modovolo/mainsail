@@ -19,6 +19,15 @@
                     <v-card-title>
                         <v-icon class="mr-2">mdi-source-branch</v-icon>
                         Gcode Recipies
+                        <v-spacer></v-spacer>
+                        <v-btn
+                            color="primary"
+                            small
+                            :to="'/build-plate'"
+                        >
+                            <v-icon left small>mdi-grid-large</v-icon>
+                            Compose Build Plate
+                        </v-btn>
                     </v-card-title>
                     <v-card-text>
                         <input
@@ -711,6 +720,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     recipeAddMode: 'item' | 'gcode' = 'item'
     recipeGcodeFiles: File[] = []
     recipeUploading = false
+    recipeSyncTimer: ReturnType<typeof setTimeout> | null = null
 
     recipeAddModeOptions = [
         { text: 'List Item', value: 'item' },
@@ -835,6 +845,10 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         this.loadFeaturedParts()
     }
 
+    beforeDestroy() {
+        if (this.recipeSyncTimer) clearTimeout(this.recipeSyncTimer)
+    }
+
     get recipeTreeItems(): RecipeTreeNode[] {
         return this.buildRecipeTree(this.recipes, null)
     }
@@ -894,6 +908,10 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         return !(typeof activeId === 'string' && activeId.startsWith('add:'))
     }
 
+    get isFleetMode(): boolean {
+        return this.$store.state.instancesDB === 'fleet'
+    }
+
     get defaultRecipes(): RecipeNode[] {
         return [
             {
@@ -909,6 +927,50 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     }
 
     loadRecipes() {
+        // Try API first in fleet mode, fall back to localStorage
+        if (this.isFleetMode) {
+            this.loadRecipesFromApi()
+        } else {
+            this.loadRecipesFromStorage()
+        }
+    }
+
+    async loadRecipesFromApi() {
+        try {
+            const token = localStorage.getItem('fleet_token')
+            const response = await fetch('/api/gcode-recipes', {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (response.ok) {
+                const data = await response.json()
+                const apiRecipes = data.recipes as Array<Record<string, unknown>>
+                if (Array.isArray(apiRecipes) && apiRecipes.length) {
+                    this.recipes = this.apiNodesToLocal(apiRecipes)
+                    // Also cache to localStorage for offline / fast reload
+                    localStorage.setItem('central_files_recipies_v1', JSON.stringify(this.recipes))
+                    this.initRecipeIds()
+                    return
+                }
+            }
+        } catch (error) {
+            console.error('Error loading recipes from API:', error)
+        }
+        // Fall back to localStorage if API returns nothing or errors
+        this.loadRecipesFromStorage()
+    }
+
+    /** Convert server recipe nodes (string IDs) to frontend RecipeNode (numeric IDs) */
+    apiNodesToLocal(nodes: Array<Record<string, unknown>>): RecipeNode[] {
+        return nodes.map((node, idx) => ({
+            id: idx + 1 + this.recipeNextId++,
+            name: String(node.name || ''),
+            nodeType: (node.nodeType === 'gcode' ? 'gcode' : 'item') as 'item' | 'gcode',
+            fileId: node.fileId ? String(node.fileId) : undefined,
+            children: this.apiNodesToLocal((node.children as Array<Record<string, unknown>>) || []),
+        }))
+    }
+
+    loadRecipesFromStorage() {
         const storageKey = 'central_files_recipies_v1'
         const stored = localStorage.getItem(storageKey)
 
@@ -928,6 +990,10 @@ export default class CentralFiles extends Mixins(BaseMixin) {
             this.saveRecipes()
         }
 
+        this.initRecipeIds()
+    }
+
+    initRecipeIds() {
         const maxId = this.getMaxRecipeId(this.recipes)
         this.recipeNextId = maxId + 1
         this.recipeOpen = this.recipes.map((recipe) => recipe.id)
@@ -969,6 +1035,39 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     saveRecipes() {
         const storageKey = 'central_files_recipies_v1'
         localStorage.setItem(storageKey, JSON.stringify(this.recipes))
+
+        // Debounced sync to API in fleet mode (avoids hammering on rapid edits)
+        if (this.isFleetMode) {
+            if (this.recipeSyncTimer) clearTimeout(this.recipeSyncTimer)
+            this.recipeSyncTimer = setTimeout(() => this.syncRecipesToApi(), 800)
+        }
+    }
+
+    async syncRecipesToApi() {
+        try {
+            const token = localStorage.getItem('fleet_token')
+            const payload = this.localNodesToApi(this.recipes)
+            await fetch('/api/gcode-recipes/sync', {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ recipes: payload }),
+            })
+        } catch (error) {
+            console.error('Error syncing recipes to API:', error)
+        }
+    }
+
+    /** Convert frontend RecipeNode tree to API payload (drops local numeric IDs) */
+    localNodesToApi(nodes: RecipeNode[]): Array<Record<string, unknown>> {
+        return nodes.map((node) => ({
+            name: node.name,
+            nodeType: node.nodeType || 'item',
+            fileId: node.fileId || null,
+            children: this.localNodesToApi(node.children || []),
+        }))
     }
 
     getMaxRecipeId(nodes: RecipeNode[]): number {

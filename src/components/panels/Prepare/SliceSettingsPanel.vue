@@ -311,6 +311,136 @@
                 </v-expansion-panel-content>
             </v-expansion-panel>
 
+            <!-- Bed Adhesion -->
+            <v-expansion-panel>
+                <v-expansion-panel-header class="py-2">
+                    <span class="d-flex align-center">
+                        <v-icon left small>{{ mdiFootPrint }}</v-icon>
+                        Bed Adhesion
+                    </span>
+                </v-expansion-panel-header>
+                <v-expansion-panel-content>
+                    <v-select
+                        :value="params.adhesion_type"
+                        :items="adhesionTypes"
+                        label="Adhesion Type"
+                        outlined
+                        dense
+                        hide-details
+                        class="mb-3"
+                        @input="setParam('adhesion_type', $event)" />
+
+                    <!-- Brim settings -->
+                    <template v-if="params.adhesion_type === 'brim' || params.adhesion_type === 'combined'">
+                        <v-text-field
+                            :value="params.brim_width"
+                            label="Brim Width"
+                            type="number"
+                            step="1"
+                            min="1"
+                            max="20"
+                            suffix="mm"
+                            outlined
+                            dense
+                            hide-details
+                            class="mb-3"
+                            @input="setParam('brim_width', Number($event))" />
+                        <v-text-field
+                            :value="params.brim_lines"
+                            label="Brim Lines"
+                            type="number"
+                            step="1"
+                            min="1"
+                            max="30"
+                            outlined
+                            dense
+                            hide-details
+                            class="mb-3"
+                            @input="setParam('brim_lines', Number($event))" />
+                    </template>
+
+                    <!-- Mouse ear settings -->
+                    <template v-if="params.adhesion_type === 'mouse_ears' || params.adhesion_type === 'combined'">
+                        <v-text-field
+                            :value="params.mouse_ear_diameter"
+                            label="Mouse Ear Diameter"
+                            type="number"
+                            step="1"
+                            min="3"
+                            max="25"
+                            suffix="mm"
+                            outlined
+                            dense
+                            hide-details
+                            class="mb-3"
+                            @input="setParam('mouse_ear_diameter', Number($event))" />
+                        <div class="text-caption grey--text mb-2">
+                            Alt+click the model to place ears, or use Auto-Suggest
+                        </div>
+                        <v-btn
+                            small
+                            outlined
+                            color="primary"
+                            class="mb-3"
+                            @click="$emit('auto-suggest-adhesion')">
+                            Auto-Suggest Locations
+                        </v-btn>
+                        <div v-if="adhesionMarkerCount > 0" class="text-caption mb-2">
+                            {{ adhesionMarkerCount }} marker{{ adhesionMarkerCount > 1 ? 's' : '' }} placed
+                        </div>
+                        <v-btn
+                            v-if="adhesionMarkerCount > 0"
+                            x-small
+                            text
+                            color="error"
+                            class="mb-2"
+                            @click="$emit('clear-adhesion-markers')">
+                            Clear All Markers
+                        </v-btn>
+                    </template>
+
+                    <!-- Raft pad settings -->
+                    <template v-if="params.adhesion_type === 'raft_pads' || params.adhesion_type === 'combined'">
+                        <v-text-field
+                            :value="params.raft_pad_layers"
+                            label="Raft Pad Layers"
+                            type="number"
+                            step="1"
+                            min="1"
+                            max="6"
+                            outlined
+                            dense
+                            hide-details
+                            class="mb-3"
+                            @input="setParam('raft_pad_layers', Number($event))" />
+                        <v-text-field
+                            :value="params.raft_pad_gap"
+                            label="Raft Gap"
+                            type="number"
+                            step="0.05"
+                            min="0"
+                            max="0.5"
+                            suffix="mm"
+                            outlined
+                            dense
+                            hide-details
+                            class="mb-3"
+                            @input="setParam('raft_pad_gap', Number($event))" />
+                        <div class="text-caption grey--text mb-2">
+                            Alt+click the model to place raft pads, or use Auto-Suggest
+                        </div>
+                        <v-btn
+                            small
+                            outlined
+                            color="primary"
+                            class="mb-3"
+                            @click="$emit('auto-suggest-adhesion')">
+                            Auto-Suggest Locations
+                        </v-btn>
+                    </template>
+                </v-expansion-panel-content>
+            </v-expansion-panel>
+
             <!-- Advanced / Research -->
             <v-expansion-panel>
                 <v-expansion-panel-header class="py-2">
@@ -404,6 +534,7 @@ import {
     mdiPillar,
     mdiFlask,
     mdiPrinter3dNozzle,
+    mdiFootPrint,
 } from '@mdi/js'
 
 @Component
@@ -419,6 +550,7 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
     mdiPillar = mdiPillar
     mdiFlask = mdiFlask
     mdiPrinter3dNozzle = mdiPrinter3dNozzle
+    mdiFootPrint = mdiFootPrint
 
     @Prop({ type: Boolean, default: false }) declare readonly canSlice: boolean
     @Prop({ type: Boolean, default: false }) declare readonly isSlicing: boolean
@@ -445,12 +577,24 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
         { text: 'Duplicate', value: 'duplicate' },
     ]
 
+    adhesionTypes = [
+        { text: 'None', value: 'none' },
+        { text: 'Brim', value: 'brim' },
+        { text: 'Mouse Ears', value: 'mouse_ears' },
+        { text: 'Raft Pads', value: 'raft_pads' },
+        { text: 'Combined', value: 'combined' },
+    ]
+
     get params(): SliceParams {
         return this.$store.state.prepare.sliceParams
     }
 
     get storeQualityPreset(): string {
         return this.$store.state.prepare.qualityPreset
+    }
+
+    get adhesionMarkerCount(): number {
+        return this.$store.state.prepare.adhesionMarkers?.length ?? 0
     }
 
     setParam(key: keyof SliceParams, value: any): void {

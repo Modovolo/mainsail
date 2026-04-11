@@ -188,33 +188,10 @@ class TheTopbarUserMenu extends Mixins(BaseMixin) {
     }
 
     async tryRefreshToken(): Promise<void> {
-        const refreshToken = localStorage.getItem('fleet_refresh_token')
-        if (!refreshToken) {
-            this.clearAuth()
-            return
-        }
-
         try {
-            const response = await fetch('/api/auth/refresh', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ refreshToken }),
-            })
-
-            if (response.ok) {
-                const data = await response.json()
-                localStorage.setItem('fleet_token', data.token)
-                if (data.refreshToken) {
-                    localStorage.setItem('fleet_refresh_token', data.refreshToken)
-                }
-                
-                this.$store.commit('auth/setToken', data.token)
-                if (data.refreshToken) {
-                    this.$store.commit('auth/setRefreshToken', data.refreshToken)
-                }
-                
+            // Refresh token is sent as HttpOnly cookie automatically
+            const refreshed = await this.$store.dispatch('auth/refreshToken')
+            if (refreshed) {
                 await this.loadUserInfo()
             } else {
                 this.clearAuth()
@@ -227,7 +204,6 @@ class TheTopbarUserMenu extends Mixins(BaseMixin) {
 
     clearAuth(): void {
         localStorage.removeItem('fleet_token')
-        localStorage.removeItem('fleet_refresh_token')
         this.$store.commit('auth/clearAuth')
         this.userInfo = null
     }
@@ -235,19 +211,11 @@ class TheTopbarUserMenu extends Mixins(BaseMixin) {
     async handleLogout(): Promise<void> {
         this.loggingOut = true
         try {
-            const token = localStorage.getItem('fleet_token')
-            if (token) {
-                await fetch('/api/auth/logout', {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                })
-            }
+            await this.$store.dispatch('auth/logout')
         } catch (error) {
             console.error('Logout error:', error)
         } finally {
-            this.clearAuth()
+            this.userInfo = null
             this.loggingOut = false
             this.$router.push('/login')
         }

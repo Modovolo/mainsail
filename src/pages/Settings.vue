@@ -886,7 +886,6 @@ class PageSettings extends Mixins(BaseMixin) {
             console.error('Logout error:', error)
         } finally {
             localStorage.removeItem('fleet_token')
-            localStorage.removeItem('fleet_refresh_token')
             this.$store.commit('auth/clearAuth')
             this.$router.push('/login')
         }

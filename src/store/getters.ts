@@ -12,7 +12,8 @@ export const getters: GetterTree<RootState, any> = {
 
     getTitle: (state, getters) => {
         if (!state.socket?.isConnected) return 'Mainsail'
-        if (state.server?.klippy_state !== 'ready') return i18n.t('App.Titles.Error')
+        if (state.server?.klippy_state && state.server.klippy_state !== 'ready')
+            return i18n.t('App.Titles.Error')
 
         // get printer_state
         let printer_state = state.printer?.print_stats?.state ?? ''
