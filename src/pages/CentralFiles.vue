@@ -53,9 +53,17 @@
                                     @update:active="onRecipeActiveChanged"
                                 >
                                     <template #prepend="{ item }">
-                                        <v-icon small :color="item.isAddAction ? 'success' : item.children && item.children.length ? 'primary' : 'secondary'">
-                                            {{ item.isAddAction ? 'mdi-plus-circle-outline' : item.children && item.children.length ? 'mdi-package-variant' : 'mdi-cube-outline' }}
+                                        <v-icon small :color="item.isAddAction ? 'success' : item.isGcodeFile ? 'secondary' : item.children && item.children.length ? 'primary' : 'secondary'">
+                                            {{ item.isAddAction ? 'mdi-plus-circle-outline' : item.isGcodeFile ? 'mdi-file-document' : item.children && item.children.length ? 'mdi-package-variant' : 'mdi-cube-outline' }}
                                         </v-icon>
+                                    </template>
+                                    <template #label="{ item }">
+                                        <span
+                                            v-if="item.isGcodeFile"
+                                            class="gcode-file-link"
+                                            @click.stop="openGcodeFileActionsDialog(item)"
+                                        >{{ item.name }}</span>
+                                        <span v-else>{{ item.name }}</span>
                                     </template>
                                 </v-treeview>
                                 <div v-if="!recipes.length" class="text-body-2 grey--text">
@@ -203,12 +211,20 @@
                                     @update:active="onDesignActiveChanged"
                                 >
                                     <template #prepend="{ item }">
-                                        <v-icon small :color="item.isAddAction ? 'success' : item.children && item.children.length ? 'accent' : getDesignNodeColor(item.name)">
-                                            {{ item.isAddAction ? 'mdi-plus-circle-outline' : item.children && item.children.length ? 'mdi-folder-open' : getDesignFileIcon(item.name) }}
+                                        <v-icon small :color="item.isAddAction ? 'success' : item.isDesignFile ? getDesignNodeColor(item.name) : item.children && item.children.length ? 'accent' : 'secondary'">
+                                            {{ item.isAddAction ? 'mdi-plus-circle-outline' : item.isDesignFile ? getDesignFileIcon(item.name) : item.children && item.children.length ? 'mdi-folder-open' : 'mdi-cube-outline' }}
                                         </v-icon>
                                     </template>
+                                    <template #label="{ item }">
+                                        <span
+                                            v-if="item.isDesignFile"
+                                            class="design-file-link"
+                                            @click.stop="openDesignFileActionsDialog(item)"
+                                        >{{ item.name }}</span>
+                                        <span v-else>{{ item.name }}</span>
+                                    </template>
                                     <template #append="{ item }">
-                                        <v-chip v-if="!item.isAddAction && !item.children?.length && getDesignNodeVersion(item.id)" x-small outlined color="accent" class="ml-1">
+                                        <v-chip v-if="item.isDesignFile && getDesignNodeVersion(item.id)" x-small outlined color="accent" class="ml-1">
                                             v{{ getDesignNodeVersion(item.id) }}
                                         </v-chip>
                                     </template>
@@ -731,6 +747,158 @@
             </v-card>
         </v-dialog>
 
+        <!-- G-Code File Actions Dialog -->
+        <v-dialog v-model="gcodeFileActionsDialog" max-width="450">
+            <v-card v-if="selectedGcodeFileForActions">
+                <v-card-title class="primary white--text">
+                    <v-icon class="mr-2" color="white">mdi-file-document</v-icon>
+                    G-Code File
+                </v-card-title>
+                <v-card-text class="pa-0">
+                    <v-list class="py-0">
+                        <v-list-item class="px-6 py-3">
+                            <v-list-item-content>
+                                <v-list-item-title class="text-h6">{{ selectedGcodeFileForActions.name }}</v-list-item-title>
+                                <v-list-item-subtitle class="mt-1">
+                                    {{ formatFileSize(selectedGcodeFileForActions.size) }}
+                                    <span v-if="selectedGcodeFileForActions.version"> · v{{ selectedGcodeFileForActions.version }}</span>
+                                </v-list-item-subtitle>
+                            </v-list-item-content>
+                        </v-list-item>
+                        <v-divider></v-divider>
+                        <v-list-item
+                            class="action-item"
+                            @click="handleImportToBuildPlate"
+                        >
+                            <v-list-item-icon>
+                                <v-icon color="primary">mdi-grid-large</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-content>
+                                <v-list-item-title>Import to Build Plate</v-list-item-title>
+                                <v-list-item-subtitle>Open in build plate composer</v-list-item-subtitle>
+                            </v-list-item-content>
+                            <v-list-item-action>
+                                <v-icon>mdi-chevron-right</v-icon>
+                            </v-list-item-action>
+                        </v-list-item>
+                        <v-divider inset></v-divider>
+                        <v-list-item
+                            class="action-item"
+                            @click="handleQueueGcodeFile"
+                        >
+                            <v-list-item-icon>
+                                <v-icon color="success">mdi-printer-3d-nozzle</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-content>
+                                <v-list-item-title>Queue to Print</v-list-item-title>
+                                <v-list-item-subtitle>Add directly to the print job queue</v-list-item-subtitle>
+                            </v-list-item-content>
+                            <v-list-item-action>
+                                <v-icon>mdi-chevron-right</v-icon>
+                            </v-list-item-action>
+                        </v-list-item>
+                        <v-divider inset></v-divider>
+                        <v-list-item
+                            class="action-item"
+                            @click="handleDownloadGcodeFile"
+                        >
+                            <v-list-item-icon>
+                                <v-icon color="info">mdi-download</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-content>
+                                <v-list-item-title>Download</v-list-item-title>
+                                <v-list-item-subtitle>Save G-code file to your computer</v-list-item-subtitle>
+                            </v-list-item-content>
+                            <v-list-item-action>
+                                <v-icon>mdi-chevron-right</v-icon>
+                            </v-list-item-action>
+                        </v-list-item>
+                    </v-list>
+                </v-card-text>
+                <v-card-actions class="px-4 py-3">
+                    <v-spacer></v-spacer>
+                    <v-btn text @click="gcodeFileActionsDialog = false">Close</v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
+        <!-- Design File Actions Dialog -->
+        <v-dialog v-model="designFileActionsDialog" max-width="450">
+            <v-card v-if="selectedDesignFileForActions">
+                <v-card-title class="accent white--text">
+                    <v-icon class="mr-2" color="white">{{ getDesignFileIcon(selectedDesignFileForActions.name) }}</v-icon>
+                    Design File
+                </v-card-title>
+                <v-card-text class="pa-0">
+                    <v-list class="py-0">
+                        <v-list-item class="px-6 py-3">
+                            <v-list-item-content>
+                                <v-list-item-title class="text-h6">{{ selectedDesignFileForActions.name }}</v-list-item-title>
+                                <v-list-item-subtitle class="mt-1">
+                                    {{ formatFileSize(selectedDesignFileForActions.size) }}
+                                    <span v-if="selectedDesignFileForActions.version"> · v{{ selectedDesignFileForActions.version }}</span>
+                                </v-list-item-subtitle>
+                            </v-list-item-content>
+                        </v-list-item>
+                        <v-divider></v-divider>
+                        <v-list-item
+                            class="action-item"
+                            @click="handleSliceDesignFile"
+                        >
+                            <v-list-item-icon>
+                                <v-icon color="primary">mdi-printer-3d-nozzle</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-content>
+                                <v-list-item-title>Slice</v-list-item-title>
+                                <v-list-item-subtitle>Open in slicer to generate G-code</v-list-item-subtitle>
+                            </v-list-item-content>
+                            <v-list-item-action>
+                                <v-icon>mdi-chevron-right</v-icon>
+                            </v-list-item-action>
+                        </v-list-item>
+                        <v-divider inset></v-divider>
+                        <v-list-item
+                            class="action-item"
+                            @click="handleDownloadDesignFile"
+                        >
+                            <v-list-item-icon>
+                                <v-icon color="info">mdi-download</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-content>
+                                <v-list-item-title>Download</v-list-item-title>
+                                <v-list-item-subtitle>Save design file to your computer</v-list-item-subtitle>
+                            </v-list-item-content>
+                            <v-list-item-action>
+                                <v-icon>mdi-chevron-right</v-icon>
+                            </v-list-item-action>
+                        </v-list-item>
+                        <template v-if="isDesignerRole">
+                            <v-divider inset></v-divider>
+                            <v-list-item
+                                class="action-item"
+                                @click="handleDeleteDesignFile"
+                            >
+                                <v-list-item-icon>
+                                    <v-icon color="error">mdi-delete</v-icon>
+                                </v-list-item-icon>
+                                <v-list-item-content>
+                                    <v-list-item-title class="error--text">Delete Design File</v-list-item-title>
+                                    <v-list-item-subtitle>Remove from design library</v-list-item-subtitle>
+                                </v-list-item-content>
+                                <v-list-item-action>
+                                    <v-icon>mdi-chevron-right</v-icon>
+                                </v-list-item-action>
+                            </v-list-item>
+                        </template>
+                    </v-list>
+                </v-card-text>
+                <v-card-actions class="px-4 py-3">
+                    <v-spacer></v-spacer>
+                    <v-btn text @click="designFileActionsDialog = false">Close</v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
         <!-- Snackbar for notifications -->
         <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000">
             {{ snackbarText }}
@@ -788,6 +956,9 @@ interface TreeDisplayNode {
     name: string
     children?: TreeDisplayNode[]
     isAddAction?: boolean
+    isDesignFile?: boolean
+    isGcodeFile?: boolean
+    fileId?: string
 }
 
 
@@ -830,6 +1001,16 @@ export default class CentralFiles extends Mixins(BaseMixin) {
 
     // Design files data - loaded from API
     designFiles: RepositoryFile[] = []
+
+    // Design file actions dialog
+    designFileActionsDialog = false
+    selectedDesignFileForActions: RepositoryFile | null = null
+    designFileNodeId: number | null = null
+
+    // G-Code file actions dialog
+    gcodeFileActionsDialog = false
+    selectedGcodeFileForActions: RepositoryFile | null = null
+    gcodeFileNodeId: number | null = null
 
     // Directory creation
     createDirectoryDialog = false
@@ -1069,6 +1250,11 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         return this.$store.state.instancesDB === 'fleet'
     }
 
+    get isDesignerRole(): boolean {
+        const role = this.$store.state.auth?.user?.role
+        return role === 'designer' || role === 'admin'
+    }
+
     get defaultRecipes(): RecipeNode[] {
         return [
             {
@@ -1168,25 +1354,72 @@ export default class CentralFiles extends Mixins(BaseMixin) {
 
     onRecipeActiveChanged(active: Array<number | string>) {
         this.recipeActive = active
-        void this.openSelectedRecipeNodeActions()
     }
 
-    async openSelectedRecipeNodeActions() {
-        const selectedNode = this.selectedRecipeNode
-        if (!selectedNode || selectedNode.nodeType !== 'gcode' || !selectedNode.fileId) return
+    async openGcodeFileActionsDialog(item: TreeDisplayNode) {
+        if (!item.isGcodeFile || !item.fileId) return
 
-        let file = this.files.find((entry) => entry.id === selectedNode.fileId)
+        const nodeId = typeof item.id === 'number' ? item.id : Number(item.id)
+        this.gcodeFileNodeId = Number.isNaN(nodeId) ? null : nodeId
+
+        let file = this.files.find((entry) => entry.id === item.fileId)
         if (!file) {
             await this.refreshFiles()
-            file = this.files.find((entry) => entry.id === selectedNode.fileId)
+            file = this.files.find((entry) => entry.id === item.fileId)
         }
 
         if (!file) {
-            this.showError(`Unable to find repository file for "${selectedNode.name}"`)
+            this.showError(`Unable to find repository file for "${item.name}"`)
             return
         }
 
-        this.openFileActionsDialog(file)
+        this.selectedGcodeFileForActions = file
+        this.gcodeFileActionsDialog = true
+    }
+
+    handleImportToBuildPlate() {
+        if (!this.selectedGcodeFileForActions) return
+        this.gcodeFileActionsDialog = false
+        this.$router.push({
+            path: '/build-plate',
+            query: { fileId: this.selectedGcodeFileForActions.id, fileName: this.selectedGcodeFileForActions.name },
+        })
+    }
+
+    async handleQueueGcodeFile() {
+        if (!this.selectedGcodeFileForActions) return
+        this.gcodeFileActionsDialog = false
+
+        try {
+            const token = localStorage.getItem('fleet_token')
+            const response = await fetch('/api/print-queue/add', {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    fileId: this.selectedGcodeFileForActions.id,
+                    fileName: this.selectedGcodeFileForActions.name,
+                }),
+            })
+
+            if (response.ok) {
+                this.showSuccess(`"${this.selectedGcodeFileForActions.name}" added to print queue`)
+            } else {
+                const data = await response.json().catch(() => ({}))
+                this.showError(data.error || 'Failed to add to print queue')
+            }
+        } catch (error) {
+            console.error('Error queueing gcode file:', error)
+            this.showError('Failed to add to print queue')
+        }
+    }
+
+    handleDownloadGcodeFile() {
+        if (!this.selectedGcodeFileForActions) return
+        this.downloadFile(this.selectedGcodeFileForActions)
+        this.gcodeFileActionsDialog = false
     }
 
     saveRecipes() {
@@ -1258,11 +1491,22 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     }
 
     buildRecipeTree(nodes: RecipeNode[], parentId: number | null): TreeDisplayNode[] {
-        const treeNodes: TreeDisplayNode[] = nodes.map((node) => ({
-            id: node.id,
-            name: node.name,
-            children: this.buildRecipeTree(node.children, node.id),
-        }))
+        const treeNodes: TreeDisplayNode[] = nodes.map((node) => {
+            if (node.nodeType === 'gcode') {
+                // G-code files are leaf nodes — no children, not expandable
+                return {
+                    id: node.id,
+                    name: node.name,
+                    isGcodeFile: true,
+                    fileId: node.fileId,
+                }
+            }
+            return {
+                id: node.id,
+                name: node.name,
+                children: this.buildRecipeTree(node.children, node.id),
+            }
+        })
 
         treeNodes.push({
             id: this.getAddNodeId(parentId),
@@ -1726,11 +1970,22 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     }
 
     buildDesignTree(nodes: DesignNode[], parentId: number | null): TreeDisplayNode[] {
-        const treeNodes: TreeDisplayNode[] = nodes.map((node) => ({
-            id: node.id,
-            name: node.nodeType === 'design' ? `${node.name}` : node.name,
-            children: this.buildDesignTree(node.children, node.id),
-        }))
+        const treeNodes: TreeDisplayNode[] = nodes.map((node) => {
+            if (node.nodeType === 'design') {
+                // Design files are leaf nodes — no children, not expandable
+                return {
+                    id: node.id,
+                    name: node.name,
+                    isDesignFile: true,
+                    fileId: node.fileId,
+                }
+            }
+            return {
+                id: node.id,
+                name: node.name,
+                children: this.buildDesignTree(node.children, node.id),
+            }
+        })
 
         treeNodes.push({
             id: `dadd:${parentId === null ? 'root' : parentId}`,
@@ -1760,25 +2015,62 @@ export default class CentralFiles extends Mixins(BaseMixin) {
 
     onDesignActiveChanged(active: Array<number | string>) {
         this.designActive = active
-        void this.openSelectedDesignNodeActions()
     }
 
-    async openSelectedDesignNodeActions() {
-        const selectedNode = this.selectedDesignNode
-        if (!selectedNode || selectedNode.nodeType !== 'design' || !selectedNode.fileId) return
+    async openDesignFileActionsDialog(item: TreeDisplayNode) {
+        if (!item.isDesignFile || !item.fileId) return
 
-        let file = this.designFiles.find((entry) => entry.id === selectedNode.fileId)
+        const nodeId = typeof item.id === 'number' ? item.id : Number(item.id)
+        this.designFileNodeId = Number.isNaN(nodeId) ? null : nodeId
+
+        let file = this.designFiles.find((entry) => entry.id === item.fileId)
         if (!file) {
             await this.loadDesignFiles()
-            file = this.designFiles.find((entry) => entry.id === selectedNode.fileId)
+            file = this.designFiles.find((entry) => entry.id === item.fileId)
         }
 
         if (!file) {
-            this.showError(`Unable to find design file for "${selectedNode.name}"`)
+            this.showError(`Unable to find design file for "${item.name}"`)
             return
         }
 
-        this.openFileActionsDialog(file)
+        this.selectedDesignFileForActions = file
+        this.designFileActionsDialog = true
+    }
+
+    handleSliceDesignFile() {
+        if (!this.selectedDesignFileForActions) return
+        this.designFileActionsDialog = false
+        this.$router.push({
+            path: '/prepare',
+            query: { fileId: this.selectedDesignFileForActions.id, fileName: this.selectedDesignFileForActions.name },
+        })
+    }
+
+    handleDownloadDesignFile() {
+        if (!this.selectedDesignFileForActions) return
+        this.downloadFile(this.selectedDesignFileForActions)
+        this.designFileActionsDialog = false
+    }
+
+    handleDeleteDesignFile() {
+        if (!this.selectedDesignFileForActions || !this.isDesignerRole) return
+        this.designFileActionsDialog = false
+
+        // Remove the node from the design tree
+        if (this.designFileNodeId !== null) {
+            const removed = this.removeDesignNodeById(this.designTree, this.designFileNodeId)
+            if (removed.removed) {
+                this.designTree = removed.nodes
+                this.designActive = []
+                this.designOpen = this.designOpen.filter((openId) => Number(openId) !== this.designFileNodeId)
+                this.saveDesignTree()
+            }
+        }
+
+        // Also delete the underlying file from the repository
+        this.selectedFile = this.selectedDesignFileForActions
+        this.deleteDialog = true
     }
 
     addDesignProduct() {
@@ -2523,5 +2815,29 @@ export default class CentralFiles extends Mixins(BaseMixin) {
 
 .action-item:hover {
     background-color: rgba(0, 0, 0, 0.04);
+}
+
+/* Design file leaf nodes styled as links */
+.design-file-link {
+    color: var(--v-accent-base, #82b1ff);
+    text-decoration: underline;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+
+.design-file-link:hover {
+    opacity: 0.8;
+}
+
+/* G-code file leaf nodes styled as links */
+.gcode-file-link {
+    color: var(--v-primary-base, #1976d2);
+    text-decoration: underline;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+
+.gcode-file-link:hover {
+    opacity: 0.8;
 }
 </style>
