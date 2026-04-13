@@ -8,6 +8,8 @@ from models.printer_profile import PrinterProfileModel
 from models.group import GroupModel, GroupMemberModel
 from models.print_queue import PrintQueueJobModel
 from models.config_template import ConfigTemplateModel, ConfigTemplateSourceBindingModel, PrinterConfigStatusModel
+from models.pmi import DowntimeRecordModel, PmiRecordModel, PmiChecklistItemModel
+from models.gcode_recipe import GcodeRecipeModel
 
 __all__ = [
     'Base',
@@ -21,4 +23,8 @@ __all__ = [
     'ConfigTemplateModel',
     'ConfigTemplateSourceBindingModel',
     'PrinterConfigStatusModel',
+    'DowntimeRecordModel',
+    'PmiRecordModel',
+    'PmiChecklistItemModel',
+    'GcodeRecipeModel',
 ]

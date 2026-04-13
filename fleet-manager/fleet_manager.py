@@ -50,6 +50,7 @@ from routes import (
     setup_fleet_telemetry_routes,
     setup_pmi_routes,
     setup_gcode_recipe_routes,
+    setup_design_tree_routes,
 )
 
 logging.basicConfig(level=logging.DEBUG)
@@ -535,6 +536,7 @@ class FleetManager:
         setup_fleet_telemetry_routes(app)
         setup_pmi_routes(app)
         setup_gcode_recipe_routes(app)
+        setup_design_tree_routes(app)
         
         # Add health check endpoint
         async def health_check(request):

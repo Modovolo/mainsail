@@ -22,6 +22,7 @@ from models.pmi import (
     PmiRecordModel, PmiChecklistItemModel, PmiRecord,
 )
 from models.gcode_recipe import GcodeRecipeModel, GcodeRecipeData
+from models.design_tree import DesignTreeModel, DesignTreeData
 
 logger = logging.getLogger(__name__)
 
@@ -1405,3 +1406,133 @@ class DatabaseService:
             children = node.get('children')
             if isinstance(children, list) and children:
                 self._insert_recipe_nodes(session, group_id, user_id, children, parent_id=model.id)
+
+    # ── Design Tree ────────────────────────────────────────────────
+
+    def get_design_tree(self, group_id: str) -> List[DesignTreeData]:
+        """Return top-level design nodes with children recursively."""
+        with self.get_session() as session:
+            roots = (
+                session.query(DesignTreeModel)
+                .filter_by(group_id=group_id, parent_id=None)
+                .order_by(DesignTreeModel.position)
+                .all()
+            )
+            return [self._design_to_tree(m, session) for m in roots]
+
+    def _design_to_tree(self, model: DesignTreeModel, session) -> DesignTreeData:
+        """Recursively build a design tree from a model node."""
+        children = (
+            session.query(DesignTreeModel)
+            .filter_by(parent_id=model.id)
+            .order_by(DesignTreeModel.position)
+            .all()
+        )
+        child_dicts = [self._design_to_tree(c, session).to_dict() for c in children]
+        return DesignTreeData.from_model(model, children=child_dicts)
+
+    def create_design_node(
+        self,
+        group_id: str,
+        created_by: str,
+        name: str,
+        node_type: str = 'item',
+        parent_id: Optional[str] = None,
+        file_id: Optional[str] = None,
+        version: Optional[str] = None,
+        position: int = 0,
+    ) -> DesignTreeData:
+        """Create a single design tree node."""
+        with self.get_session() as session:
+            model = DesignTreeModel(
+                id=secrets.token_hex(16),
+                group_id=group_id,
+                parent_id=parent_id,
+                name=name,
+                node_type=node_type,
+                file_id=file_id,
+                version=version,
+                position=position,
+                created_by=created_by,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            session.add(model)
+            session.commit()
+            return DesignTreeData.from_model(model)
+
+    def update_design_node(self, design_id: str, data: Dict[str, Any]) -> Optional[DesignTreeData]:
+        """Update fields on a single design tree node."""
+        with self.get_session() as session:
+            model = session.query(DesignTreeModel).filter_by(id=design_id).first()
+            if not model:
+                return None
+            if 'name' in data:
+                model.name = data['name']
+            if 'nodeType' in data:
+                model.node_type = data['nodeType']
+            if 'fileId' in data:
+                model.file_id = data['fileId']
+            if 'version' in data:
+                model.version = data['version']
+            if 'position' in data:
+                model.position = data['position']
+            model.updated_at = datetime.utcnow()
+            session.commit()
+            return DesignTreeData.from_model(model)
+
+    def delete_design_node(self, design_id: str) -> bool:
+        """Delete a design node (children cascade via FK)."""
+        with self.get_session() as session:
+            model = session.query(DesignTreeModel).filter_by(id=design_id).first()
+            if not model:
+                return False
+            self._delete_design_subtree(session, model.id)
+            session.commit()
+            return True
+
+    def _delete_design_subtree(self, session, node_id: str):
+        """Delete a node and all descendants depth-first."""
+        children = session.query(DesignTreeModel).filter_by(parent_id=node_id).all()
+        for child in children:
+            self._delete_design_subtree(session, child.id)
+        session.query(DesignTreeModel).filter_by(id=node_id).delete()
+
+    def sync_design_tree(self, group_id: str, user_id: str, nodes: List[Dict]) -> List[DesignTreeData]:
+        """
+        Replace the entire design tree for a group.
+        Deletes all existing rows then inserts the new tree.
+        """
+        with self.get_session() as session:
+            session.query(DesignTreeModel).filter_by(group_id=group_id).delete()
+            self._insert_design_nodes(session, group_id, user_id, nodes, parent_id=None)
+            session.commit()
+        return self.get_design_tree(group_id)
+
+    def _insert_design_nodes(
+        self, session, group_id: str, user_id: str,
+        nodes: List[Dict], parent_id: Optional[str],
+    ):
+        """Recursively insert design tree nodes."""
+        for idx, node in enumerate(nodes):
+            name = (node.get('name') or '').strip()
+            if not name:
+                continue
+            model = DesignTreeModel(
+                id=secrets.token_hex(16),
+                group_id=group_id,
+                parent_id=parent_id,
+                name=name,
+                node_type=node.get('nodeType', 'item'),
+                file_id=node.get('fileId'),
+                version=node.get('version'),
+                position=idx,
+                created_by=user_id,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            session.add(model)
+            session.flush()
+            children = node.get('children')
+            if isinstance(children, list) and children:
+                self._insert_design_nodes(session, group_id, user_id, children, parent_id=model.id)

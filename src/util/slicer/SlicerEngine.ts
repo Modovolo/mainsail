@@ -107,12 +107,14 @@ export class SlicerEngine {
      * @param vertices - Raw vertex data (flat Float32Array, 9 floats per triangle)
      * @param config - Slicer configuration
      * @param onProgress - Optional progress callback
+     * @param thumbnail - Optional base64 PNG screenshot to embed in gcode
      * @returns Promise that resolves with G-code and statistics
      */
     async slice(
         vertices: Float32Array,
         config: SlicerConfig,
-        onProgress?: ProgressCallback
+        onProgress?: ProgressCallback,
+        thumbnail?: string
     ): Promise<SliceOutput> {
         const id = this.nextJobId()
         const worker = this.getWorker()
@@ -122,7 +124,7 @@ export class SlicerEngine {
 
             // Transfer the vertices buffer to the worker for zero-copy
             worker.postMessage(
-                { type: 'slice', id, vertices, config },
+                { type: 'slice', id, vertices, config, thumbnail },
                 [vertices.buffer]
             )
         })

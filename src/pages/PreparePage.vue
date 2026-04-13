@@ -1536,7 +1536,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 10000)
         
         // Renderer
-        this.renderer = new THREE.WebGLRenderer({ antialias: true })
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
         this.renderer.setSize(container.clientWidth, container.clientHeight)
         this.renderer.setPixelRatio(window.devicePixelRatio)
         container.appendChild(this.renderer.domElement)
@@ -2527,6 +2527,38 @@ export default class PreparePage extends Mixins(BaseMixin) {
         return new Float32Array(allPositions)
     }
     
+    /**
+     * Capture a screenshot of the build volume for gcode thumbnail embedding.
+     * Renders the current scene to a 300×300 PNG and returns the base64 data.
+     */
+    captureThumbnail(): string | undefined {
+        if (!this.renderer || !this.scene || !this.camera) return undefined
+
+        // Force a render to ensure the buffer is current
+        this.renderer.render(this.scene, this.camera)
+
+        // Capture full canvas and scale down to 300×300
+        const srcCanvas = this.renderer.domElement
+        const size = 300
+        const tmpCanvas = document.createElement('canvas')
+        tmpCanvas.width = size
+        tmpCanvas.height = size
+        const ctx = tmpCanvas.getContext('2d')
+        if (!ctx) return undefined
+
+        // Draw scaled, cropping to a square from center
+        const srcW = srcCanvas.width
+        const srcH = srcCanvas.height
+        const cropSize = Math.min(srcW, srcH)
+        const sx = (srcW - cropSize) / 2
+        const sy = (srcH - cropSize) / 2
+        ctx.drawImage(srcCanvas, sx, sy, cropSize, cropSize, 0, 0, size, size)
+
+        const dataUrl = tmpCanvas.toDataURL('image/png')
+        // Return raw base64 (strip data URL prefix)
+        return dataUrl.substring(dataUrl.indexOf(',') + 1)
+    }
+
     async startSlicing() {
         if (!this.hasWidgets) return
         
@@ -2536,6 +2568,9 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.slicingMessage = 'Preparing mesh data...'
         
         try {
+            // Capture thumbnail screenshot before slicing
+            const thumbnail = this.captureThumbnail()
+
             // Extract vertices from all widgets
             const vertices = this.extractVertices()
             if (!vertices || vertices.length === 0) {
@@ -2552,7 +2587,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             const output = await engine.slice(vertices, config, (progress) => {
                 this.slicingProgress = progress.progress
                 this.slicingMessage = progress.message
-            })
+            }, thumbnail)
             
             // Store the G-code and structured toolpath data
             this.lastGcodeOutput = output.gcode

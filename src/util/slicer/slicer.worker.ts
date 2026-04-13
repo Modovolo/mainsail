@@ -33,7 +33,7 @@ function sendError(id: string, error: string) {
 /**
  * Main slicing pipeline
  */
-function runSlicingPipeline(id: string, vertices: Float32Array, config: SlicerConfig) {
+function runSlicingPipeline(id: string, vertices: Float32Array, config: SlicerConfig, thumbnail?: string) {
     try {
         // Stage 1: Mesh slicing (triangle-plane intersection)
         sendProgress(id, 0, 'slicing', 'Analyzing mesh geometry...')
@@ -179,7 +179,7 @@ function runSlicingPipeline(id: string, vertices: Float32Array, config: SlicerCo
         // Stage 4: G-code export
         sendProgress(id, 70, 'export', 'Generating G-code...')
 
-        const gcode = exportGcode(layerToolpaths, config)
+        const gcode = exportGcode(layerToolpaths, config, thumbnail)
 
         sendProgress(id, 90, 'stats', 'Computing statistics...')
 
@@ -206,7 +206,7 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
     switch (msg.type) {
         case 'slice':
             cancelledJobs.delete(msg.id)
-            runSlicingPipeline(msg.id, msg.vertices, msg.config)
+            runSlicingPipeline(msg.id, msg.vertices, msg.config, msg.thumbnail)
             break
 
         case 'cancel':

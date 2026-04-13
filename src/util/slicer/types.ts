@@ -151,7 +151,7 @@ export interface SlicerConfig {
 
 /** Messages sent from main thread to slicer worker */
 export type WorkerRequest =
-    | { type: 'slice'; id: string; vertices: Float32Array; config: SlicerConfig }
+    | { type: 'slice'; id: string; vertices: Float32Array; config: SlicerConfig; thumbnail?: string }
     | { type: 'cancel'; id: string }
 
 /** Messages sent from slicer worker back to main thread */

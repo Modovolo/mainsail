@@ -12,6 +12,9 @@ from routes.config_snapshot import setup_config_snapshot_routes
 from routes.fleet_update import setup_fleet_update_routes
 from routes.monitoring import setup_monitoring_routes
 from routes.fleet_telemetry import setup_fleet_telemetry_routes
+from routes.pmi import setup_pmi_routes
+from routes.gcode_recipes import setup_gcode_recipe_routes
+from routes.design_tree import setup_design_tree_routes
 
 __all__ = [
     'setup_auth_routes',
@@ -25,4 +28,7 @@ __all__ = [
     'setup_fleet_update_routes',
     'setup_monitoring_routes',
     'setup_fleet_telemetry_routes',
+    'setup_pmi_routes',
+    'setup_gcode_recipe_routes',
+    'setup_design_tree_routes',
 ]

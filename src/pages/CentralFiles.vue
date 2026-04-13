@@ -168,89 +168,181 @@
             </v-col>
         </v-row>
 
-        <!-- Featured Files Grid -->
-        <v-row v-if="groupedFeaturedParts.length > 0">
+        <!-- Design Library Section -->
+        <v-row class="mb-4">
             <v-col cols="12">
-                <h2 class="text-h5 mb-4">
-                    <v-icon class="mr-2">mdi-star</v-icon>
-                    Featured Parts
-                </h2>
-            </v-col>
-             <v-col v-for="group in groupedFeaturedParts" :key="group.category" cols="12" sm="6" md="4">
-                <v-card elevation="3" class="part-tile" hover>
-                    <div class="thumbnail-container">
-                        <v-img
-                            :src="getCategoryThumbnail(group.category)"
-                            height="180"
-                            class="part-thumbnail"
-                            gradient="to bottom, rgba(0,0,0,0) 60%, rgba(0,0,0,0.7) 100%"
-                        >
-                            <template #placeholder>
-                                <v-row class="fill-height ma-0" align="center" justify="center">
-                                    <v-icon size="64" color="grey lighten-1">{{ getCategoryIcon(group.category) }}</v-icon>
-                                </v-row>
-                            </template>
-                            <div class="version-badge">
-                                <v-chip small color="primary" class="ma-2">
-                                    v{{ group.latestVersion }}
-                                </v-chip>
-                            </div>
-                        </v-img>
-                    </div>
-                    <v-card-title class="pb-2 pt-3">
-                        <v-icon class="mr-2" color="blue">mdi-package-variant</v-icon>
-                        {{ getCategoryDisplayName(group.category) }}
-                    </v-card-title>
-                    <v-card-subtitle class="pb-3 px-4">
-                        {{ group.files.length }} file{{ group.files.length !== 1 ? 's' : '' }} in this part set
-                    </v-card-subtitle>
-                    <v-divider></v-divider>
-                    
-                    <!-- Files Table -->
-                    <v-simple-table dense class="files-table clickable-table featured-files-table">
-                        <template #default>
-                            <thead>
-                                <tr>
-                                    <th class="text-left px-4">File</th>
-                                    <th class="text-right px-4">Size</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr 
-                                    v-for="file in group.files" 
-                                    :key="file.id"
-                                    class="clickable-row"
-                                    @click="openFileActionsDialog(file)"
-                                >
-                                    <td class="px-4 py-2">
-                                        <div class="d-flex align-center">
-                                            <v-icon small class="mr-2" color="primary">mdi-file-document</v-icon>
-                                            <div>
-                                                <div class="file-name">{{ file.name }}</div>
-                                                <div v-if="file.printTime" class="text-caption grey--text">
-                                                    <v-icon x-small class="mr-1">mdi-clock-outline</v-icon>
-                                                    {{ file.printTime }}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td class="text-right px-4 py-2 text-caption">{{ formatFileSize(file.size) }}</td>
-                                </tr>
-                            </tbody>
-                        </template>
-                    </v-simple-table>
-                    
-                    <v-divider></v-divider>
-                    <v-card-actions class="px-4 py-3">
-                        <v-btn text color="primary" small @click="sendAllToPrinter(group)">
-                            <v-icon left small>mdi-send-check</v-icon>
-                            Send All
-                        </v-btn>
-                        <v-spacer></v-spacer>
-                        <span class="text-caption grey--text">
-                            Updated {{ formatUploadDate(group.latestUpload) }}
+                <v-card elevation="2">
+                    <v-card-title>
+                        <v-icon class="mr-2">mdi-pencil-ruler</v-icon>
+                        Design Library
+                        <span class="text-subtitle-2 grey--text ml-3 font-weight-regular">
+                            Part designs for operations to build G-code recipes from
                         </span>
-                    </v-card-actions>
+                    </v-card-title>
+                    <v-card-text>
+                        <input
+                            ref="designFileInput"
+                            type="file"
+                            multiple
+                            accept=".stl,.3mf,.step,.stp"
+                            style="display: none"
+                            @change="onDesignFilesSelected"
+                        />
+                        <v-row>
+                            <v-col cols="12" md="8">
+                                <v-treeview
+                                    :items="designTreeItems"
+                                    item-key="id"
+                                    item-text="name"
+                                    open-on-click
+                                    activatable
+                                    dense
+                                    hoverable
+                                    :open.sync="designOpen"
+                                    :active.sync="designActive"
+                                    @update:active="onDesignActiveChanged"
+                                >
+                                    <template #prepend="{ item }">
+                                        <v-icon small :color="item.isAddAction ? 'success' : item.children && item.children.length ? 'accent' : getDesignNodeColor(item.name)">
+                                            {{ item.isAddAction ? 'mdi-plus-circle-outline' : item.children && item.children.length ? 'mdi-folder-open' : getDesignFileIcon(item.name) }}
+                                        </v-icon>
+                                    </template>
+                                    <template #append="{ item }">
+                                        <v-chip v-if="!item.isAddAction && !item.children?.length && getDesignNodeVersion(item.id)" x-small outlined color="accent" class="ml-1">
+                                            v{{ getDesignNodeVersion(item.id) }}
+                                        </v-chip>
+                                    </template>
+                                </v-treeview>
+                                <div v-if="!designTree.length" class="text-body-2 grey--text">
+                                    No designs yet. Add a product to get started.
+                                </div>
+                            </v-col>
+
+                            <v-col cols="12" md="4">
+                                <v-text-field
+                                    v-model="newDesignProductName"
+                                    label="New Product"
+                                    placeholder="e.g., Modovolo Lift Quad Copter"
+                                    outlined
+                                    dense
+                                    prepend-icon="mdi-folder-plus"
+                                    @keyup.enter="addDesignProduct"
+                                ></v-text-field>
+                                <v-btn
+                                    color="accent"
+                                    block
+                                    :disabled="!newDesignProductName.trim()"
+                                    @click="addDesignProduct"
+                                >
+                                    <v-icon left small>mdi-plus</v-icon>
+                                    Add Product
+                                </v-btn>
+
+                                <v-divider class="my-4"></v-divider>
+
+                                <v-select
+                                    v-model="designAddMode"
+                                    :items="designAddModeOptions"
+                                    item-text="text"
+                                    item-value="value"
+                                    label="Add Type"
+                                    outlined
+                                    dense
+                                    prepend-icon="mdi-tune-variant"
+                                    :disabled="selectedDesignTargetParentId === undefined || designUploading"
+                                ></v-select>
+
+                                <v-text-field
+                                    v-if="designAddMode === 'item'"
+                                    v-model="newDesignPartName"
+                                    :label="selectedDesignTargetLabel"
+                                    placeholder="e.g., Control Box Housing"
+                                    outlined
+                                    dense
+                                    prepend-icon="mdi-cube-outline"
+                                    :disabled="selectedDesignTargetParentId === undefined"
+                                    @keyup.enter="addDesignPart"
+                                ></v-text-field>
+
+                                <div v-else>
+                                    <v-btn
+                                        outlined
+                                        block
+                                        color="accent"
+                                        :disabled="selectedDesignTargetParentId === undefined || designUploading"
+                                        @click="openDesignFilePicker"
+                                    >
+                                        <v-icon left small>mdi-file-upload</v-icon>
+                                        Select Design Files
+                                    </v-btn>
+                                    <div v-if="designSelectedFiles.length" class="mt-2 mb-2">
+                                        <v-chip
+                                            v-for="(file, index) in designSelectedFiles"
+                                            :key="`design-upload-${index}`"
+                                            small
+                                            class="mr-1 mb-1"
+                                            close
+                                            @click:close="removeDesignFile(index)"
+                                        >
+                                            <v-icon left x-small>{{ getDesignFileIcon(file.name) }}</v-icon>
+                                            {{ file.name }}
+                                        </v-chip>
+                                    </div>
+                                    <v-text-field
+                                        v-if="designSelectedFiles.length"
+                                        v-model="designUploadVersion"
+                                        label="Version"
+                                        placeholder="e.g., 1.0"
+                                        outlined
+                                        dense
+                                        class="mt-2"
+                                        prepend-icon="mdi-tag"
+                                    ></v-text-field>
+                                </div>
+
+                                <v-btn
+                                    color="accent"
+                                    block
+                                    :disabled="!canAddDesignPart"
+                                    :loading="designUploading"
+                                    @click="addDesignPart"
+                                >
+                                    <v-icon left small>mdi-plus</v-icon>
+                                    {{ designAddMode === 'item' ? 'Add Part' : 'Upload Design' }}
+                                </v-btn>
+
+                                <v-btn
+                                    class="mt-2"
+                                    text
+                                    color="error"
+                                    block
+                                    :disabled="!canRemoveSelectedDesignNode"
+                                    @click="removeSelectedDesignNode"
+                                >
+                                    <v-icon left small>mdi-delete</v-icon>
+                                    Remove Selected
+                                </v-btn>
+
+                                <!-- Uploading progress -->
+                                <div v-if="designUploading" class="mt-3">
+                                    <v-progress-linear
+                                        :value="designUploadProgress"
+                                        color="accent"
+                                        height="6"
+                                        rounded
+                                        striped
+                                        :indeterminate="designUploadProgress === 0"
+                                    ></v-progress-linear>
+                                    <div class="text-caption grey--text mt-1">Uploading design files...</div>
+                                </div>
+
+                                <div class="text-caption grey--text mt-3">
+                                    Select a product/part to add under it, or select a + node to add at that level.
+                                    Upload STL, 3MF, or STEP files to leaf nodes.
+                                </div>
+                            </v-col>
+                        </v-row>
+                    </v-card-text>
                 </v-card>
             </v-col>
         </v-row>
@@ -664,6 +756,8 @@ interface RepositoryFile {
     category?: string
     printTime?: string
     featured?: boolean
+    fileType?: 'design' | 'gcode'
+    thumbnailUrl?: string
 }
 
 interface Printer {
@@ -680,12 +774,22 @@ interface RecipeNode {
     fileId?: string
 }
 
-interface RecipeTreeNode {
+interface DesignNode {
+    id: number
+    name: string
+    children: DesignNode[]
+    nodeType?: 'item' | 'design'
+    fileId?: string
+    version?: string
+}
+
+interface TreeDisplayNode {
     id: number | string
     name: string
-    children?: RecipeTreeNode[]
+    children?: TreeDisplayNode[]
     isAddAction?: boolean
 }
+
 
 @Component
 export default class CentralFiles extends Mixins(BaseMixin) {
@@ -704,6 +808,28 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     uploadVersion = '1.0'
     uploadCategory: string | null = null
     uploadPrintTime = ''
+
+    // Design Library tree data
+    designTree: DesignNode[] = []
+    designOpen: Array<number | string> = []
+    designActive: Array<number | string> = []
+    designNextId = 1
+    newDesignProductName = ''
+    newDesignPartName = ''
+    designAddMode: 'item' | 'design' = 'item'
+    designSelectedFiles: File[] = []
+    designUploading = false
+    designUploadProgress = 0
+    designUploadVersion = '1.0'
+    designSyncTimer: ReturnType<typeof setTimeout> | null = null
+
+    designAddModeOptions = [
+        { text: 'List Item', value: 'item' },
+        { text: 'Design File', value: 'design' },
+    ]
+
+    // Design files data - loaded from API
+    designFiles: RepositoryFile[] = []
 
     // Directory creation
     createDirectoryDialog = false
@@ -760,9 +886,6 @@ export default class CentralFiles extends Mixins(BaseMixin) {
             .replace(/\b\w/g, char => char.toUpperCase())
     }
 
-    // Featured parts data - loaded from API
-    featuredParts: RepositoryFile[] = []
-
     // Dialogs
     sendDialog = false
     deleteDialog = false
@@ -804,52 +927,86 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         return this.files.filter((f) => f.name.toLowerCase().includes(searchLower))
     }
 
-    get groupedFeaturedParts(): { category: string; files: RepositoryFile[]; latestVersion: string; latestUpload: string }[] {
-        // Group featured parts by category
-        const groups: Record<string, RepositoryFile[]> = {}
-        
-        for (const part of this.featuredParts) {
-            const category = part.category || 'uncategorized'
-            if (!groups[category]) {
-                groups[category] = []
-            }
-            groups[category].push(part)
+    // --- Design tree computed properties ---
+
+    get designTreeItems(): TreeDisplayNode[] {
+        return this.buildDesignTree(this.designTree, null)
+    }
+
+    get selectedDesignNode(): DesignNode | null {
+        if (!this.designActive.length) return null
+        const activeId = this.designActive[0]
+        if (typeof activeId === 'string' && activeId.startsWith('dadd:')) return null
+        const nodeId = typeof activeId === 'number' ? activeId : Number(activeId)
+        if (Number.isNaN(nodeId)) return null
+        return this.findDesignNodeById(this.designTree, nodeId)
+    }
+
+    get selectedDesignTargetParentId(): number | null | undefined {
+        if (!this.designActive.length) return undefined
+        const activeId = this.designActive[0]
+        if (typeof activeId === 'string' && activeId.startsWith('dadd:')) {
+            const parentSegment = activeId.replace('dadd:', '')
+            if (parentSegment === 'root') return null
+            const parsed = Number(parentSegment)
+            return Number.isNaN(parsed) ? undefined : parsed
         }
-        
-        // Convert to array with metadata
-        return Object.entries(groups).map(([category, files]) => {
-            // Sort files by name for consistent display
-            files.sort((a, b) => a.name.localeCompare(b.name))
-            
-            // Get the latest version from all files in this category
-            const versions = files.map(f => f.version || '1.0')
-            const latestVersion = versions.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0]
-            
-            // Get the most recent upload date
-            const dates = files.map(f => f.uploadedAt).sort().reverse()
-            const latestUpload = dates[0]
-            
-            return {
-                category,
-                files,
-                latestVersion,
-                latestUpload
-            }
-        })
+        if (typeof activeId === 'number') return activeId
+        const parsed = Number(activeId)
+        return Number.isNaN(parsed) ? undefined : parsed
+    }
+
+    get selectedDesignTargetLabel(): string {
+        const parentId = this.selectedDesignTargetParentId
+        if (parentId === undefined) return 'Select a node in the tree'
+        if (parentId === null) {
+            return this.designAddMode === 'item' ? 'Add part at root level' : 'Upload design to root level'
+        }
+        const node = this.findDesignNodeById(this.designTree, parentId)
+        if (!node) return 'Select a node in the tree'
+        return this.designAddMode === 'item' ? `Part for ${node.name}` : `Upload design under ${node.name}`
+    }
+
+    get canAddDesignPart(): boolean {
+        if (this.selectedDesignTargetParentId === undefined || this.designUploading) return false
+        if (this.designAddMode === 'item') return !!this.newDesignPartName.trim()
+        return this.designSelectedFiles.length > 0
+    }
+
+    get canRemoveSelectedDesignNode(): boolean {
+        if (!this.designActive.length) return false
+        const activeId = this.designActive[0]
+        return !(typeof activeId === 'string' && activeId.startsWith('dadd:'))
+    }
+
+    get defaultDesignTree(): DesignNode[] {
+        return [
+            {
+                id: 1,
+                name: 'Modovolo Lift Quad Copter',
+                children: [
+                    { id: 2, name: 'Propeller', children: [] },
+                    { id: 3, name: 'Control Box', children: [] },
+                    { id: 4, name: 'Air Frame', children: [] },
+                ],
+            },
+        ]
     }
 
     mounted() {
         this.loadRecipes()
+        this.loadDesignTree()
         this.refreshFiles()
         this.loadPrinters()
-        this.loadFeaturedParts()
+        this.loadDesignFiles()
     }
 
     beforeDestroy() {
         if (this.recipeSyncTimer) clearTimeout(this.recipeSyncTimer)
+        if (this.designSyncTimer) clearTimeout(this.designSyncTimer)
     }
 
-    get recipeTreeItems(): RecipeTreeNode[] {
+    get recipeTreeItems(): TreeDisplayNode[] {
         return this.buildRecipeTree(this.recipes, null)
     }
 
@@ -1100,8 +1257,8 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         return null
     }
 
-    buildRecipeTree(nodes: RecipeNode[], parentId: number | null): RecipeTreeNode[] {
-        const treeNodes: RecipeTreeNode[] = nodes.map((node) => ({
+    buildRecipeTree(nodes: RecipeNode[], parentId: number | null): TreeDisplayNode[] {
+        const treeNodes: TreeDisplayNode[] = nodes.map((node) => ({
             id: node.id,
             name: node.name,
             children: this.buildRecipeTree(node.children, node.id),
@@ -1279,7 +1436,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
             this.recipeGcodeFiles = []
             this.saveRecipes()
             await this.refreshFiles()
-            await this.loadFeaturedParts()
+            await this.loadDesignFiles()
             this.showSuccess('G-Code files uploaded and added to recipe tree')
         } catch (error) {
             console.error('Error uploading recipe gcode files:', error)
@@ -1403,22 +1560,499 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         }
     }
 
-    async loadFeaturedParts() {
+    async loadDesignFiles() {
         try {
             const token = localStorage.getItem('fleet_token')
-            const response = await fetch('/api/files', {
+            const response = await fetch('/api/files?fileType=design', {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
             })
             if (response.ok) {
                 const data = await response.json()
-                // Filter to only featured files (those with a category)
-                this.featuredParts = (data.files || []).filter((f: RepositoryFile) => f.featured || f.category)
+                this.designFiles = data.files || []
             }
         } catch (error) {
-            console.error('Error loading featured parts:', error)
+            console.error('Error loading design files:', error)
         }
+    }
+
+    // --- Design tree methods ---
+
+    loadDesignTree() {
+        if (this.isFleetMode) {
+            this.loadDesignTreeFromApi()
+        } else {
+            this.loadDesignTreeFromStorage()
+        }
+    }
+
+    async loadDesignTreeFromApi() {
+        try {
+            const token = localStorage.getItem('fleet_token')
+            const response = await fetch('/api/design-tree', {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (response.ok) {
+                const data = await response.json()
+                const apiNodes = data.designs as Array<Record<string, unknown>>
+                if (Array.isArray(apiNodes) && apiNodes.length) {
+                    this.designTree = this.apiNodesToDesign(apiNodes)
+                    localStorage.setItem('central_files_design_tree_v1', JSON.stringify(this.designTree))
+                    this.initDesignIds()
+                    return
+                }
+            }
+        } catch (error) {
+            console.error('Error loading design tree from API:', error)
+        }
+        this.loadDesignTreeFromStorage()
+    }
+
+    apiNodesToDesign(nodes: Array<Record<string, unknown>>): DesignNode[] {
+        return nodes.map((node) => ({
+            id: this.designNextId++,
+            name: String(node.name || ''),
+            nodeType: (node.nodeType === 'design' ? 'design' : 'item') as 'item' | 'design',
+            fileId: node.fileId ? String(node.fileId) : undefined,
+            version: node.version ? String(node.version) : undefined,
+            children: this.apiNodesToDesign((node.children as Array<Record<string, unknown>>) || []),
+        }))
+    }
+
+    loadDesignTreeFromStorage() {
+        const storageKey = 'central_files_design_tree_v1'
+        const stored = localStorage.getItem(storageKey)
+
+        if (stored) {
+            try {
+                const parsed = JSON.parse(stored) as DesignNode[]
+                if (Array.isArray(parsed)) {
+                    this.designTree = this.normalizeDesignNodes(parsed)
+                }
+            } catch (error) {
+                console.error('Error loading design tree:', error)
+            }
+        }
+
+        if (!this.designTree.length) {
+            this.designTree = JSON.parse(JSON.stringify(this.defaultDesignTree))
+            this.saveDesignTree()
+        }
+
+        this.initDesignIds()
+    }
+
+    initDesignIds() {
+        const maxId = this.getMaxDesignId(this.designTree)
+        this.designNextId = maxId + 1
+        this.designOpen = this.designTree.map((node) => node.id)
+    }
+
+    normalizeDesignNodes(nodes: DesignNode[]): DesignNode[] {
+        return nodes.map((node) => ({
+            id: node.id,
+            name: node.name,
+            nodeType: node.nodeType === 'design' ? 'design' : 'item',
+            fileId: node.fileId,
+            version: node.version,
+            children: this.normalizeDesignNodes(node.children || []),
+        }))
+    }
+
+    saveDesignTree() {
+        const storageKey = 'central_files_design_tree_v1'
+        localStorage.setItem(storageKey, JSON.stringify(this.designTree))
+
+        if (this.isFleetMode) {
+            if (this.designSyncTimer) clearTimeout(this.designSyncTimer)
+            this.designSyncTimer = setTimeout(() => this.syncDesignTreeToApi(), 800)
+        }
+    }
+
+    async syncDesignTreeToApi() {
+        try {
+            const token = localStorage.getItem('fleet_token')
+            const payload = this.designNodesToApi(this.designTree)
+            await fetch('/api/design-tree/sync', {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ designs: payload }),
+            })
+        } catch (error) {
+            console.error('Error syncing design tree to API:', error)
+        }
+    }
+
+    designNodesToApi(nodes: DesignNode[]): Array<Record<string, unknown>> {
+        return nodes.map((node) => ({
+            name: node.name,
+            nodeType: node.nodeType || 'item',
+            fileId: node.fileId || null,
+            version: node.version || null,
+            children: this.designNodesToApi(node.children || []),
+        }))
+    }
+
+    getMaxDesignId(nodes: DesignNode[]): number {
+        let maxId = 0
+        for (const node of nodes) {
+            maxId = Math.max(maxId, node.id)
+            if (node.children.length) {
+                maxId = Math.max(maxId, this.getMaxDesignId(node.children))
+            }
+        }
+        return maxId
+    }
+
+    getNextDesignId(): number {
+        const id = this.designNextId
+        this.designNextId += 1
+        return id
+    }
+
+    findDesignNodeById(nodes: DesignNode[], id: number): DesignNode | null {
+        for (const node of nodes) {
+            if (node.id === id) return node
+            if (node.children.length) {
+                const found = this.findDesignNodeById(node.children, id)
+                if (found) return found
+            }
+        }
+        return null
+    }
+
+    buildDesignTree(nodes: DesignNode[], parentId: number | null): TreeDisplayNode[] {
+        const treeNodes: TreeDisplayNode[] = nodes.map((node) => ({
+            id: node.id,
+            name: node.nodeType === 'design' ? `${node.name}` : node.name,
+            children: this.buildDesignTree(node.children, node.id),
+        }))
+
+        treeNodes.push({
+            id: `dadd:${parentId === null ? 'root' : parentId}`,
+            name: parentId === null ? '+ Add Product' : '+ Add Part or Design',
+            isAddAction: true,
+        })
+
+        return treeNodes
+    }
+
+    getDesignNodeVersion(nodeId: number | string): string {
+        if (typeof nodeId === 'string') return ''
+        const node = this.findDesignNodeById(this.designTree, nodeId)
+        return node?.version || ''
+    }
+
+    getDesignNodeColor(name: string): string {
+        const ext = name.split('.').pop()?.toLowerCase()
+        switch (ext) {
+            case '3mf': return 'accent'
+            case 'stl': return 'orange'
+            case 'step':
+            case 'stp': return 'teal'
+            default: return 'secondary'
+        }
+    }
+
+    onDesignActiveChanged(active: Array<number | string>) {
+        this.designActive = active
+        void this.openSelectedDesignNodeActions()
+    }
+
+    async openSelectedDesignNodeActions() {
+        const selectedNode = this.selectedDesignNode
+        if (!selectedNode || selectedNode.nodeType !== 'design' || !selectedNode.fileId) return
+
+        let file = this.designFiles.find((entry) => entry.id === selectedNode.fileId)
+        if (!file) {
+            await this.loadDesignFiles()
+            file = this.designFiles.find((entry) => entry.id === selectedNode.fileId)
+        }
+
+        if (!file) {
+            this.showError(`Unable to find design file for "${selectedNode.name}"`)
+            return
+        }
+
+        this.openFileActionsDialog(file)
+    }
+
+    addDesignProduct() {
+        const name = this.newDesignProductName.trim()
+        if (!name) return
+
+        const product: DesignNode = {
+            id: this.getNextDesignId(),
+            name,
+            children: [],
+        }
+
+        this.designTree = [...this.designTree, product]
+        this.designOpen = [...this.designOpen, product.id]
+        this.newDesignProductName = ''
+        this.saveDesignTree()
+        this.showSuccess('Design product added')
+    }
+
+    async addDesignPart() {
+        const targetParentId = this.selectedDesignTargetParentId
+        if (targetParentId === undefined) return
+
+        if (this.designAddMode === 'design') {
+            await this.uploadDesignFilesToTree(targetParentId)
+            return
+        }
+
+        const partName = this.newDesignPartName.trim()
+        if (!partName) return
+
+        if (targetParentId === null) {
+            this.designTree = [...this.designTree, {
+                id: this.getNextDesignId(),
+                name: partName,
+                children: [],
+            }]
+            this.newDesignPartName = ''
+            this.saveDesignTree()
+            this.showSuccess('Design item added at root level')
+            return
+        }
+
+        const childNode: DesignNode = {
+            id: this.getNextDesignId(),
+            name: partName,
+            children: [],
+        }
+
+        const updatedTree = this.appendDesignChild(this.designTree, targetParentId, childNode)
+        if (!updatedTree.added) return
+
+        this.designTree = updatedTree.nodes
+
+        if (!this.designOpen.includes(targetParentId)) {
+            this.designOpen = [...this.designOpen, targetParentId]
+        }
+
+        this.newDesignPartName = ''
+        this.saveDesignTree()
+        this.showSuccess('Design part added')
+    }
+
+    appendDesignChild(nodes: DesignNode[], parentId: number, childNode: DesignNode): { nodes: DesignNode[]; added: boolean } {
+        let added = false
+        const updatedNodes = nodes.map((node) => {
+            if (node.id === parentId) {
+                added = true
+                return {
+                    ...node,
+                    children: [...node.children, childNode],
+                }
+            }
+            const nested = this.appendDesignChild(node.children, parentId, childNode)
+            if (nested.added) {
+                added = true
+                return {
+                    ...node,
+                    children: nested.nodes,
+                }
+            }
+            return node
+        })
+        return { nodes: updatedNodes, added }
+    }
+
+    onDesignFilesSelected(event: Event) {
+        const input = event.target as HTMLInputElement
+        if (input.files) {
+            this.designSelectedFiles = Array.from(input.files)
+        }
+        input.value = ''
+    }
+
+    openDesignFilePicker() {
+        const input = this.$refs.designFileInput as HTMLInputElement | undefined
+        input?.click()
+    }
+
+    removeDesignFile(index: number) {
+        this.designSelectedFiles.splice(index, 1)
+    }
+
+    getDesignFileIcon(filename: string): string {
+        const ext = filename.split('.').pop()?.toLowerCase()
+        switch (ext) {
+            case '3mf': return 'mdi-cube'
+            case 'stl': return 'mdi-triangle'
+            case 'step':
+            case 'stp': return 'mdi-vector-square'
+            default: return 'mdi-file-cad-box'
+        }
+    }
+
+    getDesignFileColor(filename: string): string {
+        const ext = filename.split('.').pop()?.toLowerCase()
+        switch (ext) {
+            case '3mf': return 'accent'
+            case 'stl': return 'orange'
+            case 'step':
+            case 'stp': return 'teal'
+            default: return 'grey'
+        }
+    }
+
+    async uploadDesignFilesToTree(targetParentId: number | null) {
+        if (!this.designSelectedFiles.length) return
+
+        this.designUploading = true
+        this.designUploadProgress = 0
+
+        try {
+            const token = localStorage.getItem('fleet_token')
+            const formData = new FormData()
+
+            formData.append('fileType', 'design')
+
+            if (this.designUploadVersion) {
+                formData.append('version', this.designUploadVersion)
+            }
+
+            for (const file of this.designSelectedFiles) {
+                formData.append('files', file)
+            }
+
+            const response = await fetch('/api/files/upload', {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+                body: formData,
+            })
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}))
+                this.showError(errData.error || 'Failed to upload design files')
+                return
+            }
+
+            const payload = await response.json().catch(() => ({}))
+            const uploadedFiles: Array<{ id?: string; name?: string }> = payload?.files || []
+            const uploadedIdByName = new Map<string, string[]>()
+
+            uploadedFiles.forEach((file) => {
+                if (!file.name || !file.id) return
+                const existing = uploadedIdByName.get(file.name) || []
+                existing.push(file.id)
+                uploadedIdByName.set(file.name, existing)
+            })
+
+            const uploadedNodes: DesignNode[] = this.designSelectedFiles.map((file) => {
+                const ids = uploadedIdByName.get(file.name)
+                const fileId = ids?.shift()
+                return {
+                    id: this.getNextDesignId(),
+                    name: file.name,
+                    nodeType: 'design' as const,
+                    fileId: fileId || undefined,
+                    version: this.designUploadVersion || undefined,
+                    children: [],
+                }
+            })
+
+            const inserted = this.insertDesignNodesAtTarget(this.designTree, targetParentId, uploadedNodes)
+            if (!inserted.inserted) {
+                this.designTree = [...this.designTree, ...uploadedNodes]
+            } else {
+                this.designTree = inserted.nodes
+            }
+
+            if (targetParentId !== null && !this.designOpen.includes(targetParentId)) {
+                this.designOpen = [...this.designOpen, targetParentId]
+            }
+
+            this.designSelectedFiles = []
+            this.designUploadVersion = '1.0'
+            this.saveDesignTree()
+            await this.loadDesignFiles()
+            this.showSuccess('Design files uploaded and added to tree')
+        } catch (error) {
+            console.error('Error uploading design files:', error)
+            this.showError('Failed to upload design files')
+        } finally {
+            this.designUploading = false
+            this.designUploadProgress = 0
+        }
+    }
+
+    insertDesignNodesAtTarget(nodes: DesignNode[], targetParentId: number | null, newNodes: DesignNode[]): { nodes: DesignNode[]; inserted: boolean } {
+        if (targetParentId === null) {
+            return { nodes: [...nodes, ...newNodes], inserted: true }
+        }
+
+        let inserted = false
+        const updatedNodes = nodes.map((node) => {
+            if (node.id === targetParentId) {
+                inserted = true
+                return {
+                    ...node,
+                    children: [...node.children, ...newNodes],
+                }
+            }
+            const nested = this.insertDesignNodesAtTarget(node.children, targetParentId, newNodes)
+            if (nested.inserted) {
+                inserted = true
+                return {
+                    ...node,
+                    children: nested.nodes,
+                }
+            }
+            return node
+        })
+        return { nodes: updatedNodes, inserted }
+    }
+
+    removeSelectedDesignNode() {
+        if (!this.designActive.length) return
+        const selectedId = this.designActive[0]
+        if (typeof selectedId === 'string' && selectedId.startsWith('dadd:')) return
+
+        const numericId = typeof selectedId === 'number' ? selectedId : Number(selectedId)
+        if (Number.isNaN(numericId)) return
+
+        const removed = this.removeDesignNodeById(this.designTree, numericId)
+        if (removed.removed) {
+            this.designTree = removed.nodes
+            this.designActive = []
+            this.designOpen = this.designOpen.filter((openId) => Number(openId) !== numericId)
+            this.saveDesignTree()
+            this.showSuccess('Design item removed')
+        }
+    }
+
+    removeDesignNodeById(nodes: DesignNode[], id: number): { nodes: DesignNode[]; removed: boolean } {
+        let removed = false
+        const updatedNodes: DesignNode[] = []
+
+        for (const node of nodes) {
+            if (node.id === id) {
+                removed = true
+                continue
+            }
+            if (node.children && node.children.length) {
+                const nested = this.removeDesignNodeById(node.children, id)
+                if (nested.removed) {
+                    removed = true
+                    updatedNodes.push({ ...node, children: nested.nodes })
+                    continue
+                }
+            }
+            updatedNodes.push(node)
+        }
+
+        return { nodes: updatedNodes, removed }
     }
 
     async refreshFiles() {
@@ -1544,7 +2178,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
                 this.uploadCategory = null
                 this.uploadPrintTime = ''
                 await this.refreshFiles()
-                await this.loadFeaturedParts()
+                await this.loadDesignFiles()
             } else {
                 this.showError(result.error || 'Failed to upload files')
             }
@@ -1586,16 +2220,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         this.sendDialog = true
     }
 
-    sendAllToPrinter(group: { category: string; files: RepositoryFile[] }) {
-        // For now, show the dialog with the first file - user can send each individually
-        // In the future, this could be enhanced to queue all files
-        if (group.files.length > 0) {
-            this.selectedFile = group.files[0]
-            this.selectedPrinter = null
-            this.sendDialog = true
-            this.showSuccess(`Selected "${this.getCategoryDisplayName(group.category)}" part set. Send each file individually from the table.`)
-        }
-    }
+
 
     async confirmSendToPrinter() {
         if (!this.selectedFile || !this.selectedPrinter) return
