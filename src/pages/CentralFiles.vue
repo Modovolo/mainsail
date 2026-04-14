@@ -65,6 +65,11 @@
                                         >{{ item.name }}</span>
                                         <span v-else>{{ item.name }}</span>
                                     </template>
+                                    <template #append="{ item }">
+                                        <v-chip v-if="item.isGcodeFile && getRecipeNodeVersion(item.id)" x-small outlined color="primary" class="ml-1">
+                                            v{{ getRecipeNodeVersion(item.id) }}
+                                        </v-chip>
+                                    </template>
                                 </v-treeview>
                                 <div v-if="!recipes.length" class="text-body-2 grey--text">
                                     No recipes yet. Add a product to get started.
@@ -141,6 +146,16 @@
                                             {{ file.name }}
                                         </v-chip>
                                     </div>
+                                    <v-text-field
+                                        v-if="recipeGcodeFiles.length"
+                                        v-model="recipeUploadVersion"
+                                        label="Version"
+                                        placeholder="e.g., 1.0"
+                                        outlined
+                                        dense
+                                        class="mt-2"
+                                        prepend-icon="mdi-tag"
+                                    ></v-text-field>
                                 </div>
 
                                 <v-btn
@@ -813,6 +828,22 @@
                                 <v-icon>mdi-chevron-right</v-icon>
                             </v-list-item-action>
                         </v-list-item>
+                        <v-divider inset></v-divider>
+                        <v-list-item
+                            class="action-item"
+                            @click="handleDeleteGcodeFile"
+                        >
+                            <v-list-item-icon>
+                                <v-icon color="error">mdi-delete</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-content>
+                                <v-list-item-title class="error--text">Delete G-Code File</v-list-item-title>
+                                <v-list-item-subtitle>Remove from recipe tree</v-list-item-subtitle>
+                            </v-list-item-content>
+                            <v-list-item-action>
+                                <v-icon>mdi-chevron-right</v-icon>
+                            </v-list-item-action>
+                        </v-list-item>
                     </v-list>
                 </v-card-text>
                 <v-card-actions class="px-4 py-3">
@@ -940,6 +971,7 @@ interface RecipeNode {
     children: RecipeNode[]
     nodeType?: 'item' | 'gcode'
     fileId?: string
+    version?: string
 }
 
 interface DesignNode {
@@ -1027,6 +1059,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     recipeAddMode: 'item' | 'gcode' = 'item'
     recipeGcodeFiles: File[] = []
     recipeUploading = false
+    recipeUploadVersion = '1.0'
     recipeSyncTimer: ReturnType<typeof setTimeout> | null = null
 
     recipeAddModeOptions = [
@@ -1309,6 +1342,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
             name: String(node.name || ''),
             nodeType: (node.nodeType === 'gcode' ? 'gcode' : 'item') as 'item' | 'gcode',
             fileId: node.fileId ? String(node.fileId) : undefined,
+            version: node.version ? String(node.version) : undefined,
             children: this.apiNodesToLocal((node.children as Array<Record<string, unknown>>) || []),
         }))
     }
@@ -1348,6 +1382,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
             name: node.name,
             nodeType: node.nodeType === 'gcode' ? 'gcode' : 'item',
             fileId: node.fileId,
+            version: node.version,
             children: this.normalizeRecipeNodes(node.children || []),
         }))
     }
@@ -1422,6 +1457,26 @@ export default class CentralFiles extends Mixins(BaseMixin) {
         this.gcodeFileActionsDialog = false
     }
 
+    handleDeleteGcodeFile() {
+        if (!this.selectedGcodeFileForActions) return
+        this.gcodeFileActionsDialog = false
+
+        // Remove the node from the recipe tree
+        if (this.gcodeFileNodeId !== null) {
+            const removed = this.removeRecipeNodeById(this.recipes, this.gcodeFileNodeId)
+            if (removed.removed) {
+                this.recipes = removed.nodes
+                this.recipeActive = []
+                this.recipeOpen = this.recipeOpen.filter((openId) => Number(openId) !== this.gcodeFileNodeId)
+                this.saveRecipes()
+            }
+        }
+
+        // Also delete the underlying file from the repository
+        this.selectedFile = this.selectedGcodeFileForActions
+        this.deleteDialog = true
+    }
+
     saveRecipes() {
         const storageKey = 'central_files_recipies_v1'
         localStorage.setItem(storageKey, JSON.stringify(this.recipes))
@@ -1456,6 +1511,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
             name: node.name,
             nodeType: node.nodeType || 'item',
             fileId: node.fileId || null,
+            version: node.version || null,
             children: this.localNodesToApi(node.children || []),
         }))
     }
@@ -1610,6 +1666,10 @@ export default class CentralFiles extends Mixins(BaseMixin) {
             const token = localStorage.getItem('fleet_token')
             const formData = new FormData()
 
+            if (this.recipeUploadVersion) {
+                formData.append('version', this.recipeUploadVersion)
+            }
+
             for (const file of this.recipeGcodeFiles) {
                 formData.append('files', file)
             }
@@ -1662,6 +1722,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
                     name: file.name,
                     nodeType: 'gcode',
                     fileId: matchedId,
+                    version: this.recipeUploadVersion || undefined,
                     children: [],
                 }
             })
@@ -1678,6 +1739,7 @@ export default class CentralFiles extends Mixins(BaseMixin) {
             }
 
             this.recipeGcodeFiles = []
+            this.recipeUploadVersion = '1.0'
             this.saveRecipes()
             await this.refreshFiles()
             await this.loadDesignFiles()
@@ -1999,6 +2061,12 @@ export default class CentralFiles extends Mixins(BaseMixin) {
     getDesignNodeVersion(nodeId: number | string): string {
         if (typeof nodeId === 'string') return ''
         const node = this.findDesignNodeById(this.designTree, nodeId)
+        return node?.version || ''
+    }
+
+    getRecipeNodeVersion(nodeId: number | string): string {
+        if (typeof nodeId === 'string') return ''
+        const node = this.findRecipeNodeById(this.recipes, nodeId)
         return node?.version || ''
     }
 

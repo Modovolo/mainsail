@@ -662,12 +662,15 @@ class FleetManager:
         logger.info("HTTP API server: http://0.0.0.0:8080")
         
         # Printer connections on port 9080
+        # max_size raised to 100 MiB to support large gcode file uploads
+        # (base64-encoded files + JSON overhead can easily exceed the 1 MiB default)
         printer_server = await serve(
             self.handle_printer_connection,
             "0.0.0.0",
             9080,
             ping_interval=30,
-            ping_timeout=10
+            ping_timeout=10,
+            max_size=100 * 1024 * 1024
         )
 
         # Web client connections on port 9081
@@ -676,7 +679,8 @@ class FleetManager:
             "0.0.0.0", 
             9081,
             ping_interval=30,
-            ping_timeout=10
+            ping_timeout=10,
+            max_size=100 * 1024 * 1024
         )
 
         logger.info("Fleet Manager started")

@@ -997,7 +997,8 @@ class FleetClient:
                 self.fleet_ws_url,
                 ping_interval=30,
                 ping_timeout=10,
-                close_timeout=5
+                close_timeout=5,
+                max_size=100 * 1024 * 1024
             )
             
             # Get local network info for webcam access

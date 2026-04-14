@@ -61,7 +61,7 @@ function sliceAndAnalyze(vertices: Float32Array) {
             typeExtrusion[seg.type] = (typeExtrusion[seg.type] || 0) + seg.extrusionAmount
         }
 
-        const lt = planLayer(shellSegments, infillSegments, layer.z, i, config, prevFilament, prevEndPos)
+        const lt = planLayer(shellSegments, infillSegments, [], layer.z, i, config, prevFilament, prevEndPos)
         const hasExtrusion = lt.segments.some((s) => s.type !== 'travel')
         if (!hasExtrusion) continue
 

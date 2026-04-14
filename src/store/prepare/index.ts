@@ -54,6 +54,7 @@ const DEFAULT_SLICE_PARAMS: SliceParams = {
     mouse_ear_layers: 1,
     raft_pad_layers: 3,
     raft_pad_gap: 0.15,
+    bed_heater_temps: {},
 }
 
 const QUALITY_PRESETS: Record<string, Partial<SliceParams>> = {

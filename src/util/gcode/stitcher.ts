@@ -25,6 +25,8 @@ export interface StitchOptions {
     retractFeedrate: number
     /** Whether to use relative extrusion (M83) - auto-detected if not set */
     relativeExtrusion?: boolean
+    /** Multi-zone bed heater temps: Klipper heater name -> target temp. Replaces M140/M190 in preamble. */
+    bedHeaterTemps?: Record<string, number>
 }
 
 const DEFAULT_OPTIONS: StitchOptions = {
@@ -311,6 +313,42 @@ export function stitchGcodes(
         output.push(line)
     }
 
+    // If multi-zone bed heater temps are provided, inject them after the preamble
+    // (replacing any existing M140/M190 commands that were in the original preamble)
+    if (opts.bedHeaterTemps && Object.keys(opts.bedHeaterTemps).length > 0) {
+        // Remove existing M140/M190 lines from output (they came from the preamble)
+        const bedCmdPattern = /^\s*M(140|190)\s/i
+        for (let i = output.length - 1; i >= 0; i--) {
+            if (bedCmdPattern.test(output[i])) {
+                output.splice(i, 1)
+            }
+        }
+        // Insert multi-zone temperature commands before G28
+        const g28Idx = output.findIndex((l) => /^\s*G28\b/.test(l))
+        const insertIdx = g28Idx >= 0 ? g28Idx : output.length
+        const zoneLines: string[] = ['; Multi-zone bed heater control']
+        const activeHeaters: [string, number][] = []
+        for (const [name, temp] of Object.entries(opts.bedHeaterTemps)) {
+            if (temp > 0) {
+                zoneLines.push(`SET_HEATER_TEMPERATURE HEATER=${name} TARGET=${temp} ; Heat bed zone`)
+                activeHeaters.push([name, temp])
+            }
+        }
+        // Insert start-heating commands before G28
+        output.splice(insertIdx, 0, ...zoneLines)
+
+        // Insert wait-for-temperature commands after G28
+        const g28After = output.findIndex((l, idx) => idx > insertIdx && /^\s*G28\b/.test(l))
+        if (g28After >= 0) {
+            const waitLines: string[] = []
+            for (const [name, temp] of activeHeaters) {
+                const minTemp = Math.max(0, temp - 2)
+                waitLines.push(`TEMPERATURE_WAIT SENSOR="heater_generic ${name}" MINIMUM=${minTemp} ; Wait for ${name}`)
+            }
+            output.splice(g28After + 1, 0, ...waitLines)
+        }
+    }
+
     // 2. Print each part's body with coordinate offsets
     for (let i = 0; i < parts.length; i++) {
         const part = parts[i]
@@ -350,8 +388,22 @@ export function stitchGcodes(
     output.push('; === END OF SEQUENTIAL JOB ===')
     output.push('')
 
-    for (const line of splits[splits.length - 1].postamble) {
-        output.push(line)
+    if (opts.bedHeaterTemps && Object.keys(opts.bedHeaterTemps).length > 0) {
+        // Replace M140 S0 in postamble with per-zone turn-off commands
+        const postamble = splits[splits.length - 1].postamble
+        for (const line of postamble) {
+            if (/^\s*M140\s+S0\b/i.test(line)) {
+                for (const name of Object.keys(opts.bedHeaterTemps)) {
+                    output.push(`SET_HEATER_TEMPERATURE HEATER=${name} TARGET=0 ; Turn off ${name}`)
+                }
+            } else {
+                output.push(line)
+            }
+        }
+    } else {
+        for (const line of splits[splits.length - 1].postamble) {
+            output.push(line)
+        }
     }
 
     if (onProgress) {

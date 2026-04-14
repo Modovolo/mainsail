@@ -39,6 +39,7 @@ function createTestSliceParams(overrides: Partial<SliceParams> = {}): SliceParam
         mouse_ear_layers: 2,
         raft_pad_layers: 3,
         raft_pad_gap: 0.15,
+        bed_heater_temps: {},
         ...overrides,
     }
 }

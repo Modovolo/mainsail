@@ -233,6 +233,7 @@ export function generateSkirt(
 export function planLayer(
     shellSegments: ToolpathSegment[],
     infillSegments: ToolpathSegment[],
+    supportSegments: ToolpathSegment[],
     z: number,
     layerIndex: number,
     config: SlicerConfig,
@@ -246,12 +247,12 @@ export function planLayer(
     const floors = infillSegments.filter((s) => s.type === 'floor')
     const roofs = infillSegments.filter((s) => s.type === 'roof')
     const infill = infillSegments.filter((s) => s.type === 'infill')
+    const support = supportSegments.filter((s) => s.type === 'support')
 
-    // Print inner walls first, outer walls last for better surface quality.
-    // This also ensures outer-wall segments appear later in the move list,
-    // giving them rendering priority in the preview (last-drawn wins for
-    // coplanar geometry at the same layer height).
+    // Print support first (sacrifice quality there), then inner walls,
+    // infill, and outer walls last for best surface quality.
     const ordered = [
+        ...orderSegments(support),
         ...innerWalls,
         ...orderSegments(floors),
         ...orderSegments(roofs),

@@ -7,12 +7,19 @@
  * Communicates with the main thread via postMessage.
  */
 
-import { SlicerConfig, WorkerRequest, WorkerResponse, LayerToolpath } from './types'
+import { SlicerConfig, WorkerRequest, WorkerResponse, LayerToolpath, Contour } from './types'
 import { sliceMesh } from './algorithms/meshSlicer'
 import { generateShells } from './algorithms/shells'
 import { generateInfill } from './algorithms/infill'
+import { generateSupport } from './algorithms/support'
 import { planLayer, generateSkirt } from './algorithms/toolpathPlanner'
 import { exportGcode, computeStats } from './algorithms/gcodeExport'
+import {
+    computeTopSurfaceRegions,
+    computeBottomSurfaceRegions,
+    contourIntersection,
+    contourDifference,
+} from './algorithms/topSurface'
 
 const ctx = self as unknown as Worker
 
@@ -49,9 +56,41 @@ function runSlicingPipeline(id: string, vertices: Float32Array, config: SlicerCo
             return
         }
 
+        // Stage 1b: Support detection (needs all layers before per-layer processing)
+        let supportByLayer: import('./types').ToolpathSegment[][] | undefined
+        if (config.enableSupport) {
+            sendProgress(id, 25, 'support', 'Detecting overhangs and generating supports...')
+            supportByLayer = generateSupport(sliceLayers, config)
+        }
+
         sendProgress(id, 30, 'shells', `Generating shells for ${sliceLayers.length} layers...`)
 
-        // Stage 2 & 3: Shell generation + infill for each layer
+        // ---- Phase 2a: Generate shells for all layers, store inner contours ----
+        const layerShellData: Array<{
+            shellSegments: import('./types').ToolpathSegment[]
+            innerContours: Contour[]
+        }> = []
+
+        for (let i = 0; i < sliceLayers.length; i++) {
+            if (cancelledJobs.has(id)) return
+            const layer = sliceLayers[i]
+            const { segments: shellSegments, innerContours } = generateShells(
+                layer.contours,
+                layer.z,
+                layer.layerHeight,
+                config
+            )
+            layerShellData.push({ shellSegments, innerContours })
+        }
+
+        // ---- Phase 2b: Compute per-region top/bottom surface regions ----
+        sendProgress(id, 40, 'surfaces', 'Detecting top/bottom surfaces...')
+
+        const rawContours = sliceLayers.map((l) => l.contours)
+        const topSurfaceByLayer = computeTopSurfaceRegions(rawContours, config.topLayers)
+        const bottomSurfaceByLayer = computeBottomSurfaceRegions(rawContours, config.bottomLayers)
+
+        // ---- Phase 2c: Generate infill with per-region solid/normal split ----
         const layerToolpaths: LayerToolpath[] = []
         let prevFilament = 0
         // Track nozzle end position across layers for proper travel insertion.
@@ -64,33 +103,45 @@ function runSlicingPipeline(id: string, vertices: Float32Array, config: SlicerCo
             const layer = sliceLayers[i]
             const z = layer.z
             const layerHeight = layer.layerHeight
+            const { shellSegments, innerContours } = layerShellData[i]
 
-            // Determine if this is a top/bottom solid layer
-            const isBottom = i < config.bottomLayers
-            const isTop = i >= sliceLayers.length - config.topLayers
+            // Determine solid fill regions from per-region surface detection
+            const topRegions = topSurfaceByLayer[i]
+            const bottomRegions = bottomSurfaceByLayer[i]
+            const hasSolidRegions = topRegions.length > 0 || bottomRegions.length > 0
 
-            // Generate shells (walls)
-            const { segments: shellSegments, innerContours } = generateShells(
-                layer.contours,
-                z,
-                layerHeight,
-                config
-            )
+            let infillSegments: import('./types').ToolpathSegment[]
 
-            // Generate infill
-            const infillSegments = generateInfill(
-                innerContours,
-                z,
-                i,
-                layerHeight,
-                config,
-                isBottom || isTop
-            )
+            if (!hasSolidRegions) {
+                // No exposed surfaces — normal infill for everything
+                infillSegments = generateInfill(
+                    innerContours, z, i, layerHeight, config, false
+                )
+            } else {
+                // Split inner contours into solid fill regions and normal regions.
+                // Solid regions = intersection of inner contours with top/bottom surface.
+                // Normal regions = inner contours minus solid regions.
+                const solidSurface = [...topRegions, ...bottomRegions]
+                const solidInnerContours = contourIntersection(innerContours, solidSurface)
+                const normalInnerContours = contourDifference(innerContours, solidSurface)
+
+                const solidInfill = generateInfill(
+                    solidInnerContours, z, i, layerHeight, config, true
+                )
+                const normalInfill = generateInfill(
+                    normalInnerContours, z, i, layerHeight, config, false
+                )
+                infillSegments = [...solidInfill, ...normalInfill]
+            }
+
+            // Gather support segments for this layer
+            const supportSegments = supportByLayer ? supportByLayer[i] || [] : []
 
             // Plan toolpath (ordering + travel moves)
             const layerToolpath = planLayer(
                 shellSegments,
                 infillSegments,
+                supportSegments,
                 z,
                 i,
                 config,
@@ -111,9 +162,9 @@ function runSlicingPipeline(id: string, vertices: Float32Array, config: SlicerCo
                 prevEndPos = lastSeg.to
             }
 
-            // Progress: shells+infill = 30-70%
+            // Progress: infill = 45-70%
             if (i % 5 === 0) {
-                const progress = 30 + (i / sliceLayers.length) * 40
+                const progress = 45 + (i / sliceLayers.length) * 25
                 sendProgress(id, progress, 'toolpaths', `Processing layer ${i + 1}/${sliceLayers.length}`)
             }
         }

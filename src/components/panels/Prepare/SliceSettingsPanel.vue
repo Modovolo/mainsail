@@ -136,6 +136,7 @@
                         outlined
                         dense
                         hide-details
+                        :menu-props="{ zIndex: 200 }"
                         class="mb-3"
                         @input="setParam('infill_pattern', $event)" />
                     <v-row dense>
@@ -306,6 +307,7 @@
                             outlined
                             dense
                             hide-details
+                            :menu-props="{ zIndex: 200 }"
                             @input="setParam('support_pattern', $event)" />
                     </template>
                 </v-expansion-panel-content>
@@ -327,6 +329,7 @@
                         outlined
                         dense
                         hide-details
+                        :menu-props="{ zIndex: 200 }"
                         class="mb-3"
                         @input="setParam('adhesion_type', $event)" />
 
@@ -496,6 +499,7 @@
                         outlined
                         dense
                         hide-details
+                        :menu-props="{ zIndex: 200 }"
                         @input="setParam('idex_mode', $event)" />
                 </v-expansion-panel-content>
             </v-expansion-panel>

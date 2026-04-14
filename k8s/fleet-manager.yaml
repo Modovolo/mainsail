@@ -11,6 +11,8 @@ metadata:
     app.kubernetes.io/component: websocket
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: fleet-manager

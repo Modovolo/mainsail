@@ -30,9 +30,9 @@ class DowntimeRecordModel(Base):
     group = relationship('GroupModel')
 
     __table_args__ = (
-        Index('idx_dt_user_id', 'user_id'),
-        Index('idx_dt_group_id', 'group_id'),
-        Index('idx_dt_start', 'start'),
+        Index('idx_downtime_user_id', 'user_id'),
+        Index('idx_downtime_group_id', 'group_id'),
+        Index('idx_downtime_start', 'start'),
     )
 
 

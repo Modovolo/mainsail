@@ -147,6 +147,9 @@ export interface SlicerConfig {
     customStartGcode?: string
     customEndGcode?: string
     customLayerChangeGcode?: string
+
+    /** Per-zone bed heater temps: Klipper heater name -> target temp (0 = off) */
+    bedHeaterTemps?: Record<string, number>
 }
 
 /** Messages sent from main thread to slicer worker */

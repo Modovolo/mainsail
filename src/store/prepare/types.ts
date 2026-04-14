@@ -85,6 +85,8 @@ export interface SliceParams {
     mouse_ear_layers: number
     raft_pad_layers: number
     raft_pad_gap: number
+    /** Per-zone bed heater temps: Klipper heater name -> target temp (0 = off) */
+    bed_heater_temps: Record<string, number>
 }
 
 export interface SliceProfile {
@@ -122,6 +124,18 @@ export interface PrinterProfile {
     printheadBoundsX?: [number, number]
     /** Printhead extent [front, back] from nozzle center (mm) */
     printheadBoundsY?: [number, number]
+    /** Bed heater zones — each zone maps to a Klipper heater_generic */
+    bedHeaterZones?: BedHeaterZone[]
+}
+
+export interface BedHeaterZone {
+    /** Klipper heater name, e.g. "heater_bed_FL" */
+    name: string
+    /** Zone boundary on the bed (mm) */
+    xMin: number
+    yMin: number
+    xMax: number
+    yMax: number
 }
 
 export interface SliceJob {

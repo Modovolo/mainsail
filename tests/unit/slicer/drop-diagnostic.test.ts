@@ -59,7 +59,7 @@ describe('Dropped layer diagnostics', () => {
                     innerContours, layer.z, i, layer.layerHeight, config, isBottom || isTop
                 )
 
-                const lt = planLayer(shellSegments, infillSegments, layer.z, i, config, 0)
+                const lt = planLayer(shellSegments, infillSegments, [], layer.z, i, config, 0)
                 const hasExtrusion = lt.segments.some((s) => s.type !== 'travel')
 
                 if (!hasExtrusion) {

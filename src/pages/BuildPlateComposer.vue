@@ -18,6 +18,10 @@
                     <v-icon left small>mdi-percent</v-icon>
                     {{ bedUtilization }}% bed
                 </v-chip>
+                <v-chip v-if="bedHeaterZones.length" small outlined class="ml-2">
+                    <v-icon left small>mdi-fire</v-icon>
+                    {{ activeZoneCount }}/{{ bedHeaterZones.length }} zones
+                </v-chip>
             </div>
 
             <!-- Empty state -->
@@ -34,15 +38,19 @@
             </v-overlay>
         </div>
 
-        <!-- Left Panel: Recipe Browser -->
-        <div class="left-panel">
-            <v-card flat class="fill-height d-flex flex-column">
+        <!-- Recipe Dialog -->
+        <v-dialog v-model="recipeDialog" max-width="450" scrollable>
+            <v-card>
                 <v-card-title class="py-2 text-subtitle-2">
                     <v-icon small class="mr-1">mdi-source-branch</v-icon>
                     G-Code Recipes
+                    <v-spacer />
+                    <v-btn icon small @click="recipeDialog = false">
+                        <v-icon small>mdi-close</v-icon>
+                    </v-btn>
                 </v-card-title>
                 <v-divider />
-                <div class="flex-grow-1 overflow-y-auto pa-2">
+                <v-card-text class="pa-2" style="max-height: 60vh">
                     <v-treeview
                         :items="recipeTreeItems"
                         item-key="id"
@@ -53,6 +61,7 @@
                         hoverable
                         :open.sync="recipeOpen"
                         :active.sync="recipeActive"
+                        @update:active="onRecipeActivated"
                     >
                         <template #prepend="{ item }">
                             <v-icon small :color="item.nodeType === 'gcode' ? 'success' : 'primary'">
@@ -75,9 +84,9 @@
                     <div v-if="!recipes.length" class="text-body-2 grey--text pa-2">
                         No recipes found. Add G-code files to recipes in Central Files first.
                     </div>
-                </div>
+                </v-card-text>
             </v-card>
-        </div>
+        </v-dialog>
 
         <!-- Right Panel: Build Plate Items & Controls -->
         <div class="right-panel">
@@ -161,6 +170,32 @@
                     </v-alert>
                 </div>
 
+                <!-- Bed Heater Zones -->
+                <div v-if="bedHeaterZones.length" class="pa-2">
+                    <v-divider class="mb-2" />
+                    <div class="text-caption grey--text mb-1">
+                        <v-icon x-small class="mr-1">mdi-fire</v-icon>
+                        Bed Heater Zones ({{ activeZoneCount }}/{{ bedHeaterZones.length }})
+                    </div>
+                    <v-chip
+                        v-for="zone in bedHeaterZones"
+                        :key="zone.name"
+                        small
+                        class="mr-1 mb-1"
+                        :color="activeZones[zone.name] ? 'deep-orange' : 'grey darken-2'"
+                        :outlined="!activeZones[zone.name]"
+                        @click="toggleZone(zone.name)"
+                    >
+                        <v-icon left x-small>{{ activeZones[zone.name] ? 'mdi-fire' : 'mdi-fire-off' }}</v-icon>
+                        {{ zone.name.replace('heater_bed_', '') }}
+                    </v-chip>
+                    <div class="text-caption grey--text mt-1">
+                        Click to toggle. Auto-detected from part placement.
+                    </div>
+                </div>
+
+                <v-divider />
+
                 <!-- Action Buttons -->
                 <div class="pa-2">
                     <v-btn
@@ -215,6 +250,15 @@
 
         <!-- Printer Selection -->
         <div class="top-bar">
+            <v-btn
+                color="primary"
+                small
+                class="mr-2"
+                @click="recipeDialog = true"
+            >
+                <v-icon left small>mdi-source-branch</v-icon>
+                Add Recipes
+            </v-btn>
             <v-menu offset-y bottom max-width="350">
                 <template #activator="{ on, attrs }">
                     <v-btn text class="printer-selector" v-bind="attrs" v-on="on">
@@ -292,7 +336,7 @@ import { Mixins } from 'vue-property-decorator'
 import BaseMixin from '@/components/mixins/base'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
-import type { PrinterProfile } from '@/store/prepare/types'
+import type { PrinterProfile, BedHeaterZone } from '@/store/prepare/types'
 import { parseGcode } from '@/util/gcode/parser'
 import type { GcodeFootprint, BuildPlateItem } from '@/util/gcode/footprint'
 import { extractFootprint, getRotatedDimensions } from '@/util/gcode/footprint'
@@ -373,6 +417,9 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
     stitchingMessage = ''
     generatedGcode = ''
 
+    // Recipe dialog
+    recipeDialog = false
+
     // Send dialog
     sendDialog = false
     selectedPrinterId: string | null = null
@@ -381,6 +428,10 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
 
     // Active printer profile
     activePrinterId = 'generic'
+
+    // Bed heater zone state: heater name -> active (will be heated)
+    activeZones: Record<string, boolean> = {}
+    zoneMeshes = new Map<string, THREE.Mesh>()
 
     // Snackbar
     snackbar = false
@@ -452,6 +503,14 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
             return sum + dims.width * dims.depth
         }, 0)
         return Math.min(100, Math.round((partArea / bedArea) * 100))
+    }
+
+    get bedHeaterZones(): BedHeaterZone[] {
+        return this.currentProfile.bedHeaterZones ?? []
+    }
+
+    get activeZoneCount(): number {
+        return Object.values(this.activeZones).filter(Boolean).length
     }
 
     get canGenerate(): boolean {
@@ -611,6 +670,9 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
         gantryEdge.userData.isBuildVolume = true
         this.scene.add(gantryEdge)
 
+        // Bed heater zone overlays
+        this.buildZoneVisualization()
+
         this.requestRender()
     }
 
@@ -702,6 +764,7 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
             this.dragging = null
             if (this.controls) this.controls.enabled = true
             this.validationResult = null // Invalidate after move
+            this.computeActiveZones()
         }
     }
 
@@ -769,6 +832,28 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
             fileId: node.fileId,
             children: node.children?.length ? this.buildTreeItems(node.children) : undefined,
         }))
+    }
+
+    onRecipeActivated(activeIds: Array<number | string>) {
+        if (!activeIds.length) return
+        const id = activeIds[activeIds.length - 1]
+        const treeItem = this.findTreeItem(this.recipeTreeItems, id)
+        if (treeItem && treeItem.nodeType === 'gcode' && treeItem.fileId) {
+            this.addRecipeToBed(treeItem)
+            // Deselect so the same item can be clicked again
+            this.$nextTick(() => { this.recipeActive = [] })
+        }
+    }
+
+    findTreeItem(items: RecipeTreeItem[], id: number | string): RecipeTreeItem | null {
+        for (const item of items) {
+            if (item.id === id) return item
+            if (item.children) {
+                const found = this.findTreeItem(item.children, id)
+                if (found) return found
+            }
+        }
+        return null
     }
 
     // --- Printers ---
@@ -842,6 +927,7 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
             this.plateItems.push(item)
             this.addItemMesh(item)
             this.validationResult = null
+            this.computeActiveZones()
 
             this.showSuccess(`Added "${treeItem.name}" to build plate`)
         } catch (error) {
@@ -953,6 +1039,7 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
                 .sort((a, b) => a.printOrder - b.printOrder)
                 .forEach((item, i) => { item.printOrder = i })
             this.validationResult = null
+            this.computeActiveZones()
         }
     }
 
@@ -987,6 +1074,7 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
         this.plateItems = autoArrange(this.plateItems, this.sequentialConfig)
         this.rebuildAllMeshes()
         this.validationResult = null
+        this.computeActiveZones()
         this.showSuccess('Parts auto-arranged')
     }
 
@@ -1038,7 +1126,13 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
                 await this.serverSideStitch(sorted)
             } else {
                 // Client-side stitching
-                this.generatedGcode = stitchGcodes(parts, {}, (progress) => {
+                // Build multi-zone bed heater temps from the default bed_temp
+                const bedTemp = this.$store?.state?.prepare?.sliceParams?.bed_temp ?? 60
+                const stitchOpts: Record<string, unknown> = {}
+                if (this.bedHeaterZones.length) {
+                    stitchOpts.bedHeaterTemps = this.buildBedHeaterTemps(bedTemp)
+                }
+                this.generatedGcode = stitchGcodes(parts, stitchOpts, (progress) => {
                     this.stitchingMessage = `Stitching... ${Math.round(progress)}%`
                 })
             }
@@ -1147,6 +1241,127 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
         }
     }
 
+    // --- Bed Heater Zone Methods ---
+
+    /**
+     * Determine which bed heater zones overlap with placed parts.
+     * A zone is "active" if any part's bounding box intersects it.
+     */
+    computeActiveZones() {
+        const zones = this.bedHeaterZones
+        if (!zones.length) {
+            this.activeZones = {}
+            return
+        }
+
+        const newActive: Record<string, boolean> = {}
+        for (const zone of zones) {
+            newActive[zone.name] = false
+            for (const item of this.plateItems) {
+                const dims = getRotatedDimensions(item.footprint, item.rotation)
+                const halfW = dims.width / 2
+                const halfD = dims.depth / 2
+                const partXMin = item.placement.x - halfW
+                const partXMax = item.placement.x + halfW
+                const partYMin = item.placement.y - halfD
+                const partYMax = item.placement.y + halfD
+
+                // AABB overlap check
+                if (partXMax > zone.xMin && partXMin < zone.xMax &&
+                    partYMax > zone.yMin && partYMin < zone.yMax) {
+                    newActive[zone.name] = true
+                    break
+                }
+            }
+        }
+        this.activeZones = newActive
+        this.updateZoneMeshColors()
+    }
+
+    /**
+     * Build bed heater zone overlays on the 3D build plate.
+     */
+    buildZoneVisualization() {
+        if (!this.scene) return
+
+        // Remove old zone meshes
+        for (const [, mesh] of this.zoneMeshes) {
+            this.scene.remove(mesh)
+            mesh.geometry.dispose()
+            ;(mesh.material as THREE.MeshBasicMaterial).dispose()
+        }
+        this.zoneMeshes.clear()
+
+        const zones = this.bedHeaterZones
+        if (!zones.length) return
+
+        for (const zone of zones) {
+            const w = zone.xMax - zone.xMin
+            const d = zone.yMax - zone.yMin
+            const geo = new THREE.PlaneGeometry(w, d)
+            const mat = new THREE.MeshBasicMaterial({
+                color: 0x444444,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.15,
+            })
+            const mesh = new THREE.Mesh(geo, mat)
+            mesh.rotation.x = -Math.PI / 2
+            mesh.position.set(
+                zone.xMin + w / 2,
+                0.05,  // slightly above the floor plate
+                zone.yMin + d / 2,
+            )
+            mesh.userData.isBuildVolume = true
+            mesh.userData.zoneName = zone.name
+            this.scene.add(mesh)
+            this.zoneMeshes.set(zone.name, mesh)
+        }
+
+        this.computeActiveZones()
+        this.requestRender()
+    }
+
+    /**
+     * Update zone mesh colors based on active/inactive state.
+     * Active = orange glow, Inactive = dim grey.
+     */
+    updateZoneMeshColors() {
+        for (const [name, mesh] of this.zoneMeshes) {
+            const mat = mesh.material as THREE.MeshBasicMaterial
+            if (this.activeZones[name]) {
+                mat.color.setHex(0xff6600)
+                mat.opacity = 0.3
+            } else {
+                mat.color.setHex(0x444444)
+                mat.opacity = 0.1
+            }
+        }
+        this.requestRender()
+    }
+
+    /**
+     * Toggle a zone on/off manually (override auto-detection).
+     */
+    toggleZone(zoneName: string) {
+        this.activeZones = {
+            ...this.activeZones,
+            [zoneName]: !this.activeZones[zoneName],
+        }
+        this.updateZoneMeshColors()
+    }
+
+    /**
+     * Build the bed_heater_temps dict for the active zones.
+     */
+    buildBedHeaterTemps(bedTemp: number): Record<string, number> {
+        const temps: Record<string, number> = {}
+        for (const zone of this.bedHeaterZones) {
+            temps[zone.name] = this.activeZones[zone.name] ? bedTemp : 0
+        }
+        return temps
+    }
+
     // --- Helpers ---
 
     formatTime(seconds: number): string {
@@ -1189,17 +1404,7 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
     height: 100%;
 }
 
-.left-panel {
-    width: 280px;
-    min-width: 280px;
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 2;
-    background: rgba(30, 30, 50, 0.95);
-    border-right: 1px solid rgba(255, 255, 255, 0.1);
-}
+
 
 .right-panel {
     width: 300px;
@@ -1216,8 +1421,10 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
 .top-bar {
     position: absolute;
     top: 8px;
-    left: 290px;
+    left: 12px;
     z-index: 3;
+    display: flex;
+    align-items: center;
 }
 
 .printer-selector {
@@ -1228,7 +1435,7 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
 .model-info-bar {
     position: absolute;
     bottom: 12px;
-    left: 290px;
+    left: 12px;
     z-index: 3;
 }
 

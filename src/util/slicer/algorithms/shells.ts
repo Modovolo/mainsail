@@ -354,7 +354,22 @@ export function generateShells(
         }
 
         // Infill contours from the last batch slot
-        const infillPolys = allOffsets[config.wallCount]
+        let infillPolys = allOffsets[config.wallCount]
+
+        // Thin-feature gap fill: if the infill boundary collapsed (too narrow
+        // for wallCount walls), retry with progressively fewer walls so the
+        // region still gets solid fill on top/bottom surfaces.
+        if (infillPolys.length === 0 && config.wallCount > 1) {
+            for (let reducedWalls = config.wallCount - 1; reducedWalls >= 1; reducedWalls--) {
+                const fallbackDelta = -config.lineWidth / 2 - reducedWalls * config.lineWidth
+                const fallback = batchOffsetCompound(outerPts, holes, [fallbackDelta])
+                if (fallback[0].length > 0) {
+                    infillPolys = fallback[0]
+                    break
+                }
+            }
+        }
+
         for (const poly of infillPolys) {
             innerContours.push({
                 points: poly,

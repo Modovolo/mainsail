@@ -76,6 +76,16 @@
 
             <v-spacer />
 
+            <v-btn
+                v-if="loadedGcodeText"
+                small
+                outlined
+                class="mr-4"
+                @click="saveGcodeFile">
+                <v-icon small left>{{ mdiDownload }}</v-icon>
+                Save G-code
+            </v-btn>
+
             <v-btn icon small class="mr-2" @click="resetCamera">
                 <v-icon small>{{ mdiCameraFlip }}</v-icon>
             </v-btn>
@@ -218,6 +228,7 @@ import {
     mdiCropFree,
     mdiPrinter3d,
     mdiFolder,
+    mdiDownload,
     mdiChevronUp,
     mdiChevronDown,
 } from '@mdi/js'
@@ -231,6 +242,7 @@ export default class PreviewPage extends Mixins(BaseMixin) {
     mdiCropFree = mdiCropFree
     mdiPrinter3d = mdiPrinter3d
     mdiFolder = mdiFolder
+    mdiDownload = mdiDownload
     mdiChevronUp = mdiChevronUp
     mdiChevronDown = mdiChevronDown
 
@@ -284,6 +296,10 @@ export default class PreviewPage extends Mixins(BaseMixin) {
     private builtLayers: Set<number> = new Set()
     private readonly onControlsChange = () => this.requestRender()
     private lastLoadedPrepareGcode: string | null = null
+
+    /** Raw G-code text of the currently loaded file (for saving) */
+    private loadedGcodeText: string | null = null
+    private loadedGcodeFileName: string | null = null
 
     // Toolpath objects (one group per layer, separate travel lines)
     private layerMeshes: Map<number, THREE.Group> = new Map()
@@ -691,6 +707,8 @@ export default class PreviewPage extends Mixins(BaseMixin) {
             const gcodeData = prepareState?.lastGcode
             if (gcodeData === this.lastLoadedPrepareGcode) return
             this.lastLoadedPrepareGcode = gcodeData
+            this.loadedGcodeText = gcodeData ?? null
+            this.loadedGcodeFileName = 'sliced-output.gcode'
             this.loadFromToolpaths(toolpaths, gcodeData)
             return
         }
@@ -701,11 +719,24 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         if (gcodeData === this.lastLoadedPrepareGcode) return
 
         this.lastLoadedPrepareGcode = gcodeData
+        this.loadedGcodeText = gcodeData
+        this.loadedGcodeFileName = 'sliced-output.gcode'
         this.loadGcodeString(gcodeData)
     }
 
     loadGcodeFile() {
         (this.$refs.gcodeInput as HTMLInputElement)?.click()
+    }
+
+    saveGcodeFile() {
+        if (!this.loadedGcodeText) return
+        const blob = new Blob([this.loadedGcodeText], { type: 'text/plain' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = this.loadedGcodeFileName || 'output.gcode'
+        a.click()
+        URL.revokeObjectURL(url)
     }
 
     handleGcodeFileSelect(event: Event) {
@@ -716,9 +747,12 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         this.isLoading = true
         this.loadingMessage = 'Reading file...'
 
+        const fileName = file.name
         const reader = new FileReader()
         reader.onload = (e) => {
             const text = e.target?.result as string
+            this.loadedGcodeText = text
+            this.loadedGcodeFileName = fileName
             this.loadGcodeString(text)
         }
         reader.readAsText(file)

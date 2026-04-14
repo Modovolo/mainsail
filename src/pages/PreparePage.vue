@@ -516,7 +516,9 @@
                         :is-slicing="isSlicing"
                         @slice="startSlicing"
                         @save-profile="saveProfile"
-                        @load-profile="loadProfile" />
+                        @load-profile="loadProfile"
+                        @auto-suggest-adhesion="autoSuggestAdhesion"
+                        @clear-adhesion-markers="clearAdhesionMarkers" />
                 </div>
             </div>
         </transition>
@@ -911,6 +913,79 @@
                                 dense
                                 hide-details />
                         </v-col>
+
+                        <!-- Bed Heater Zone Editor -->
+                        <v-col v-if="printerProfileForm.bedHeaterControllerCount > 1" cols="12">
+                            <div class="text-caption grey--text mb-1">
+                                Bed Heater Zones — define the area each heater covers (mm)
+                            </div>
+                            <v-simple-table dense class="zone-table mb-2">
+                                <thead>
+                                    <tr>
+                                        <th>Klipper Heater Name</th>
+                                        <th>X Min</th>
+                                        <th>Y Min</th>
+                                        <th>X Max</th>
+                                        <th>Y Max</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="(zone, zi) in printerProfileForm.bedHeaterZones" :key="zi">
+                                        <td>
+                                            <v-text-field
+                                                v-model="zone.name"
+                                                dense
+                                                hide-details
+                                                placeholder="heater_bed_FL"
+                                                class="zone-input" />
+                                        </td>
+                                        <td>
+                                            <v-text-field
+                                                v-model.number="zone.xMin"
+                                                type="number"
+                                                dense
+                                                hide-details
+                                                class="zone-input" />
+                                        </td>
+                                        <td>
+                                            <v-text-field
+                                                v-model.number="zone.yMin"
+                                                type="number"
+                                                dense
+                                                hide-details
+                                                class="zone-input" />
+                                        </td>
+                                        <td>
+                                            <v-text-field
+                                                v-model.number="zone.xMax"
+                                                type="number"
+                                                dense
+                                                hide-details
+                                                class="zone-input" />
+                                        </td>
+                                        <td>
+                                            <v-text-field
+                                                v-model.number="zone.yMax"
+                                                type="number"
+                                                dense
+                                                hide-details
+                                                class="zone-input" />
+                                        </td>
+                                        <td>
+                                            <v-btn icon x-small color="error" @click="removeHeaterZone(zi)">
+                                                <v-icon x-small>mdi-close</v-icon>
+                                            </v-btn>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </v-simple-table>
+                            <v-btn x-small text color="primary" @click="addHeaterZone">
+                                <v-icon left x-small>mdi-plus</v-icon>
+                                Add Zone
+                            </v-btn>
+                        </v-col>
+
                         <v-col cols="6">
                             <v-checkbox
                                 v-model="printerProfileForm.heatedChamber"
@@ -1011,6 +1086,7 @@ import Component from 'vue-class-component'
 import { Mixins, Watch } from 'vue-property-decorator'
 import BaseMixin from '@/components/mixins/base'
 import axios from 'axios'
+import { v4 as uuidv4 } from 'uuid'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
 import {
@@ -1085,7 +1161,8 @@ interface SliceResult {
     estimated_time_formatted: string
 }
 
-import { PrinterProfile } from '@/store/prepare/types'
+import { PrinterProfile, BedHeaterZone } from '@/store/prepare/types'
+import type { AdhesionMarker } from '@/store/prepare/types'
 
 const EMPTY_PRINTER_PROFILE: PrinterProfile = {
     id: '',
@@ -1100,6 +1177,7 @@ const EMPTY_PRINTER_PROFILE: PrinterProfile = {
     heatedChamber: false,
     autoBedLeveling: false,
     directDrive: false,
+    bedHeaterZones: [],
     customStartGcode: '',
     customEndGcode: '',
     customLayerChangeGcode: '',
@@ -1697,6 +1775,30 @@ export default class PreparePage extends Mixins(BaseMixin) {
                     }
                     return
                 }
+
+                // Alt+click = place adhesion marker on bed plane
+                if (event.altKey) {
+                    const adhesionType = this.sliceParams.adhesion_type
+                    if (adhesionType === 'mouse_ears' || adhesionType === 'raft_pads' || adhesionType === 'combined') {
+                        if (this.dragPlatformPlane) {
+                            const planeHits = this.raycaster.intersectObject(this.dragPlatformPlane, false)
+                            if (planeHits.length > 0) {
+                                const pt = planeHits[0].point
+                                const markerType = (adhesionType === 'raft_pads') ? 'raft_pad' : 'mouse_ear'
+                                const marker: AdhesionMarker = {
+                                    id: uuidv4(),
+                                    type: markerType,
+                                    x: pt.x,
+                                    y: pt.z,  // Three.js Z = platform Y
+                                    confirmed: true,
+                                }
+                                this.$store.commit('prepare/addAdhesionMarker', marker)
+                                this.requestRender()
+                            }
+                        }
+                    }
+                    return
+                }
                 
                 // Start drag - record start point on platform plane
                 if (this.dragPlatformPlane) {
@@ -2255,6 +2357,16 @@ export default class PreparePage extends Mixins(BaseMixin) {
         // TODO: Show profile load dialog
         console.log('Load profile - to be implemented')
     }
+
+    autoSuggestAdhesion() {
+        // TODO: Call slicer-service footprint API for auto-suggestions
+        console.log('Auto-suggest adhesion - to be implemented with slicer-service footprint API')
+    }
+
+    clearAdhesionMarkers() {
+        this.$store.commit('prepare/clearAdhesionMarkers')
+        this.requestRender()
+    }
     
     // --- Printer Profile Management ---
     
@@ -2278,6 +2390,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.printerProfileForm = { 
             ...profile,
             buildVolume: { ...profile.buildVolume },
+            bedHeaterZones: (profile.bedHeaterZones ?? []).map((z) => ({ ...z })),
         }
         this.showPrinterMenu = false
         this.showPrinterProfileDialog = true
@@ -2287,6 +2400,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         const profile: PrinterProfile = {
             ...this.printerProfileForm,
             buildVolume: { ...this.printerProfileForm.buildVolume },
+            bedHeaterZones: (this.printerProfileForm.bedHeaterZones ?? []).map((z) => ({ ...z })),
         }
         if (!profile.name.trim()) {
             profile.name = 'Custom Printer'
@@ -2310,7 +2424,28 @@ export default class PreparePage extends Mixins(BaseMixin) {
     closePrinterProfileDialog() {
         this.showPrinterProfileDialog = false
         this.editingProfileId = null
-        this.printerProfileForm = { ...EMPTY_PRINTER_PROFILE }
+        this.printerProfileForm = { ...EMPTY_PRINTER_PROFILE, bedHeaterZones: [] }
+    }
+
+    addHeaterZone() {
+        if (!this.printerProfileForm.bedHeaterZones) {
+            this.printerProfileForm.bedHeaterZones = []
+        }
+        const bv = this.printerProfileForm.buildVolume
+        const idx = this.printerProfileForm.bedHeaterZones.length
+        const suffixes = ['FL', 'FR', 'BL', 'BR', 'C', 'L', 'R', 'F', 'B']
+        const suffix = suffixes[idx] ?? String(idx + 1)
+        this.printerProfileForm.bedHeaterZones.push({
+            name: `heater_bed_${suffix}`,
+            xMin: 0,
+            yMin: 0,
+            xMax: Math.round(bv.x / 2),
+            yMax: Math.round(bv.y / 2),
+        })
+    }
+
+    removeHeaterZone(index: number) {
+        this.printerProfileForm.bedHeaterZones?.splice(index, 1)
     }
     
     rebuildBuildVolume() {
@@ -2579,6 +2714,15 @@ export default class PreparePage extends Mixins(BaseMixin) {
             
             // Map settings
             const config = mapSettings(this.sliceParams, this.currentPrinterProfile)
+
+            // Populate adhesion marker positions from store
+            const markers: AdhesionMarker[] = this.$store.state.prepare.adhesionMarkers || []
+            config.mouseEarPositions = markers
+                .filter((m: AdhesionMarker) => m.type === 'mouse_ear')
+                .map((m: AdhesionMarker) => ({ x: m.x, y: m.y }))
+            config.raftPadPositions = markers
+                .filter((m: AdhesionMarker) => m.type === 'raft_pad')
+                .map((m: AdhesionMarker) => ({ x: m.x, y: m.y }))
             
             this.slicingMessage = 'Starting slicer engine...'
             
@@ -2855,6 +2999,14 @@ export default class PreparePage extends Mixins(BaseMixin) {
 .monospace-textarea >>> textarea {
     font-family: 'Roboto Mono', monospace;
     font-size: 12px;
+}
+
+.zone-table .zone-input {
+    font-size: 12px;
+}
+
+.zone-table td {
+    padding: 2px 4px !important;
 }
 
 /* Full-screen 3D viewer */

@@ -45,7 +45,7 @@ describe('Preview bounds check', () => {
             )
             const infillSegs = generateInfill(innerContours, layer.z, i, layer.layerHeight, config)
             const planned = planLayer(
-                segments, infillSegs,
+                segments, infillSegs, [],
                 layer.z, i, config, 0
             )
             toolpaths.push({

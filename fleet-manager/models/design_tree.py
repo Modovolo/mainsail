@@ -30,8 +30,8 @@ class DesignTreeModel(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     __table_args__ = (
-        Index('idx_dt_group_id', 'group_id'),
-        Index('idx_dt_parent_id', 'parent_id'),
+        Index('idx_dtree_group_id', 'group_id'),
+        Index('idx_dtree_parent_id', 'parent_id'),
     )
 
 

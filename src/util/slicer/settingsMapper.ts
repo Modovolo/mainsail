@@ -146,6 +146,9 @@ export function mapSettings(params: SliceParams, printer: PrinterProfile): Slice
         customStartGcode: printer.customStartGcode,
         customEndGcode: printer.customEndGcode,
         customLayerChangeGcode: printer.customLayerChangeGcode,
+
+        // Multi-zone bed heater temps (empty = single M140/M190)
+        bedHeaterTemps: params.bed_heater_temps,
     }
 }
 

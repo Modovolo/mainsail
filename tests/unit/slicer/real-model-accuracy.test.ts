@@ -99,7 +99,7 @@ function sliceFullPipeline(vertices: Float32Array, config: SlicerConfig) {
             innerContours, layer.z, i, layer.layerHeight, config, isBottom || isTop
         )
         const layerToolpath = planLayer(
-            shellSegments, infillSegments, layer.z, i, config, prevFilament, prevEndPos
+            shellSegments, infillSegments, [], layer.z, i, config, prevFilament, prevEndPos
         )
 
         const hasExtrusion = layerToolpath.segments.some((s) => s.type !== 'travel')

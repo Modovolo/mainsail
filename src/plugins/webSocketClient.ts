@@ -91,27 +91,26 @@ export class WebSocketClient {
     }
 
     async connect() {
-        console.log(`[WebSocket] connect() called, URL: ${this.url}`)
-        console.trace('[WebSocket] Stack trace for connect()')
+        console.debug(`[WebSocket] connect() called, URL: ${this.url}`)
         this.store?.dispatch('socket/setData', {
             isConnecting: true,
         })
 
         if (this.instance) {
-            console.log('[WebSocket] Closing existing instance before new connection')
+            console.debug('[WebSocket] Closing existing instance before new connection')
         }
         this.instance?.close()
         this.instance = new WebSocket(this.url)
-        console.log(`[WebSocket] WebSocket created to: ${this.url}`)
+        console.debug(`[WebSocket] WebSocket created to: ${this.url}`)
 
         this.instance.onopen = () => {
-            console.log(`[WebSocket] onopen triggered for: ${this.url}`)
+            console.debug(`[WebSocket] onopen triggered for: ${this.url}`)
             this.reconnects = 0
             this.store?.dispatch('socket/onOpen', event)
         }
 
         this.instance.onclose = (e) => {
-            console.log(`[WebSocket] onclose triggered for: ${this.url}, wasClean: ${e.wasClean}, code: ${e.code}, reason: ${e.reason}`)
+            console.debug(`[WebSocket] onclose triggered for: ${this.url}, wasClean: ${e.wasClean}, code: ${e.code}, reason: ${e.reason}`)
             if (e.wasClean || this.reconnects >= this.maxReconnects) {
                 this.store?.dispatch('socket/onClose', e)
                 return
@@ -119,13 +118,14 @@ export class WebSocketClient {
 
             this.reconnects++
             console.log(`[WebSocket] Reconnecting (attempt ${this.reconnects}/${this.maxReconnects})...`)
+            // Keep reconnect as console.log since it's infrequent and important
             setTimeout(() => {
                 this.connect()
             }, this.reconnectInterval)
         }
 
         this.instance.onerror = (e) => {
-            console.log(`[WebSocket] onerror triggered for: ${this.url}`, e)
+            console.error(`[WebSocket] onerror triggered for: ${this.url}`, e)
             this.instance?.close()
         }
 
@@ -136,7 +136,12 @@ export class WebSocketClient {
             this.heartbeat()
 
             const data = JSON.parse(msg.data)
-            console.log(`[WebSocket] Message received:`, data.method || data.type || 'response')
+            const msgType = data.method || data.type || 'response'
+            // Suppress high-frequency status/proc updates to reduce console noise
+            const quietMethods = ['notify_status_update', 'notify_proc_stat_update']
+            if (!quietMethods.includes(msgType)) {
+                console.debug(`[WebSocket] Message received:`, msgType)
+            }
             if (Array.isArray(data)) {
                 for (const message of data) {
                     this.handleMessage(message)
@@ -150,8 +155,7 @@ export class WebSocketClient {
     }
 
     close(): void {
-        console.log('[WebSocket] close() method called')
-        console.trace('[WebSocket] Stack trace for close()')
+        console.debug('[WebSocket] close() method called')
         this.instance?.close()
     }
 
