@@ -290,7 +290,10 @@ export default class PreviewPage extends Mixins(BaseMixin) {
     private activeBuildToken = 0
     private readonly maxGlobalSegments = 2000000
     private readonly defaultExtrusionRibbonWidthMm = 0.42
+    private readonly defaultExtrusionLayerHeightMm = 0.2
     private readonly minRenderableSegmentMm = 0.0005
+    /** Indices per segment in box-profile ribbon (10 triangles × 3) */
+    private static readonly INDICES_PER_BOX_SEGMENT = 30
     private builtSegmentsTotal = 0
     private warnedSafetyCap = false
     private builtLayers: Set<number> = new Set()
@@ -417,6 +420,29 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         return this.defaultExtrusionRibbonWidthMm
     }
 
+    get extrusionLayerHeightMm(): number {
+        const prepareState = this.$store.state.prepare as any
+        const params = prepareState?.sliceParams
+        const profiles = prepareState?.printerProfiles ?? []
+        const activeId = prepareState?.activePrinterId
+        const profile = profiles.find((item: any) => item.id === activeId) ?? profiles[0]
+
+        if (!params || !profile) {
+            return this.defaultExtrusionLayerHeightMm
+        }
+
+        try {
+            const config = mapSettings(params, profile)
+            if (Number.isFinite(config.layerHeight) && config.layerHeight > 0) {
+                return config.layerHeight
+            }
+        } catch (_error) {
+            // Fall back to a sane default if mapping fails.
+        }
+
+        return this.defaultExtrusionLayerHeightMm
+    }
+
     formatType(type: string): string {
         return type.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
     }
@@ -505,12 +531,15 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         this.controls.enableDamping = false
         this.controls.addEventListener('change', this.onControlsChange)
 
-        // Lighting
-        const ambient = new THREE.AmbientLight(0xffffff, 0.6)
+        // Lighting — tuned for shaded box-profile toolpaths
+        const ambient = new THREE.AmbientLight(0xffffff, 0.55)
         this.scene.add(ambient)
-        const directional = new THREE.DirectionalLight(0xffffff, 0.4)
-        directional.position.set(200, 300, 200)
+        const directional = new THREE.DirectionalLight(0xffffff, 0.6)
+        directional.position.set(200, 400, 200)
         this.scene.add(directional)
+        const backLight = new THREE.DirectionalLight(0xffffff, 0.2)
+        backLight.position.set(-150, 200, -150)
+        this.scene.add(backLight)
 
         // Build plate (simple grid)
         this.buildBuildPlate()
@@ -1097,6 +1126,8 @@ export default class PreviewPage extends Mixins(BaseMixin) {
 
         const clipPlanes = this.enableClipPlane ? [this.clipPlane] : []
 
+        const halfHeight = this.extrusionLayerHeightMm / 2
+
         for (const [type, bucket] of segmentsByType) {
             if (!bucket.positions.length) continue
 
@@ -1112,21 +1143,21 @@ export default class PreviewPage extends Mixins(BaseMixin) {
             }
 
             const useSpeedColor = this.colorMode === 'speed'
-            const geometry = this.buildRibbonGeometry(bucket.positions, halfWidth, useSpeedColor ? bucket.feedrates : undefined)
+            const geometry = this.buildRibbonGeometry(bucket.positions, halfWidth, halfHeight, useSpeedColor ? bucket.feedrates : undefined)
             if (!geometry) continue
 
             let material: THREE.Material
             if (useSpeedColor && geometry.getAttribute('color')) {
-                material = new THREE.MeshBasicMaterial({
+                material = new THREE.MeshPhongMaterial({
                     vertexColors: true,
-                    side: THREE.DoubleSide,
                     clippingPlanes: clipPlanes,
+                    flatShading: true,
                 })
             } else {
-                material = new THREE.MeshBasicMaterial({
+                material = new THREE.MeshPhongMaterial({
                     color: FEATURE_COLORS_HEX[type] ?? 0xffffff,
-                    side: THREE.DoubleSide,
                     clippingPlanes: clipPlanes,
+                    flatShading: true,
                 })
             }
 
@@ -1156,12 +1187,34 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         return true
     }
 
+    /**
+     * Build box-profile ribbon geometry for toolpath segments.
+     *
+     * Each segment becomes a rectangular box (8 vertices, 10 triangles = 30 indices)
+     * giving 3D volume that catches light for a realistic slicer-preview look.
+     *
+     * Cross-section (looking along extrusion direction):
+     *
+     *       4 -------- 5       top face  (y + halfH)
+     *      /|         /|
+     *     / |        / |
+     *    6 -------- 7  |
+     *    |  0 ------|- 1      bottom face (y - halfH)
+     *    | /        | /
+     *    |/         |/
+     *    2 -------- 3
+     *
+     * Vertices 0-3: start end, Vertices 4-7: end of segment.
+     * (In practice vertices are at the two endpoints of each line segment.)
+     */
     private buildRibbonGeometry(
         segmentPositions: number[],
         halfWidth: number = this.extrusionRibbonWidthMm / 2,
+        halfHeight: number = this.extrusionLayerHeightMm / 2,
         feedrates?: number[],
     ): THREE.BufferGeometry | null {
         const vertices: number[] = []
+        const normals: number[] = []
         const indices: number[] = []
         const colors: number[] = []
         let segmentCount = 0
@@ -1185,23 +1238,58 @@ export default class PreviewPage extends Mixins(BaseMixin) {
                 continue
             }
 
+            // Perpendicular in XZ plane (lateral offset)
             const nx = -dz / length
             const nz = dx / length
             const ox = nx * halfWidth
             const oz = nz * halfWidth
-            const y = (y1 + y2) / 2
+            const yc = (y1 + y2) / 2  // center Y for this segment
+            const yTop = yc + halfHeight
+            const yBot = yc - halfHeight
 
+            // 8 vertices per segment:
+            // Start end: 0=bot-left, 1=bot-right, 2=top-left, 3=top-right
+            // End end:   4=bot-left, 5=bot-right, 6=top-left, 7=top-right
             const base = vertices.length / 3
-            vertices.push(
-                x1 + ox, y, z1 + oz,
-                x1 - ox, y, z1 - oz,
-                x2 + ox, y, z2 + oz,
-                x2 - ox, y, z2 - oz,
-            )
-            indices.push(
-                base, base + 2, base + 1,
-                base + 2, base + 3, base + 1,
-            )
+            // Start end
+            vertices.push(x1 - ox, yBot, z1 - oz)  // 0: bot-left
+            vertices.push(x1 + ox, yBot, z1 + oz)  // 1: bot-right
+            vertices.push(x1 - ox, yTop, z1 - oz)  // 2: top-left
+            vertices.push(x1 + ox, yTop, z1 + oz)  // 3: top-right
+            // End end
+            vertices.push(x2 - ox, yBot, z2 - oz)  // 4: bot-left
+            vertices.push(x2 + ox, yBot, z2 + oz)  // 5: bot-right
+            vertices.push(x2 - ox, yTop, z2 - oz)  // 6: top-left
+            vertices.push(x2 + ox, yTop, z2 + oz)  // 7: top-right
+
+            // Normals per vertex (flat-ish: each vertex gets the dominant face normal)
+            // Top face normal: (0, 1, 0)
+            // Bottom face normal: (0, -1, 0)
+            // Left face normal: (-nx, 0, -nz)
+            // Right face normal: (nx, 0, nz)
+            // We assign normals per-vertex as an approximation; flatShading in the
+            // material will compute true face normals from the triangle geometry.
+            normals.push(-nx, -1, -nz)  // 0
+            normals.push( nx, -1,  nz)  // 1
+            normals.push(-nx,  1, -nz)  // 2
+            normals.push( nx,  1,  nz)  // 3
+            normals.push(-nx, -1, -nz)  // 4
+            normals.push( nx, -1,  nz)  // 5
+            normals.push(-nx,  1, -nz)  // 6
+            normals.push( nx,  1,  nz)  // 7
+
+            const b = base
+            // Top face (2,3,6,7) — normal up
+            indices.push(b+2, b+6, b+3,  b+3, b+6, b+7)
+            // Bottom face (0,1,4,5) — normal down
+            indices.push(b+0, b+1, b+4,  b+1, b+5, b+4)
+            // Left face (0,2,4,6) — normal -lateral
+            indices.push(b+0, b+4, b+2,  b+2, b+4, b+6)
+            // Right face (1,3,5,7) — normal +lateral
+            indices.push(b+1, b+3, b+5,  b+3, b+7, b+5)
+            // Front cap (start: 0,1,2,3)
+            indices.push(b+0, b+2, b+1,  b+1, b+2, b+3)
+            // 10 triangles × 3 = 30 indices per segment
 
             // Speed color: blue (slow) → green → red (fast)
             if (hasSpeed) {
@@ -1209,9 +1297,9 @@ export default class PreviewPage extends Mixins(BaseMixin) {
                 const t = speedRange > 0 ? Math.max(0, Math.min(1, (f - this.speedMin) / speedRange)) : 0.5
                 const r = t < 0.5 ? 0 : (t - 0.5) * 2
                 const g = t < 0.5 ? t * 2 : (1 - t) * 2
-                const b = t < 0.5 ? 1 - t * 2 : 0
-                // 4 vertices per segment
-                colors.push(r, g, b, r, g, b, r, g, b, r, g, b)
+                const bl = t < 0.5 ? 1 - t * 2 : 0
+                // 8 vertices per segment
+                for (let v = 0; v < 8; v++) colors.push(r, g, bl)
             }
 
             segmentCount += 1
@@ -1223,6 +1311,7 @@ export default class PreviewPage extends Mixins(BaseMixin) {
 
         const geometry = new THREE.BufferGeometry()
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
+        geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
         geometry.setIndex(indices)
         geometry.userData.segmentCount = segmentCount
 
@@ -1265,7 +1354,7 @@ export default class PreviewPage extends Mixins(BaseMixin) {
                     const visibleSegments = progress >= 100
                         ? indexedSegments
                         : Math.max(0, Math.min(indexedSegments, Math.floor((indexedSegments * progress) / 100)))
-                    geometry.setDrawRange(0, visibleSegments * 6)
+                    geometry.setDrawRange(0, visibleSegments * PreviewPage.INDICES_PER_BOX_SEGMENT)
                     continue
                 }
 
