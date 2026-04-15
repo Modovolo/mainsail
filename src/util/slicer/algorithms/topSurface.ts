@@ -54,8 +54,9 @@ function clipperPathsToContours(
         const pts = poly.map((p) => ({ x: p.X / CLIPPER_SCALE, y: p.Y / CLIPPER_SCALE }))
         const area = computeArea(pts)
         if (Math.abs(area) < minArea) continue // skip tiny slivers
-        if (area < 0) pts.reverse()
-        result.push({ points: pts, closed: true, area: Math.abs(area) })
+        // Preserve winding: CCW = outer (positive area), CW = hole (negative area).
+        // Downstream Clipper operations need correct winding to handle holes.
+        result.push({ points: pts, closed: true, area })
     }
     return result
 }
@@ -74,7 +75,7 @@ export function contourDifference(subject: Contour[], clip: Contour[]): Contour[
     const clipPaths = contoursToClipperPaths(clip, clipper)
 
     if (subPaths.length === 0) return []
-    if (clipPaths.length === 0) return subject.filter((c) => c.area > 0)
+    if (clipPaths.length === 0) return subject.filter((c) => c.closed && c.points.length >= 3)
 
     const cpr = new clipper.Clipper()
     for (const p of subPaths) cpr.AddPath(p, clipper.PolyType.ptSubject, true)
@@ -125,8 +126,8 @@ export function contourUnion(a: Contour[], b: Contour[]): Contour[] {
     const aPaths = contoursToClipperPaths(a, clipper)
     const bPaths = contoursToClipperPaths(b, clipper)
 
-    if (aPaths.length === 0) return b.filter((c) => c.area > 0)
-    if (bPaths.length === 0) return a.filter((c) => c.area > 0)
+    if (aPaths.length === 0) return b.filter((c) => c.closed && c.points.length >= 3)
+    if (bPaths.length === 0) return a.filter((c) => c.closed && c.points.length >= 3)
 
     const cpr = new clipper.Clipper()
     for (const p of aPaths) cpr.AddPath(p, clipper.PolyType.ptSubject, true)
@@ -170,8 +171,8 @@ export function computeTopSurfaceRegions(
     // These are the layers where the geometry actually ends (the "skin boundary").
     const rawExposed: Contour[][] = new Array(n).fill(null).map(() => [])
     for (let i = 0; i < n; i++) {
-        const current = layerContours[i].filter((c) => c.area > 0 && c.closed)
-        const above = i + 1 < n ? layerContours[i + 1].filter((c) => c.area > 0 && c.closed) : null
+        const current = layerContours[i].filter((c) => c.closed)
+        const above = i + 1 < n ? layerContours[i + 1].filter((c) => c.closed) : null
 
         const exposed = contourDifference(current, above ?? [])
         if (exposed.length > 0) {
@@ -187,8 +188,8 @@ export function computeTopSurfaceRegions(
         for (let i = n - 2; i >= 0; i--) {
             for (let k = 1; k < topLayers && i + k < n; k++) {
                 if (rawExposed[i + k].length === 0) continue
-                const currentOuters = layerContours[i].filter((c) => c.area > 0 && c.closed)
-                const overlap = contourIntersection(rawExposed[i + k], currentOuters)
+                const currentContours = layerContours[i].filter((c) => c.closed)
+                const overlap = contourIntersection(rawExposed[i + k], currentContours)
                 if (overlap.length > 0) {
                     result[i] = contourUnion(result[i], overlap)
                 }
@@ -212,8 +213,8 @@ export function computeBottomSurfaceRegions(
     const rawExposed: Contour[][] = new Array(n).fill(null).map(() => [])
 
     for (let i = 0; i < n; i++) {
-        const current = layerContours[i].filter((c) => c.area > 0 && c.closed)
-        const below = i - 1 >= 0 ? layerContours[i - 1].filter((c) => c.area > 0 && c.closed) : null
+        const current = layerContours[i].filter((c) => c.closed)
+        const below = i - 1 >= 0 ? layerContours[i - 1].filter((c) => c.closed) : null
 
         const exposed = contourDifference(current, below ?? [])
         if (exposed.length > 0) {
@@ -227,8 +228,8 @@ export function computeBottomSurfaceRegions(
         for (let i = 1; i < n; i++) {
             for (let k = 1; k < bottomLayers && i - k >= 0; k++) {
                 if (rawExposed[i - k].length === 0) continue
-                const currentOuters = layerContours[i].filter((c) => c.area > 0 && c.closed)
-                const overlap = contourIntersection(rawExposed[i - k], currentOuters)
+                const currentContours = layerContours[i].filter((c) => c.closed)
+                const overlap = contourIntersection(rawExposed[i - k], currentContours)
                 if (overlap.length > 0) {
                     result[i] = contourUnion(result[i], overlap)
                 }
