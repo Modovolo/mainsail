@@ -917,16 +917,12 @@
                         <!-- Bed Heater Zone Editor -->
                         <v-col v-if="printerProfileForm.bedHeaterControllerCount > 1" cols="12">
                             <div class="text-caption grey--text mb-1">
-                                Bed Heater Zones — define the area each heater covers (mm)
+                                Bed Heater Zones — name each heater controller (Klipper heater_generic name)
                             </div>
                             <v-simple-table dense class="zone-table mb-2">
                                 <thead>
                                     <tr>
                                         <th>Klipper Heater Name</th>
-                                        <th>X Min</th>
-                                        <th>Y Min</th>
-                                        <th>X Max</th>
-                                        <th>Y Max</th>
                                         <th></th>
                                     </tr>
                                 </thead>
@@ -938,38 +934,6 @@
                                                 dense
                                                 hide-details
                                                 placeholder="heater_bed_FL"
-                                                class="zone-input" />
-                                        </td>
-                                        <td>
-                                            <v-text-field
-                                                v-model.number="zone.xMin"
-                                                type="number"
-                                                dense
-                                                hide-details
-                                                class="zone-input" />
-                                        </td>
-                                        <td>
-                                            <v-text-field
-                                                v-model.number="zone.yMin"
-                                                type="number"
-                                                dense
-                                                hide-details
-                                                class="zone-input" />
-                                        </td>
-                                        <td>
-                                            <v-text-field
-                                                v-model.number="zone.xMax"
-                                                type="number"
-                                                dense
-                                                hide-details
-                                                class="zone-input" />
-                                        </td>
-                                        <td>
-                                            <v-text-field
-                                                v-model.number="zone.yMax"
-                                                type="number"
-                                                dense
-                                                hide-details
                                                 class="zone-input" />
                                         </td>
                                         <td>
@@ -2431,16 +2395,11 @@ export default class PreparePage extends Mixins(BaseMixin) {
         if (!this.printerProfileForm.bedHeaterZones) {
             this.printerProfileForm.bedHeaterZones = []
         }
-        const bv = this.printerProfileForm.buildVolume
         const idx = this.printerProfileForm.bedHeaterZones.length
         const suffixes = ['FL', 'FR', 'BL', 'BR', 'C', 'L', 'R', 'F', 'B']
         const suffix = suffixes[idx] ?? String(idx + 1)
         this.printerProfileForm.bedHeaterZones.push({
             name: `heater_bed_${suffix}`,
-            xMin: 0,
-            yMin: 0,
-            xMax: Math.round(bv.x / 2),
-            yMax: Math.round(bv.y / 2),
         })
     }
 

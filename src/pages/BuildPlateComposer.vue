@@ -1244,8 +1244,8 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
     // --- Bed Heater Zone Methods ---
 
     /**
-     * Determine which bed heater zones overlap with placed parts.
-     * A zone is "active" if any part's bounding box intersects it.
+     * Determine which bed heater zones are active.
+     * Without positional data, all zones are active when parts are on the plate.
      */
     computeActiveZones() {
         const zones = this.bedHeaterZones
@@ -1254,25 +1254,10 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
             return
         }
 
+        const hasItems = this.plateItems.length > 0
         const newActive: Record<string, boolean> = {}
         for (const zone of zones) {
-            newActive[zone.name] = false
-            for (const item of this.plateItems) {
-                const dims = getRotatedDimensions(item.footprint, item.rotation)
-                const halfW = dims.width / 2
-                const halfD = dims.depth / 2
-                const partXMin = item.placement.x - halfW
-                const partXMax = item.placement.x + halfW
-                const partYMin = item.placement.y - halfD
-                const partYMax = item.placement.y + halfD
-
-                // AABB overlap check
-                if (partXMax > zone.xMin && partXMin < zone.xMax &&
-                    partYMax > zone.yMin && partYMin < zone.yMax) {
-                    newActive[zone.name] = true
-                    break
-                }
-            }
+            newActive[zone.name] = hasItems
         }
         this.activeZones = newActive
         this.updateZoneMeshColors()
@@ -1280,6 +1265,7 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
 
     /**
      * Build bed heater zone overlays on the 3D build plate.
+     * Without positional data, no zone geometry is drawn — zones are managed via chips only.
      */
     buildZoneVisualization() {
         if (!this.scene) return
@@ -1291,32 +1277,6 @@ export default class BuildPlateComposer extends Mixins(BaseMixin) {
             ;(mesh.material as THREE.MeshBasicMaterial).dispose()
         }
         this.zoneMeshes.clear()
-
-        const zones = this.bedHeaterZones
-        if (!zones.length) return
-
-        for (const zone of zones) {
-            const w = zone.xMax - zone.xMin
-            const d = zone.yMax - zone.yMin
-            const geo = new THREE.PlaneGeometry(w, d)
-            const mat = new THREE.MeshBasicMaterial({
-                color: 0x444444,
-                side: THREE.DoubleSide,
-                transparent: true,
-                opacity: 0.15,
-            })
-            const mesh = new THREE.Mesh(geo, mat)
-            mesh.rotation.x = -Math.PI / 2
-            mesh.position.set(
-                zone.xMin + w / 2,
-                0.05,  // slightly above the floor plate
-                zone.yMin + d / 2,
-            )
-            mesh.userData.isBuildVolume = true
-            mesh.userData.zoneName = zone.name
-            this.scene.add(mesh)
-            this.zoneMeshes.set(zone.name, mesh)
-        }
 
         this.computeActiveZones()
         this.requestRender()

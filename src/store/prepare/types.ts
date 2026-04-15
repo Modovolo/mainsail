@@ -131,11 +131,6 @@ export interface PrinterProfile {
 export interface BedHeaterZone {
     /** Klipper heater name, e.g. "heater_bed_FL" */
     name: string
-    /** Zone boundary on the bed (mm) */
-    xMin: number
-    yMin: number
-    xMax: number
-    yMax: number
 }
 
 export interface SliceJob {

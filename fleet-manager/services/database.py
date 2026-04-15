@@ -38,12 +38,30 @@ class DatabaseService:
     def _init_db(self):
         """Initialize database schema"""
         Base.metadata.create_all(self.engine)
-        
+        self._run_migrations()
+
         # Create default admin user if no users exist
         with self.get_session() as session:
             count = session.query(UserModel).count()
             if count == 0:
                 self._create_default_admin(session)
+
+    def _run_migrations(self):
+        """Run lightweight schema migrations for columns added after initial table creation"""
+        from sqlalchemy import text, inspect
+        insp = inspect(self.engine)
+
+        # Migration: add bed_heater_controller_count to printer_profiles
+        if 'printer_profiles' in insp.get_table_names():
+            columns = [c['name'] for c in insp.get_columns('printer_profiles')]
+            if 'bed_heater_controller_count' not in columns:
+                logger.info("Migrating printer_profiles: adding bed_heater_controller_count column")
+                with self.engine.connect() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE printer_profiles "
+                        "ADD COLUMN bed_heater_controller_count INTEGER NOT NULL DEFAULT 1"
+                    ))
+                    conn.commit()
 
     @contextmanager
     def get_session(self):
@@ -815,6 +833,7 @@ class DatabaseService:
                 filament_diameter=data.get('filamentDiameter', 1.75),
                 bed_shape=data.get('bedShape', 'rectangular'),
                 heated_bed=data.get('heatedBed', True),
+                bed_heater_controller_count=data.get('bedHeaterControllerCount', 1),
                 heated_chamber=data.get('heatedChamber', False),
                 auto_bed_leveling=data.get('autoBedLeveling', False),
                 direct_drive=data.get('directDrive', False),
@@ -853,6 +872,8 @@ class DatabaseService:
                 model.bed_shape = data['bedShape']
             if 'heatedBed' in data:
                 model.heated_bed = data['heatedBed']
+            if 'bedHeaterControllerCount' in data:
+                model.bed_heater_controller_count = data['bedHeaterControllerCount']
             if 'heatedChamber' in data:
                 model.heated_chamber = data['heatedChamber']
             if 'autoBedLeveling' in data:
