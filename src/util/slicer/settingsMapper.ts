@@ -65,12 +65,68 @@ function mapInfillPattern(pattern: string): SlicerConfig['infillPattern'] {
     return 'grid'
 }
 
+function clampIndex(value: number, maxIndex: number): number {
+    if (!Number.isFinite(value)) return 0
+    return Math.min(Math.max(Math.floor(value), 0), Math.max(maxIndex, 0))
+}
+
+function normalizeChannelTemps(
+    source: unknown,
+    count: number,
+    fallback: number,
+    allowZero: boolean
+): number[] {
+    const values = Array.isArray(source) ? source : []
+    const normalized: number[] = []
+    for (let i = 0; i < count; i++) {
+        const raw = Number(values[i])
+        const valid = Number.isFinite(raw) && (allowZero ? raw >= 0 : raw > 0)
+        normalized.push(valid ? raw : fallback)
+    }
+    return normalized
+}
+
 /**
  * Convert SliceParams + PrinterProfile → SlicerConfig
  */
 export function mapSettings(params: SliceParams, printer: PrinterProfile): SlicerConfig {
     const nozzle = printer.nozzleDiameter || DEFAULTS.nozzleDiameter
     const lineWidth = (params.line_width && params.line_width > 0) ? params.line_width : nozzle * 1.1
+
+    const fallbackNozzleTemp = Number.isFinite(params.nozzle_temp) ? params.nozzle_temp : DEFAULTS.nozzleTemp
+    const extruderCount = Math.max(1, Math.floor(Number(printer.extruderCount) || 1))
+    const nozzleTemps = normalizeChannelTemps(params.nozzle_temps, extruderCount, fallbackNozzleTemp, false)
+    const activeNozzleIndex = clampIndex(params.active_nozzle_index, nozzleTemps.length - 1)
+    const activeNozzleTemp = Number.isFinite(params.nozzle_temp)
+        ? params.nozzle_temp
+        : (nozzleTemps[activeNozzleIndex] ?? fallbackNozzleTemp)
+
+    const fallbackBedTemp = Number.isFinite(params.bed_temp) ? params.bed_temp : DEFAULTS.bedTemp
+    const bedControllerCount = Math.max(1, Math.floor(Number(printer.bedHeaterControllerCount) || 1))
+    const bedControllerTemps = normalizeChannelTemps(params.bed_controller_temps, bedControllerCount, fallbackBedTemp, true)
+    const activeBedControllerIndex = clampIndex(params.active_bed_controller_index, bedControllerTemps.length - 1)
+    const activeBedTemp = Number.isFinite(params.bed_temp)
+        ? params.bed_temp
+        : (bedControllerTemps[activeBedControllerIndex] ?? fallbackBedTemp)
+
+    const mappedBedHeaterTemps: Record<string, number> = (() => {
+        if (params.bed_heater_temps && Object.keys(params.bed_heater_temps).length > 0) {
+            return params.bed_heater_temps
+        }
+
+        if (bedControllerCount <= 1) {
+            return {}
+        }
+
+        const zones = printer.bedHeaterZones ?? []
+        const temps: Record<string, number> = {}
+        for (let i = 0; i < bedControllerCount; i++) {
+            const zoneName = zones[i]?.name?.trim()
+            const key = zoneName || `heater_bed_${i + 1}`
+            temps[key] = bedControllerTemps[i] ?? activeBedTemp
+        }
+        return temps
+    })()
 
     return {
         // Layer
@@ -96,10 +152,10 @@ export function mapSettings(params: SliceParams, printer: PrinterProfile): Slice
         firstLayerSpeed: params.first_layer_speed,
 
         // Temperatures
-        nozzleTemp: params.nozzle_temp,
-        bedTemp: params.bed_temp,
-        firstLayerNozzleTemp: params.nozzle_temp + 5,
-        firstLayerBedTemp: params.bed_temp,
+        nozzleTemp: activeNozzleTemp,
+        bedTemp: activeBedTemp,
+        firstLayerNozzleTemp: activeNozzleTemp + 5,
+        firstLayerBedTemp: activeBedTemp,
 
         // Retraction
         retractDistance: printer.directDrive ? 0.8 : 1.5,
@@ -148,7 +204,7 @@ export function mapSettings(params: SliceParams, printer: PrinterProfile): Slice
         customLayerChangeGcode: printer.customLayerChangeGcode,
 
         // Multi-zone bed heater temps (empty = single M140/M190)
-        bedHeaterTemps: params.bed_heater_temps,
+        bedHeaterTemps: mappedBedHeaterTemps,
     }
 }
 

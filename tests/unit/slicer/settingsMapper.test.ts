@@ -24,6 +24,10 @@ function createTestSliceParams(overrides: Partial<SliceParams> = {}): SliceParam
         first_layer_speed: 20,
         nozzle_temp: 210,
         bed_temp: 60,
+        nozzle_temps: [210],
+        active_nozzle_index: 0,
+        bed_controller_temps: [60],
+        active_bed_controller_index: 0,
         enable_support: false,
         support_angle: 50,
         support_density: 15,
@@ -207,6 +211,33 @@ describe('mapSettings', () => {
             const config = mapSettings(params, printer)
 
             expect(config.firstLayerBedTemp).toBe(60)
+        })
+
+        it('should use active extruder and bed-controller temperatures', () => {
+            const params = createTestSliceParams({
+                nozzle_temp: 235,
+                bed_temp: 70,
+                nozzle_temps: [205, 235],
+                active_nozzle_index: 1,
+                bed_controller_temps: [55, 70],
+                active_bed_controller_index: 1,
+            })
+            const printer = createTestPrinterProfile({
+                extruderCount: 2,
+                bedHeaterControllerCount: 2,
+                bedHeaterZones: [{ name: 'heater_bed_FL' }, { name: 'heater_bed_FR' }],
+            })
+
+            const config = mapSettings(params, printer)
+
+            expect(config.nozzleTemp).toBe(235)
+            expect(config.firstLayerNozzleTemp).toBe(240)
+            expect(config.bedTemp).toBe(70)
+            expect(config.firstLayerBedTemp).toBe(70)
+            expect(config.bedHeaterTemps).toEqual({
+                heater_bed_FL: 55,
+                heater_bed_FR: 70,
+            })
         })
     })
 

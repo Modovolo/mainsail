@@ -1131,6 +1131,8 @@ import type { AdhesionMarker } from '@/store/prepare/types'
 const EMPTY_PRINTER_PROFILE: PrinterProfile = {
     id: '',
     name: '',
+    firmware: 'klipper',
+    gcodeFlavor: 'marlin',
     buildVolume: { x: 220, y: 220, z: 250 },
     extruderCount: 1,
     nozzleDiameter: 0.4,
@@ -2363,6 +2365,8 @@ export default class PreparePage extends Mixins(BaseMixin) {
     savePrinterProfile() {
         const profile: PrinterProfile = {
             ...this.printerProfileForm,
+            firmware: this.printerProfileForm.firmware || 'klipper',
+            gcodeFlavor: this.printerProfileForm.gcodeFlavor || 'marlin',
             buildVolume: { ...this.printerProfileForm.buildVolume },
             bedHeaterZones: (this.printerProfileForm.bedHeaterZones ?? []).map((z) => ({ ...z })),
         }

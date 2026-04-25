@@ -39,6 +39,10 @@ const DEFAULT_SLICE_PARAMS: SliceParams = {
     first_layer_speed: 20,
     nozzle_temp: 210,
     bed_temp: 60,
+    nozzle_temps: [210],
+    active_nozzle_index: 0,
+    bed_controller_temps: [60],
+    active_bed_controller_index: 0,
     enable_support: false,
     support_density: 15,
     support_angle: 50,
@@ -64,10 +68,23 @@ const QUALITY_PRESETS: Record<string, Partial<SliceParams>> = {
     ultra: { layer_height: 0.08, first_layer_height: 0.15, wall_count: 5, infill_density: 30, print_speed: 30 },
 }
 
+const DEFAULT_PRINTER_FIRMWARE = 'klipper'
+const DEFAULT_GCODE_FLAVOR = 'marlin'
+
+function withPrinterDefaults(profile: PrinterProfile): PrinterProfile {
+    return {
+        ...profile,
+        firmware: profile.firmware || DEFAULT_PRINTER_FIRMWARE,
+        gcodeFlavor: profile.gcodeFlavor || DEFAULT_GCODE_FLAVOR,
+    }
+}
+
 const BUILTIN_PRINTER_PROFILES: PrinterProfile[] = [
     {
         id: 'generic',
         name: 'Generic Printer',
+        firmware: DEFAULT_PRINTER_FIRMWARE,
+        gcodeFlavor: DEFAULT_GCODE_FLAVOR,
         isBuiltIn: true,
         buildVolume: { x: 220, y: 220, z: 250 },
         extruderCount: 1,
@@ -83,6 +100,8 @@ const BUILTIN_PRINTER_PROFILES: PrinterProfile[] = [
     {
         id: 'prusa-mk4',
         name: 'Prusa MK4',
+        firmware: DEFAULT_PRINTER_FIRMWARE,
+        gcodeFlavor: DEFAULT_GCODE_FLAVOR,
         isBuiltIn: true,
         buildVolume: { x: 250, y: 210, z: 220 },
         extruderCount: 1,
@@ -98,6 +117,8 @@ const BUILTIN_PRINTER_PROFILES: PrinterProfile[] = [
     {
         id: 'voron-2.4',
         name: 'Voron 2.4 350',
+        firmware: DEFAULT_PRINTER_FIRMWARE,
+        gcodeFlavor: DEFAULT_GCODE_FLAVOR,
         isBuiltIn: true,
         buildVolume: { x: 350, y: 350, z: 350 },
         extruderCount: 1,
@@ -113,6 +134,8 @@ const BUILTIN_PRINTER_PROFILES: PrinterProfile[] = [
     {
         id: 'bambu-x1',
         name: 'Bambu X1 Carbon',
+        firmware: DEFAULT_PRINTER_FIRMWARE,
+        gcodeFlavor: DEFAULT_GCODE_FLAVOR,
         isBuiltIn: true,
         buildVolume: { x: 256, y: 256, z: 256 },
         extruderCount: 1,
@@ -261,21 +284,21 @@ export const prepare: Module<PrepareState, any> = {
 
         // Printer profiles
         setPrinterProfiles(state, profiles: PrinterProfile[]) {
-            state.printerProfiles = profiles
+            state.printerProfiles = profiles.map(withPrinterDefaults)
         },
         setCustomPrinterProfiles(state, profiles: PrinterProfile[]) {
-            state.customPrinterProfiles = profiles
+            state.customPrinterProfiles = profiles.map(withPrinterDefaults)
             // Rebuild full list: built-in + custom
-            state.printerProfiles = [...BUILTIN_PRINTER_PROFILES, ...profiles]
+            state.printerProfiles = [...BUILTIN_PRINTER_PROFILES, ...state.customPrinterProfiles]
         },
         addCustomPrinterProfile(state, profile: PrinterProfile) {
-            state.customPrinterProfiles.push(profile)
+            state.customPrinterProfiles.push(withPrinterDefaults(profile))
             state.printerProfiles = [...BUILTIN_PRINTER_PROFILES, ...state.customPrinterProfiles]
         },
         updateCustomPrinterProfile(state, profile: PrinterProfile) {
             const idx = state.customPrinterProfiles.findIndex((p) => p.id === profile.id)
             if (idx !== -1) {
-                Vue.set(state.customPrinterProfiles, idx, profile)
+                Vue.set(state.customPrinterProfiles, idx, withPrinterDefaults(profile))
                 state.printerProfiles = [...BUILTIN_PRINTER_PROFILES, ...state.customPrinterProfiles]
             }
         },
@@ -362,8 +385,8 @@ export const prepare: Module<PrepareState, any> = {
             Object.assign(state, getDefaultState())
             state.profiles = profiles
             state.activeProfileId = activeProfileId
-            state.printerProfiles = printerProfiles
-            state.customPrinterProfiles = customPrinterProfiles
+            state.printerProfiles = printerProfiles.map(withPrinterDefaults)
+            state.customPrinterProfiles = customPrinterProfiles.map(withPrinterDefaults)
             state.activePrinterId = activePrinterId
             state.sliceParams = sliceParams
         },
@@ -417,8 +440,8 @@ export const prepare: Module<PrepareState, any> = {
 
         async addPrinterProfile({ commit }, profile: PrinterProfile) {
             try {
-                const response = await axios.post('/api/printer-profiles', profile)
-                const created = response.data
+                const response = await axios.post('/api/printer-profiles', withPrinterDefaults(profile))
+                const created = withPrinterDefaults(response.data)
                 commit('addCustomPrinterProfile', created)
                 commit('setActivePrinter', created.id)
                 localStorage.setItem('prepare.activePrinterId', created.id)
@@ -430,8 +453,8 @@ export const prepare: Module<PrepareState, any> = {
 
         async updatePrinterProfile({ commit }, profile: PrinterProfile) {
             try {
-                const response = await axios.put(`/api/printer-profiles/${profile.id}`, profile)
-                const updated = response.data
+                const response = await axios.put(`/api/printer-profiles/${profile.id}`, withPrinterDefaults(profile))
+                const updated = withPrinterDefaults(response.data)
                 commit('updateCustomPrinterProfile', updated)
             } catch (error) {
                 console.error('Failed to update printer profile:', error)

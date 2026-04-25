@@ -229,9 +229,26 @@
                     </span>
                 </v-expansion-panel-header>
                 <v-expansion-panel-content>
+                    <div class="text-caption grey--text mb-1">Nozzle</div>
+                    <v-btn-toggle
+                        v-if="extruderCount > 1"
+                        :value="activeNozzleIndex"
+                        mandatory
+                        dense
+                        class="d-flex mb-3"
+                        @change="setActiveNozzleIndex">
+                        <v-btn
+                            v-for="idx in extruderIndices"
+                            :key="`nozzle-${idx}`"
+                            :value="idx"
+                            small
+                            class="flex-grow-1">
+                            E{{ idx + 1 }}
+                        </v-btn>
+                    </v-btn-toggle>
                     <v-text-field
-                        :value="params.nozzle_temp"
-                        label="Nozzle Temperature"
+                        :value="activeNozzleTemp"
+                        :label="`Nozzle Temperature (E${activeNozzleIndex + 1})`"
                         type="number"
                         step="5"
                         min="170"
@@ -241,19 +258,39 @@
                         dense
                         hide-details
                         class="mb-3"
-                        @input="setParam('nozzle_temp', Number($event))" />
-                    <v-text-field
-                        :value="params.bed_temp"
-                        label="Bed Temperature"
-                        type="number"
-                        step="5"
-                        min="0"
-                        max="120"
-                        suffix="°C"
-                        outlined
-                        dense
-                        hide-details
-                        @input="setParam('bed_temp', Number($event))" />
+                        @input="setActiveNozzleTemp(Number($event))" />
+
+                    <template v-if="bedControllerCount > 0">
+                        <div class="text-caption grey--text mb-1">Bed</div>
+                        <v-btn-toggle
+                            v-if="bedControllerCount > 1"
+                            :value="activeBedControllerIndex"
+                            mandatory
+                            dense
+                            class="d-flex mb-3"
+                            @change="setActiveBedControllerIndex">
+                            <v-btn
+                                v-for="idx in bedControllerIndices"
+                                :key="`bed-${idx}`"
+                                :value="idx"
+                                small
+                                class="flex-grow-1">
+                                {{ bedControllerLabel(idx) }}
+                            </v-btn>
+                        </v-btn-toggle>
+                        <v-text-field
+                            :value="activeBedControllerTemp"
+                            :label="bedTempLabel"
+                            type="number"
+                            step="5"
+                            min="0"
+                            max="120"
+                            suffix="°C"
+                            outlined
+                            dense
+                            hide-details
+                            @input="setActiveBedControllerTemp(Number($event))" />
+                    </template>
                 </v-expansion-panel-content>
             </v-expansion-panel>
 
@@ -523,9 +560,9 @@
 
 <script lang="ts">
 import Component from 'vue-class-component'
-import { Mixins, Prop } from 'vue-property-decorator'
+import { Mixins, Prop, Watch } from 'vue-property-decorator'
 import BaseMixin from '@/components/mixins/base'
-import type { SliceParams } from '@/store/prepare/types'
+import type { SliceParams, PrinterProfile } from '@/store/prepare/types'
 import {
     mdiDotsVertical,
     mdiContentSave,
@@ -593,6 +630,63 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
         return this.$store.state.prepare.sliceParams
     }
 
+    get activePrinterProfile(): PrinterProfile | null {
+        const prepareState = this.$store.state.prepare
+        const profiles: PrinterProfile[] = prepareState?.printerProfiles ?? []
+        const activeId: string | null = prepareState?.activePrinterId ?? null
+        return profiles.find((p) => p.id === activeId) ?? profiles[0] ?? null
+    }
+
+    get extruderCount(): number {
+        const raw = Number(this.activePrinterProfile?.extruderCount ?? 1)
+        if (!Number.isFinite(raw)) return 1
+        return Math.max(1, Math.floor(raw))
+    }
+
+    get extruderIndices(): number[] {
+        return Array.from({ length: this.extruderCount }, (_v, i) => i)
+    }
+
+    get bedControllerCount(): number {
+        const profile = this.activePrinterProfile
+        if (profile?.heatedBed === false) return 0
+
+        const raw = Number(profile?.bedHeaterControllerCount ?? 1)
+        if (!Number.isFinite(raw)) return 1
+        return Math.max(1, Math.floor(raw))
+    }
+
+    get bedControllerIndices(): number[] {
+        return Array.from({ length: this.bedControllerCount }, (_v, i) => i)
+    }
+
+    get activeNozzleIndex(): number {
+        const raw = Number(this.params.active_nozzle_index ?? 0)
+        const index = Number.isFinite(raw) ? Math.floor(raw) : 0
+        return Math.min(Math.max(index, 0), this.extruderCount - 1)
+    }
+
+    get activeBedControllerIndex(): number {
+        if (this.bedControllerCount <= 0) return 0
+        const raw = Number(this.params.active_bed_controller_index ?? 0)
+        const index = Number.isFinite(raw) ? Math.floor(raw) : 0
+        return Math.min(Math.max(index, 0), this.bedControllerCount - 1)
+    }
+
+    get activeNozzleTemp(): number {
+        return this.buildNozzleTemps()[this.activeNozzleIndex] ?? this.params.nozzle_temp
+    }
+
+    get activeBedControllerTemp(): number {
+        if (this.bedControllerCount <= 0) return 0
+        return this.buildBedControllerTemps()[this.activeBedControllerIndex] ?? this.params.bed_temp
+    }
+
+    get bedTempLabel(): string {
+        if (this.bedControllerCount <= 1) return 'Bed Temperature'
+        return `Bed Temperature (${this.bedControllerLabel(this.activeBedControllerIndex)})`
+    }
+
     get storeQualityPreset(): string {
         return this.$store.state.prepare.qualityPreset
     }
@@ -601,8 +695,187 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
         return this.$store.state.prepare.adhesionMarkers?.length ?? 0
     }
 
+    created() {
+        this.ensureTemperatureStateConsistency()
+    }
+
+    @Watch('$store.state.prepare.activePrinterId')
+    onActivePrinterChanged() {
+        this.ensureTemperatureStateConsistency()
+    }
+
+    @Watch('$store.state.prepare.printerProfiles', { deep: true })
+    onPrinterProfilesChanged() {
+        this.ensureTemperatureStateConsistency()
+    }
+
     setParam(key: keyof SliceParams, value: any): void {
         this.$store.commit('prepare/setSliceParams', { [key]: value })
+    }
+
+    setActiveNozzleIndex(index: number): void {
+        const next = Number(index)
+        if (!Number.isFinite(next)) return
+
+        const clamped = Math.min(Math.max(Math.floor(next), 0), this.extruderCount - 1)
+        const nozzleTemps = this.buildNozzleTemps()
+        this.$store.commit('prepare/setSliceParams', {
+            active_nozzle_index: clamped,
+            nozzle_temp: nozzleTemps[clamped],
+        })
+    }
+
+    setActiveNozzleTemp(value: number): void {
+        if (!Number.isFinite(value)) return
+
+        const temp = Math.max(0, Math.round(value))
+        const nozzleTemps = this.buildNozzleTemps()
+        nozzleTemps[this.activeNozzleIndex] = temp
+        this.$store.commit('prepare/setSliceParams', {
+            nozzle_temps: nozzleTemps,
+            nozzle_temp: temp,
+        })
+    }
+
+    setActiveBedControllerIndex(index: number): void {
+        if (this.bedControllerCount <= 0) return
+
+        const next = Number(index)
+        if (!Number.isFinite(next)) return
+
+        const clamped = Math.min(Math.max(Math.floor(next), 0), this.bedControllerCount - 1)
+        const controllerTemps = this.buildBedControllerTemps()
+        this.$store.commit('prepare/setSliceParams', {
+            active_bed_controller_index: clamped,
+            bed_temp: controllerTemps[clamped],
+            bed_heater_temps: this.buildBedHeaterTempsRecord(controllerTemps),
+        })
+    }
+
+    setActiveBedControllerTemp(value: number): void {
+        if (this.bedControllerCount <= 0 || !Number.isFinite(value)) return
+
+        const temp = Math.max(0, Math.round(value))
+        const controllerTemps = this.buildBedControllerTemps()
+        controllerTemps[this.activeBedControllerIndex] = temp
+
+        this.$store.commit('prepare/setSliceParams', {
+            bed_controller_temps: controllerTemps,
+            bed_temp: temp,
+            bed_heater_temps: this.buildBedHeaterTempsRecord(controllerTemps),
+        })
+    }
+
+    bedControllerLabel(index: number): string {
+        const zoneName = this.activePrinterProfile?.bedHeaterZones?.[index]?.name
+        const normalized = typeof zoneName === 'string' ? zoneName.trim() : ''
+        return normalized || `H${index + 1}`
+    }
+
+    private buildNozzleTemps(): number[] {
+        const source = Array.isArray(this.params.nozzle_temps) ? this.params.nozzle_temps : []
+        const fallback = Number.isFinite(this.params.nozzle_temp) ? this.params.nozzle_temp : 210
+
+        const temps: number[] = []
+        for (let i = 0; i < this.extruderCount; i++) {
+            const raw = Number(source[i])
+            temps.push(Number.isFinite(raw) && raw > 0 ? raw : fallback)
+        }
+        return temps
+    }
+
+    private buildBedControllerTemps(): number[] {
+        if (this.bedControllerCount <= 0) return []
+
+        const source = Array.isArray(this.params.bed_controller_temps) ? this.params.bed_controller_temps : []
+        const fallback = Number.isFinite(this.params.bed_temp) ? this.params.bed_temp : 60
+
+        const temps: number[] = []
+        for (let i = 0; i < this.bedControllerCount; i++) {
+            const raw = Number(source[i])
+            temps.push(Number.isFinite(raw) && raw >= 0 ? raw : fallback)
+        }
+        return temps
+    }
+
+    private buildBedHeaterTempsRecord(controllerTemps: number[]): Record<string, number> {
+        if (this.bedControllerCount <= 1) return {}
+
+        const record: Record<string, number> = {}
+        for (let i = 0; i < this.bedControllerCount; i++) {
+            const zoneName = this.activePrinterProfile?.bedHeaterZones?.[i]?.name
+            const normalized = typeof zoneName === 'string' ? zoneName.trim() : ''
+            const key = normalized || `heater_bed_${i + 1}`
+            record[key] = controllerTemps[i] ?? this.params.bed_temp
+        }
+
+        return record
+    }
+
+    private ensureTemperatureStateConsistency(): void {
+        const nextNozzleTemps = this.buildNozzleTemps()
+        const nextNozzleIndex = Math.min(Math.max(this.activeNozzleIndex, 0), this.extruderCount - 1)
+        const nextNozzleTemp = nextNozzleTemps[nextNozzleIndex]
+
+        const nextBedTemps = this.buildBedControllerTemps()
+        const nextBedIndex = this.bedControllerCount > 0
+            ? Math.min(Math.max(this.activeBedControllerIndex, 0), this.bedControllerCount - 1)
+            : 0
+        const nextBedTemp = this.bedControllerCount > 0 ? nextBedTemps[nextBedIndex] : this.params.bed_temp
+        const nextBedHeaterTemps = this.buildBedHeaterTempsRecord(nextBedTemps)
+
+        const patch: Partial<SliceParams> = {}
+
+        if (!this.sameNumberArray(this.params.nozzle_temps, nextNozzleTemps)) {
+            patch.nozzle_temps = nextNozzleTemps
+        }
+        if (this.params.active_nozzle_index !== nextNozzleIndex) {
+            patch.active_nozzle_index = nextNozzleIndex
+        }
+        if (this.params.nozzle_temp !== nextNozzleTemp) {
+            patch.nozzle_temp = nextNozzleTemp
+        }
+
+        if (!this.sameNumberArray(this.params.bed_controller_temps, nextBedTemps)) {
+            patch.bed_controller_temps = nextBedTemps
+        }
+        if (this.params.active_bed_controller_index !== nextBedIndex) {
+            patch.active_bed_controller_index = nextBedIndex
+        }
+        if (this.params.bed_temp !== nextBedTemp) {
+            patch.bed_temp = nextBedTemp
+        }
+        if (!this.sameTempRecord(this.params.bed_heater_temps, nextBedHeaterTemps)) {
+            patch.bed_heater_temps = nextBedHeaterTemps
+        }
+
+        if (Object.keys(patch).length > 0) {
+            this.$store.commit('prepare/setSliceParams', patch)
+        }
+    }
+
+    private sameNumberArray(value: unknown, expected: number[]): boolean {
+        if (!Array.isArray(value)) return expected.length === 0
+        if (value.length !== expected.length) return false
+        return value.every((item, index) => Number(item) === expected[index])
+    }
+
+    private sameTempRecord(
+        value: Record<string, number> | null | undefined,
+        expected: Record<string, number>
+    ): boolean {
+        const source = value ?? {}
+        const sourceKeys = Object.keys(source).sort()
+        const expectedKeys = Object.keys(expected).sort()
+        if (sourceKeys.length !== expectedKeys.length) return false
+
+        for (let i = 0; i < sourceKeys.length; i++) {
+            const key = sourceKeys[i]
+            if (key !== expectedKeys[i]) return false
+            if (Number(source[key]) !== Number(expected[key])) return false
+        }
+
+        return true
     }
 
     setPreset(preset: string): void {

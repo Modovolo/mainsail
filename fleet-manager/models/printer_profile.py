@@ -30,6 +30,8 @@ class PrinterProfileModel(Base):
     heated_chamber = Column(Boolean, nullable=False, default=False)
     auto_bed_leveling = Column(Boolean, nullable=False, default=False)
     direct_drive = Column(Boolean, nullable=False, default=False)
+    firmware = Column(String(50), nullable=False, default='klipper')
+    gcode_flavor = Column(String(50), nullable=False, default='marlin')
     multi_extruder_type = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -52,6 +54,8 @@ class PrinterProfileData:
     heated_chamber: bool
     auto_bed_leveling: bool
     direct_drive: bool
+    firmware: str
+    gcode_flavor: str
     multi_extruder_type: Optional[str]
     created_at: str
     updated_at: str
@@ -74,6 +78,8 @@ class PrinterProfileData:
             'heatedChamber': self.heated_chamber,
             'autoBedLeveling': self.auto_bed_leveling,
             'directDrive': self.direct_drive,
+            'firmware': self.firmware,
+            'gcodeFlavor': self.gcode_flavor,
             'multiExtruderType': self.multi_extruder_type,
             'createdAt': self.created_at,
             'updatedAt': self.updated_at,
@@ -97,6 +103,8 @@ class PrinterProfileData:
             heated_chamber=model.heated_chamber,
             auto_bed_leveling=model.auto_bed_leveling,
             direct_drive=model.direct_drive,
+            firmware=model.firmware,
+            gcode_flavor=model.gcode_flavor,
             multi_extruder_type=model.multi_extruder_type,
             created_at=model.created_at.isoformat() if model.created_at else '',
             updated_at=model.updated_at.isoformat() if model.updated_at else '',

@@ -63,6 +63,24 @@ class DatabaseService:
                     ))
                     conn.commit()
 
+            if 'firmware' not in columns:
+                logger.info("Migrating printer_profiles: adding firmware column")
+                with self.engine.connect() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE printer_profiles "
+                        "ADD COLUMN firmware VARCHAR(50) NOT NULL DEFAULT 'klipper'"
+                    ))
+                    conn.commit()
+
+            if 'gcode_flavor' not in columns:
+                logger.info("Migrating printer_profiles: adding gcode_flavor column")
+                with self.engine.connect() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE printer_profiles "
+                        "ADD COLUMN gcode_flavor VARCHAR(50) NOT NULL DEFAULT 'marlin'"
+                    ))
+                    conn.commit()
+
     @contextmanager
     def get_session(self):
         """Get database session context manager"""
@@ -837,6 +855,8 @@ class DatabaseService:
                 heated_chamber=data.get('heatedChamber', False),
                 auto_bed_leveling=data.get('autoBedLeveling', False),
                 direct_drive=data.get('directDrive', False),
+                firmware=data.get('firmware', 'klipper'),
+                gcode_flavor=data.get('gcodeFlavor', 'marlin'),
                 multi_extruder_type=data.get('multiExtruderType'),
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
@@ -880,6 +900,10 @@ class DatabaseService:
                 model.auto_bed_leveling = data['autoBedLeveling']
             if 'directDrive' in data:
                 model.direct_drive = data['directDrive']
+            if 'firmware' in data:
+                model.firmware = data['firmware']
+            if 'gcodeFlavor' in data:
+                model.gcode_flavor = data['gcodeFlavor']
             if 'multiExtruderType' in data:
                 model.multi_extruder_type = data['multiExtruderType']
 

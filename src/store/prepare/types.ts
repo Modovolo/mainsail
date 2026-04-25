@@ -69,6 +69,14 @@ export interface SliceParams {
     first_layer_speed: number
     nozzle_temp: number
     bed_temp: number
+    /** Per-extruder nozzle temperatures (indexed from 0) */
+    nozzle_temps: number[]
+    /** Active extruder index for the temperature editor */
+    active_nozzle_index: number
+    /** Per-bed-controller temperatures (indexed from 0) */
+    bed_controller_temps: number[]
+    /** Active bed heater controller index for the temperature editor */
+    active_bed_controller_index: number
     enable_support: boolean
     support_density: number
     support_angle: number
@@ -103,6 +111,10 @@ export interface SliceProfile {
 export interface PrinterProfile {
     id: string
     name: string
+    /** Primary firmware stack running on this printer */
+    firmware: string
+    /** G-code flavor expected by the firmware */
+    gcodeFlavor: string
     isBuiltIn?: boolean
     buildVolume: { x: number; y: number; z: number }
     extruderCount: number
