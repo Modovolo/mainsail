@@ -50,9 +50,11 @@ function createTestSliceParams(overrides: Partial<SliceParams> = {}): SliceParam
 
 // Helper to create test PrinterProfile
 function createTestPrinterProfile(overrides: Partial<PrinterProfile> = {}): PrinterProfile {
-    return {
+    const defaults: PrinterProfile = {
         id: 'test-printer',
         name: 'Test Printer',
+        firmware: 'klipper',
+        gcodeFlavor: 'marlin',
         buildVolume: { x: 220, y: 220, z: 250 },
         extruderCount: 1,
         nozzleDiameter: 0.4,
@@ -63,8 +65,17 @@ function createTestPrinterProfile(overrides: Partial<PrinterProfile> = {}): Prin
         heatedChamber: false,
         autoBedLeveling: true,
         directDrive: false,
-        ...overrides,
     }
+
+    const profile: PrinterProfile = {
+        ...defaults,
+        ...overrides,
+        firmware: overrides.firmware ?? defaults.firmware,
+        gcodeFlavor: overrides.gcodeFlavor ?? defaults.gcodeFlavor,
+        bedShape: overrides.bedShape ?? defaults.bedShape,
+    }
+
+    return profile
 }
 
 describe('mapSettings', () => {
