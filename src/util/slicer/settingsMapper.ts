@@ -26,6 +26,10 @@ const DEFAULTS: SlicerConfig = {
     bedTemp: 60,
     firstLayerNozzleTemp: 215,
     firstLayerBedTemp: 60,
+    nozzleTemps: [210],
+    firstLayerNozzleTemps: [215],
+    bedControllerTemps: [60],
+    firstLayerBedControllerTemps: [60],
     retractDistance: 1.0,
     retractSpeed: 40,
     retractLift: 0.2,
@@ -100,6 +104,8 @@ export function mapSettings(params: SliceParams, printer: PrinterProfile): Slice
     const activeNozzleTemp = Number.isFinite(params.nozzle_temp)
         ? params.nozzle_temp
         : (nozzleTemps[activeNozzleIndex] ?? fallbackNozzleTemp)
+    const firstLayerNozzleBoost = 5
+    const firstLayerNozzleTemps = nozzleTemps.map((temp) => Math.max(0, temp + firstLayerNozzleBoost))
 
     const fallbackBedTemp = Number.isFinite(params.bed_temp) ? params.bed_temp : DEFAULTS.bedTemp
     const bedControllerCount = Math.max(1, Math.floor(Number(printer.bedHeaterControllerCount) || 1))
@@ -108,6 +114,7 @@ export function mapSettings(params: SliceParams, printer: PrinterProfile): Slice
     const activeBedTemp = Number.isFinite(params.bed_temp)
         ? params.bed_temp
         : (bedControllerTemps[activeBedControllerIndex] ?? fallbackBedTemp)
+    const firstLayerBedControllerTemps = [...bedControllerTemps]
 
     const mappedBedHeaterTemps: Record<string, number> = (() => {
         if (params.bed_heater_temps && Object.keys(params.bed_heater_temps).length > 0) {
@@ -156,6 +163,10 @@ export function mapSettings(params: SliceParams, printer: PrinterProfile): Slice
         bedTemp: activeBedTemp,
         firstLayerNozzleTemp: activeNozzleTemp + 5,
         firstLayerBedTemp: activeBedTemp,
+        nozzleTemps,
+        firstLayerNozzleTemps,
+        bedControllerTemps,
+        firstLayerBedControllerTemps,
 
         // Retraction
         retractDistance: printer.directDrive ? 0.8 : 1.5,

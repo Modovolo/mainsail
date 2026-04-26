@@ -17,6 +17,99 @@ function fmt(val: number, decimals = 3): string {
 const PRIME_MAX_CROSS_SECTION_MM2 = 0.55
 const MIN_GCODE_SEGMENT_LENGTH = 0.01
 
+function normalizeChannelTemps(source: unknown, fallback: number): number[] {
+    const values = Array.isArray(source) ? source : []
+    const normalized = values
+        .map((v) => Number(v))
+        .filter((v) => Number.isFinite(v) && v >= 0)
+    if (normalized.length > 0) {
+        return normalized
+    }
+    return [fallback]
+}
+
+function resolveNozzleTemps(config: SlicerConfig, firstLayer: boolean): number[] {
+    const normalTemps = normalizeChannelTemps(config.nozzleTemps, config.nozzleTemp)
+    if (!firstLayer) {
+        return normalTemps
+    }
+
+    const explicitFirstLayer = Array.isArray(config.firstLayerNozzleTemps) ? config.firstLayerNozzleTemps : []
+    if (explicitFirstLayer.length === normalTemps.length) {
+        return explicitFirstLayer.map((v, idx) => {
+            const num = Number(v)
+            return Number.isFinite(num) && num >= 0 ? num : normalTemps[idx]
+        })
+    }
+
+    const delta = (config.firstLayerNozzleTemp ?? config.nozzleTemp) - config.nozzleTemp
+    return normalTemps.map((temp) => Math.max(0, temp + delta))
+}
+
+function resolveBedControllerTemps(config: SlicerConfig, firstLayer: boolean): number[] {
+    const normalTemps = normalizeChannelTemps(config.bedControllerTemps, config.bedTemp)
+    if (!firstLayer) {
+        return normalTemps
+    }
+
+    const explicitFirstLayer = Array.isArray(config.firstLayerBedControllerTemps)
+        ? config.firstLayerBedControllerTemps
+        : []
+    if (explicitFirstLayer.length === normalTemps.length) {
+        return explicitFirstLayer.map((v, idx) => {
+            const num = Number(v)
+            return Number.isFinite(num) && num >= 0 ? num : normalTemps[idx]
+        })
+    }
+
+    const delta = (config.firstLayerBedTemp ?? config.bedTemp) - config.bedTemp
+    return normalTemps.map((temp) => Math.max(0, temp + delta))
+}
+
+function appendNozzleTempCommands(
+    lines: string[],
+    command: 'M104' | 'M109',
+    temps: number[],
+    actionComment: string,
+    includeZero: boolean
+): void {
+    const multiTool = temps.length > 1
+    const emitted = temps
+        .map((temp, idx) => ({ temp, idx }))
+        .filter(({ temp }) => includeZero || temp > 0)
+
+    if (emitted.length === 0 && !includeZero) {
+        return
+    }
+
+    for (const { temp, idx } of emitted) {
+        const toolSuffix = multiTool ? ` T${idx}` : ''
+        lines.push(`${command} S${temp}${toolSuffix} ; ${actionComment}`)
+    }
+}
+
+function appendBedTempCommands(
+    lines: string[],
+    command: 'M140' | 'M190',
+    temps: number[],
+    actionComment: string,
+    includeZero: boolean
+): void {
+    const multiController = temps.length > 1
+    const emitted = temps
+        .map((temp, idx) => ({ temp, idx }))
+        .filter(({ temp }) => includeZero || temp > 0)
+
+    if (emitted.length === 0 && !includeZero) {
+        return
+    }
+
+    for (const { temp, idx } of emitted) {
+        const controllerSuffix = multiController ? ` T${idx + 1}` : ''
+        lines.push(`${command} S${temp}${controllerSuffix} ; ${actionComment}`)
+    }
+}
+
 /**
  * Substitute template variables in custom G-code.
  *
@@ -130,21 +223,25 @@ function generateStartGcode(config: SlicerConfig, thumbnail?: string): string {
         'G90 ; Absolute positioning',
         'M82 ; Absolute extrusion',
         'G28 ; Home all axes',
-        `M104 S${config.firstLayerNozzleTemp} ; Set nozzle temp`,
-        `M140 S${config.firstLayerBedTemp} ; Set bed temp`,
-        `M109 S${config.firstLayerNozzleTemp} ; Wait for nozzle temp`,
-        `M190 S${config.firstLayerBedTemp} ; Wait for bed temp`,
-        '',
-        '; Prime line',
-        'G1 Z2 F3000',
-        `G1 X${fmt(primeStartX)} Y${fmt(primeY)} F${config.travelSpeed * 60}`,
-        `G1 Z${fmt(config.firstLayerHeight)} F3000`,
-        'G92 E0 ; Reset extruder before priming',
-        `G1 X${fmt(primeEndX)} Y${fmt(primeY)} E${fmt(primeExtrusion, 5)} F${config.firstLayerSpeed * 60} ; Prime`,
-        'G1 E-0.5 F1800 ; Retract slightly',
-        'G92 E0 ; Reset extruder',
-        '',
     ]
+
+    const firstLayerNozzleTemps = resolveNozzleTemps(config, true)
+    const firstLayerBedControllerTemps = resolveBedControllerTemps(config, true)
+    appendNozzleTempCommands(lines, 'M104', firstLayerNozzleTemps, 'Set nozzle temp', false)
+    appendBedTempCommands(lines, 'M140', firstLayerBedControllerTemps, 'Set bed temp', true)
+    appendNozzleTempCommands(lines, 'M109', firstLayerNozzleTemps, 'Wait for nozzle temp', false)
+    appendBedTempCommands(lines, 'M190', firstLayerBedControllerTemps, 'Wait for bed temp', false)
+    lines.push('')
+    lines.push('; Prime line')
+    lines.push('G1 Z2 F3000')
+    lines.push(`G1 X${fmt(primeStartX)} Y${fmt(primeY)} F${config.travelSpeed * 60}`)
+    lines.push(`G1 Z${fmt(config.firstLayerHeight)} F3000`)
+    lines.push('G92 E0 ; Reset extruder before priming')
+    lines.push(`G1 X${fmt(primeEndX)} Y${fmt(primeY)} E${fmt(primeExtrusion, 5)} F${config.firstLayerSpeed * 60} ; Prime`)
+    lines.push('G1 E-0.5 F1800 ; Retract slightly')
+    lines.push('G92 E0 ; Reset extruder')
+    lines.push('')
+
     return header + thumbnailBlock + lines.join('\n')
 }
 
@@ -165,11 +262,15 @@ function generateEndGcode(config: SlicerConfig): string {
         'G1 Z10 F3000 ; Lift',
         'G90 ; Absolute positioning',
         'G1 X5 Y200 F6000 ; Present print',
-        'M104 S0 ; Turn off nozzle',
-        'M140 S0 ; Turn off bed',
-        'M84 ; Disable motors',
-        'M107 ; Fan off',
     ]
+
+    const nozzleTemps = resolveNozzleTemps(config, false)
+    const bedControllerTemps = resolveBedControllerTemps(config, false)
+    appendNozzleTempCommands(lines, 'M104', nozzleTemps.map(() => 0), 'Turn off nozzle', true)
+    appendBedTempCommands(lines, 'M140', bedControllerTemps.map(() => 0), 'Turn off bed', true)
+    lines.push('M84 ; Disable motors')
+    lines.push('M107 ; Fan off')
+
     return lines.join('\n')
 }
 
@@ -245,8 +346,10 @@ export function exportGcode(layers: LayerToolpath[], config: SlicerConfig, thumb
         // Set per-layer temperatures and fan
         if (layer.layerIndex === 1) {
             // Switch to normal temps after first layer
-            lines.push(`M104 S${config.nozzleTemp}`)
-            lines.push(`M140 S${config.bedTemp}`)
+            const nozzleTemps = resolveNozzleTemps(config, false)
+            const bedControllerTemps = resolveBedControllerTemps(config, false)
+            appendNozzleTempCommands(lines, 'M104', nozzleTemps, 'Switch to normal nozzle temp', true)
+            appendBedTempCommands(lines, 'M140', bedControllerTemps, 'Switch to normal bed temp', true)
         }
         if (layer.layerIndex === config.fanStartLayer) {
             lines.push(`M106 S${config.fanSpeed}`)

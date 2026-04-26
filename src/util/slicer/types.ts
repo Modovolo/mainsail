@@ -101,6 +101,14 @@ export interface SlicerConfig {
     bedTemp: number
     firstLayerNozzleTemp: number
     firstLayerBedTemp: number
+    /** Per-extruder nozzle temperatures (tool index = array index) */
+    nozzleTemps?: number[]
+    /** Per-extruder first-layer nozzle temperatures */
+    firstLayerNozzleTemps?: number[]
+    /** Per-bed-controller temperatures (controller index = array index) */
+    bedControllerTemps?: number[]
+    /** Per-bed-controller first-layer temperatures */
+    firstLayerBedControllerTemps?: number[]
 
     // Retraction
     retractDistance: number // mm

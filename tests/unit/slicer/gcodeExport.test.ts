@@ -47,6 +47,10 @@ function createTestConfig(overrides: Partial<SlicerConfig> = {}): SlicerConfig {
         raftPadGap: 0.15,
         fanSpeed: 255,
         fanStartLayer: 2,
+        nozzleTemps: [210],
+        firstLayerNozzleTemps: [215],
+        bedControllerTemps: [60],
+        firstLayerBedControllerTemps: [65],
         ...overrides,
     }
 }
@@ -219,5 +223,37 @@ describe('gcodeExport custom layer change gcode', () => {
         const gcode = exportGcode(layers, config)
 
         expect(gcode).toContain('SET_HEATER_TEMPERATURE HEATER=extruder TARGET=230')
+    })
+})
+
+describe('gcodeExport multi-channel temperatures', () => {
+    it('emits per-tool and per-bed-controller start/wait/switch commands', () => {
+        const config = createTestConfig({
+            nozzleTemps: [205, 230, 0],
+            firstLayerNozzleTemps: [210, 235, 0],
+            bedControllerTemps: [55, 70, 0],
+            firstLayerBedControllerTemps: [60, 75, 0],
+        })
+        const gcode = exportGcode([createTestLayer(0, 0.3), createTestLayer(1, 0.5)], config)
+
+        expect(gcode).toContain('M104 S210 T0 ; Set nozzle temp')
+        expect(gcode).toContain('M104 S235 T1 ; Set nozzle temp')
+        expect(gcode).not.toContain('M104 S0 T2 ; Set nozzle temp')
+        expect(gcode).toContain('M109 S210 T0 ; Wait for nozzle temp')
+        expect(gcode).toContain('M109 S235 T1 ; Wait for nozzle temp')
+
+        expect(gcode).toContain('M140 S60 T1 ; Set bed temp')
+        expect(gcode).toContain('M140 S75 T2 ; Set bed temp')
+        expect(gcode).toContain('M140 S0 T3 ; Set bed temp')
+        expect(gcode).toContain('M190 S60 T1 ; Wait for bed temp')
+        expect(gcode).toContain('M190 S75 T2 ; Wait for bed temp')
+        expect(gcode).not.toContain('M190 S0 T3 ; Wait for bed temp')
+
+        expect(gcode).toContain('M104 S205 T0 ; Switch to normal nozzle temp')
+        expect(gcode).toContain('M104 S230 T1 ; Switch to normal nozzle temp')
+        expect(gcode).toContain('M104 S0 T2 ; Switch to normal nozzle temp')
+        expect(gcode).toContain('M140 S55 T1 ; Switch to normal bed temp')
+        expect(gcode).toContain('M140 S70 T2 ; Switch to normal bed temp')
+        expect(gcode).toContain('M140 S0 T3 ; Switch to normal bed temp')
     })
 })

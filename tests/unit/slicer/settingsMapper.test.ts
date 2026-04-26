@@ -64,6 +64,8 @@ function createTestPrinterProfile(overrides: Partial<PrinterProfile> = {}): Prin
         autoBedLeveling: true,
         directDrive: false,
         ...overrides,
+        firmware: overrides.firmware ?? 'klipper',
+        gcodeFlavor: overrides.gcodeFlavor ?? 'marlin',
     }
 }
 
@@ -234,6 +236,10 @@ describe('mapSettings', () => {
             expect(config.firstLayerNozzleTemp).toBe(240)
             expect(config.bedTemp).toBe(70)
             expect(config.firstLayerBedTemp).toBe(70)
+            expect(config.nozzleTemps).toEqual([205, 235])
+            expect(config.firstLayerNozzleTemps).toEqual([210, 240])
+            expect(config.bedControllerTemps).toEqual([55, 70])
+            expect(config.firstLayerBedControllerTemps).toEqual([55, 70])
             expect(config.bedHeaterTemps).toEqual({
                 heater_bed_FL: 55,
                 heater_bed_FR: 70,

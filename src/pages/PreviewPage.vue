@@ -86,6 +86,36 @@
                 Save G-code
             </v-btn>
 
+            <v-menu v-if="loadedGcodeText" offset-y bottom>
+                <template #activator="{ on, attrs }">
+                    <v-btn small outlined class="mr-4" v-bind="attrs" v-on="on">
+                        <v-icon small left>{{ mdiUpload }}</v-icon>
+                        Push G-code
+                        <v-icon right x-small>{{ mdiChevronDown }}</v-icon>
+                    </v-btn>
+                </template>
+                <v-list dense>
+                    <v-list-item :disabled="pushingToRepository" @click="pushGcodeToRepository">
+                        <v-list-item-content>
+                            <v-list-item-title>Push to Repository</v-list-item-title>
+                            <v-list-item-subtitle>Upload to Central Files repository</v-list-item-subtitle>
+                        </v-list-item-content>
+                    </v-list-item>
+                    <v-list-item :disabled="sendingToPrinter" @click="openPushToPrinterDialog">
+                        <v-list-item-content>
+                            <v-list-item-title>Push to Specific Printer</v-list-item-title>
+                            <v-list-item-subtitle>Upload and send to a selected printer</v-list-item-subtitle>
+                        </v-list-item-content>
+                    </v-list-item>
+                    <v-list-item :disabled="queuingJob" @click="openQueueDialog">
+                        <v-list-item-content>
+                            <v-list-item-title>Push to Job Queue</v-list-item-title>
+                            <v-list-item-subtitle>Upload and add to print queue</v-list-item-subtitle>
+                        </v-list-item-content>
+                    </v-list-item>
+                </v-list>
+            </v-menu>
+
             <v-btn icon small class="mr-2" @click="resetCamera">
                 <v-icon small>{{ mdiCameraFlip }}</v-icon>
             </v-btn>
@@ -183,6 +213,67 @@
             </v-card>
         </div>
 
+        <v-dialog v-model="showPushToPrinterDialog" max-width="500">
+            <v-card>
+                <v-card-title class="text-h6">Push G-code to Printer</v-card-title>
+                <v-card-text>
+                    <v-select
+                        v-model="pushPrinterId"
+                        :items="fleetPrinters"
+                        item-text="name"
+                        item-value="printerId"
+                        :loading="loadingFleetPrinters"
+                        outlined
+                        dense
+                        label="Select Printer" />
+                </v-card-text>
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn text :disabled="sendingToPrinter" @click="showPushToPrinterDialog = false">Cancel</v-btn>
+                    <v-btn
+                        color="primary"
+                        :loading="sendingToPrinter"
+                        :disabled="!pushPrinterId || sendingToPrinter"
+                        @click="pushGcodeToPrinter">
+                        Push
+                    </v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
+        <v-dialog v-model="showQueueDialog" max-width="460">
+            <v-card>
+                <v-card-title class="text-h6">Push G-code to Queue</v-card-title>
+                <v-card-text>
+                    <v-text-field
+                        v-model.number="queueCopies"
+                        type="number"
+                        min="1"
+                        step="1"
+                        outlined
+                        dense
+                        label="Copies" />
+                    <v-select
+                        v-model="queuePriority"
+                        :items="queuePriorityOptions"
+                        outlined
+                        dense
+                        label="Priority" />
+                </v-card-text>
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn text :disabled="queuingJob" @click="showQueueDialog = false">Cancel</v-btn>
+                    <v-btn
+                        color="primary"
+                        :loading="queuingJob"
+                        :disabled="queuingJob"
+                        @click="pushGcodeToQueue">
+                        Queue
+                    </v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
         <!-- Loading state -->
         <v-overlay :value="isLoading" absolute>
             <v-progress-circular indeterminate size="64" />
@@ -229,9 +320,16 @@ import {
     mdiPrinter3d,
     mdiFolder,
     mdiDownload,
+    mdiUpload,
     mdiChevronUp,
     mdiChevronDown,
 } from '@mdi/js'
+
+interface FleetPrinter {
+    printerId: string
+    name: string
+    isActive?: boolean
+}
 
 @Component({})
 export default class PreviewPage extends Mixins(BaseMixin) {
@@ -243,11 +341,25 @@ export default class PreviewPage extends Mixins(BaseMixin) {
     mdiPrinter3d = mdiPrinter3d
     mdiFolder = mdiFolder
     mdiDownload = mdiDownload
+    mdiUpload = mdiUpload
     mdiChevronUp = mdiChevronUp
     mdiChevronDown = mdiChevronDown
 
     // Printer profile selector
     showPrinterMenu = false
+
+    // Push g-code actions
+    showPushToPrinterDialog = false
+    showQueueDialog = false
+    pushPrinterId: string | null = null
+    fleetPrinters: FleetPrinter[] = []
+    loadingFleetPrinters = false
+    pushingToRepository = false
+    sendingToPrinter = false
+    queuingJob = false
+    queueCopies = 1
+    queuePriority = 'Normal'
+    queuePriorityOptions = ['Low', 'Normal', 'High']
 
     get printerProfiles(): any[] {
         return this.$store.state.prepare?.printerProfiles ?? []
@@ -766,6 +878,177 @@ export default class PreviewPage extends Mixins(BaseMixin) {
         a.download = this.loadedGcodeFileName || 'output.gcode'
         a.click()
         URL.revokeObjectURL(url)
+    }
+
+    private getPushFilename(): string {
+        return this.loadedGcodeFileName || 'preview-output.gcode'
+    }
+
+    private buildPushFormData(filename: string): FormData {
+        const blob = new Blob([this.loadedGcodeText || ''], { type: 'text/plain' })
+        const formData = new FormData()
+        formData.append('files', blob, filename)
+        formData.append('version', '1.0')
+        return formData
+    }
+
+    private async uploadGcodeToRepositoryFile(): Promise<{ ok: boolean; fileId?: string; fileName?: string }> {
+        if (!this.loadedGcodeText) return { ok: false }
+
+        const filename = this.getPushFilename()
+        const formData = this.buildPushFormData(filename)
+        const token = localStorage.getItem('fleet_token')
+
+        const headers: Record<string, string> = {}
+        if (token) headers.Authorization = `Bearer ${token}`
+
+        try {
+            const response = await fetch('/api/files/upload', {
+                method: 'POST',
+                headers,
+                body: formData,
+            })
+
+            const payload = await response.json().catch(() => ({}))
+            if (!response.ok) {
+                this.$toast?.error?.(payload.error || 'Failed to upload G-code')
+                return { ok: false }
+            }
+
+            const uploadedFiles = payload?.files || []
+            const fileId = uploadedFiles[0]?.id
+            const fileName = uploadedFiles[0]?.name || filename
+
+            return { ok: true, fileId, fileName }
+        } catch (error: any) {
+            console.error('Repository upload failed:', error)
+            this.$toast?.error?.(`Failed to upload G-code: ${error.message}`)
+            return { ok: false }
+        }
+    }
+
+    async pushGcodeToRepository() {
+        if (!this.loadedGcodeText) return
+
+        this.pushingToRepository = true
+        try {
+            const upload = await this.uploadGcodeToRepositoryFile()
+            if (!upload.ok) return
+            this.$toast?.success?.(`Uploaded ${upload.fileName || this.getPushFilename()} to repository`)
+        } finally {
+            this.pushingToRepository = false
+        }
+    }
+
+    async loadFleetPrinters() {
+        this.loadingFleetPrinters = true
+        try {
+            const token = localStorage.getItem('fleet_token')
+            const response = await fetch('/api/printers/accessible', {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            })
+            if (response.ok) {
+                const data = await response.json().catch(() => ({}))
+                this.fleetPrinters = data.printers || []
+            }
+        } catch (error) {
+            console.error('Error loading printers:', error)
+        } finally {
+            this.loadingFleetPrinters = false
+        }
+    }
+
+    openPushToPrinterDialog() {
+        this.pushPrinterId = null
+        this.showPushToPrinterDialog = true
+        this.loadFleetPrinters()
+    }
+
+    async pushGcodeToPrinter() {
+        if (!this.pushPrinterId || !this.loadedGcodeText) return
+
+        this.sendingToPrinter = true
+        try {
+            const upload = await this.uploadGcodeToRepositoryFile()
+            if (!upload.ok || !upload.fileId) {
+                this.$toast?.error?.('Failed to upload G-code before sending')
+                return
+            }
+
+            const token = localStorage.getItem('fleet_token')
+            const response = await fetch('/api/files/send', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({
+                    fileId: upload.fileId,
+                    printerId: this.pushPrinterId,
+                }),
+            })
+
+            if (response.ok) {
+                this.$toast?.success?.(`Sent ${upload.fileName || this.getPushFilename()} to printer`)
+                this.showPushToPrinterDialog = false
+            } else {
+                const data = await response.json().catch(() => ({}))
+                this.$toast?.error?.(data.error || 'Failed to send G-code to printer')
+            }
+        } catch (error: any) {
+            console.error('Send to printer failed:', error)
+            this.$toast?.error?.(`Failed to send G-code: ${error.message}`)
+        } finally {
+            this.sendingToPrinter = false
+        }
+    }
+
+    openQueueDialog() {
+        this.queueCopies = 1
+        this.queuePriority = 'Normal'
+        this.showQueueDialog = true
+    }
+
+    async pushGcodeToQueue() {
+        if (!this.loadedGcodeText) return
+
+        this.queuingJob = true
+        try {
+            const upload = await this.uploadGcodeToRepositoryFile()
+            if (!upload.ok || !upload.fileId) {
+                this.$toast?.error?.('Failed to upload G-code before queueing')
+                return
+            }
+
+            const copies = Math.max(1, Math.floor(Number(this.queueCopies) || 1))
+            const token = localStorage.getItem('fleet_token')
+            const response = await fetch('/api/print-queue/add', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({
+                    fileId: upload.fileId,
+                    fileName: upload.fileName,
+                    copies,
+                    priority: this.queuePriority,
+                }),
+            })
+
+            if (response.ok) {
+                this.$toast?.success?.(`Added ${copies} job(s) to print queue`)
+                this.showQueueDialog = false
+            } else {
+                const data = await response.json().catch(() => ({}))
+                this.$toast?.error?.(data.error || 'Failed to add G-code to queue')
+            }
+        } catch (error: any) {
+            console.error('Queue push failed:', error)
+            this.$toast?.error?.(`Failed to queue G-code: ${error.message}`)
+        } finally {
+            this.queuingJob = false
+        }
     }
 
     handleGcodeFileSelect(event: Event) {
