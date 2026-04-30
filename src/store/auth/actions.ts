@@ -77,6 +77,25 @@ function getUserFriendlyError(error: any): string {
 }
 
 export const actions: ActionTree<AuthState, RootState> = {
+    async keycloakLogin({ commit }, user: any) {
+        const token = user.access_token
+
+        commit('setToken', token)
+        commit('setUser', {
+            id: user.profile.sub,
+            username: user.profile.preferred_username || user.profile.email,
+            email: user.profile.email,
+            role: 'admin', // Depending on your setup mapping, you could extract this from JWT
+        })
+        commit('setAuthenticated', true)
+
+        localStorage.setItem('fleet_token', token)
+        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+        
+        Vue.$toast.success('Login successful')
+        return true
+    },
+
     async login({ commit, dispatch }, credentials: { username: string; password: string }) {
         commit('setLoading', true)
         commit('setError', null)

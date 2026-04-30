@@ -33,7 +33,19 @@ def require_auth(handler):
                 status=401
             )
         
+        db_service = request.app['db']
+        username = payload.get("preferred_username") or payload.get("email")
+        
+        # Provision user if doesn't exist
+        user = db_service.get_user_by_username(username)
+        if not user:
+            # We auto-provision
+            user = db_service.create_user(username, "keycloak_managed", payload.get("email"))
+            
+        # Optional: You can attach the DB User object into the request, or just payload
+        payload['role'] = user.role if user else "user"
         request['user'] = payload
+        
         return await handler(request)
     
     return wrapper

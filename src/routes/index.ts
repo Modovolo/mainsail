@@ -8,6 +8,7 @@ import History from '../pages/History.vue'
 import Timelapse from '../pages/Timelapse.vue'
 import Machine from '../pages/Machine.vue'
 import Login from '../pages/Login.vue'
+import Callback from '../pages/Callback.vue'
 import MyPrinters from '../pages/MyPrinters.vue'
 import CentralFiles from '../pages/CentralFiles.vue'
 import BuildPlateComposer from '../pages/BuildPlateComposer.vue'
@@ -53,8 +54,16 @@ const routes: AppRoute[] = [
         showInNavi: false,
         meta: { requiresAuth: false, isPublic: true },
     },
-    {
-        name: 'slicing',
+    {        name: 'callback',
+        title: 'Callback',
+        path: '/callback',
+        icon: mdiLogin,
+        component: Callback,
+        alwaysShow: true,
+        showInNavi: false,
+        meta: { requiresAuth: false, isPublic: true },
+    },
+    {        name: 'slicing',
         title: 'Slicing',
         path: '/slicing',
         icon: mdiPrinter3dNozzle,
