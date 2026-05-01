@@ -171,7 +171,11 @@ if [ "$APPLY_MANIFESTS" = true ]; then
     echo -e "${YELLOW}Applying k8s manifests...${NC}"
     kubectl apply -f "$K8S_DIR/namespace.yaml"
     kubectl apply -f "$K8S_DIR/storage.yaml"
-    kubectl apply -f "$K8S_DIR/secrets.yaml"
+    if [ -f "$K8S_DIR/secrets.yaml" ]; then
+        kubectl apply -f "$K8S_DIR/secrets.yaml"
+    else
+        echo -e "${YELLOW}Skipping secrets.yaml (file not present; using existing cluster secrets)${NC}"
+    fi
     kubectl apply -f "$K8S_DIR/configmaps.yaml"
     kubectl apply -f "$K8S_DIR/postgresql.yaml"
     kubectl apply -f "$K8S_DIR/fleet-manager.yaml"
