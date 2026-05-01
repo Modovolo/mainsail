@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 JWT_ALGORITHM = 'RS256'
 
 KEYCLOAK_ISSUER_URL = "https://ghn.modovolo.com/realms/workspace"
-KEYCLOAK_CLIENT_ID = "flight-data-platform" # Might share same client or create new
+KEYCLOAK_CLIENT_ID = "fleet"
 KEYCLOAK_JWKS_URL = "http://keycloak.keycloak.svc.cluster.local:8080/realms/workspace/protocol/openid-connect/certs"
 
 jwks_client = PyJWKClient(KEYCLOAK_JWKS_URL)
