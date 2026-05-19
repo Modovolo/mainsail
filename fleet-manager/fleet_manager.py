@@ -25,6 +25,7 @@ import os
 import time
 import uuid
 import re
+from urllib.parse import parse_qs, urlparse
 from datetime import datetime
 from typing import Dict, Set, Optional, Tuple
 import websockets
@@ -53,8 +54,32 @@ from routes import (
     setup_design_tree_routes,
 )
 
-logging.basicConfig(level=logging.DEBUG)
+# Default to INFO. DEBUG-level logging on the root logger causes the
+# `websockets` library to log every frame from every connected printer,
+# which starves the asyncio event loop under load and makes /api/health
+# probes time out (kubelet then restarts the pod -> 502 at the ingress).
+# Override with FLEET_LOG_LEVEL=DEBUG only for short troubleshooting windows.
+_log_level_name = os.environ.get("FLEET_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, _log_level_name, logging.INFO))
+# Keep noisy third-party loggers above DEBUG even if FLEET_LOG_LEVEL=DEBUG.
+logging.getLogger("websockets").setLevel(
+    logging.INFO if _log_level_name == "DEBUG" else logging.WARNING
+)
 logger = logging.getLogger(__name__)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """Parse a boolean environment variable."""
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+# Web clients (browser/Mainsail) must always present a valid token.
+REQUIRE_WEB_WS_AUTH = _env_bool("FLEET_REQUIRE_WEB_WS_AUTH", True)
+# Keep legacy printer clients online during migration; can be tightened later.
+REQUIRE_PRINTER_WS_AUTH = _env_bool("FLEET_REQUIRE_PRINTER_WS_AUTH", False)
 
 # Global database service instance (initialized in start_servers)
 db_service: Optional[DatabaseService] = None
@@ -74,6 +99,68 @@ class FleetManager:
         self.pending_requests: Dict[str, dict] = {}
         # Cleanup interval for stale requests (seconds)
         self.request_timeout = 60
+
+    def _extract_ws_path_and_token(self, websocket, raw_path: str) -> Tuple[str, Optional[str]]:
+        """Extract normalized path and bearer token from websocket handshake."""
+        parsed = urlparse(raw_path or "")
+        normalized_path = parsed.path or raw_path or "/"
+
+        # Browsers cannot set Authorization headers on websocket handshakes,
+        # so fleet web clients pass token via query param.
+        token = parse_qs(parsed.query).get("token", [None])[0]
+        if token:
+            token = token.replace("Bearer ", "", 1).strip()
+
+        if not token and hasattr(websocket, "request_headers"):
+            auth_header = websocket.request_headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:].strip()
+
+        if not token and hasattr(websocket, "request_headers"):
+            protocol_header = websocket.request_headers.get("Sec-WebSocket-Protocol", "")
+            protocol_parts = [part.strip() for part in protocol_header.split(",") if part.strip()]
+            # Support either "Bearer <token>" or "bearer,<token>" format.
+            for part in protocol_parts:
+                if part.lower().startswith("bearer "):
+                    token = part[7:].strip()
+                    break
+            if not token and len(protocol_parts) >= 2 and protocol_parts[0].lower() == "bearer":
+                token = protocol_parts[1]
+
+        return normalized_path, token
+
+    async def _authenticate_ws_connection(
+        self,
+        websocket,
+        raw_path: str,
+        *,
+        require_token: bool,
+        connection_kind: str,
+    ) -> Tuple[bool, str, Optional[dict]]:
+        """Authenticate websocket connection and return normalized path and payload."""
+        normalized_path, token = self._extract_ws_path_and_token(websocket, raw_path)
+
+        if not token and not require_token:
+            return True, normalized_path, None
+
+        if not token:
+            logger.warning(f"Rejecting {connection_kind} websocket: missing token")
+            await websocket.close(code=4401, reason="Missing auth token")
+            return False, normalized_path, None
+
+        if not jwt_auth:
+            logger.warning(
+                f"JWT auth service unavailable, allowing {connection_kind} websocket for availability"
+            )
+            return True, normalized_path, None
+
+        payload = jwt_auth.verify_access_token(token)
+        if not payload:
+            logger.warning(f"Rejecting {connection_kind} websocket: invalid or expired token")
+            await websocket.close(code=4401, reason="Invalid or expired token")
+            return False, normalized_path, None
+
+        return True, normalized_path, payload
 
     def _merge_printer_runtime_data(self, printer_id: str, payload: Optional[dict] = None) -> dict:
         """Merge runtime metadata reported by a printer into its shared status entry."""
@@ -278,8 +365,20 @@ class FleetManager:
     async def handle_printer_connection(self, websocket, path):
         """Handle WebSocket connection from printer"""
         printer_id = None
+        ok, normalized_path, auth_payload = await self._authenticate_ws_connection(
+            websocket,
+            path,
+            require_token=REQUIRE_PRINTER_WS_AUTH,
+            connection_kind="printer",
+        )
+        if not ok:
+            return
+
+        if auth_payload is not None:
+            setattr(websocket, "auth_payload", auth_payload)
+
         try:
-            logger.info(f"New printer connection from {websocket.remote_address}, path: {path}")
+            logger.info(f"New printer connection from {websocket.remote_address}, path: {normalized_path}")
             
             # Wait for registration with timeout
             registration = await asyncio.wait_for(websocket.recv(), timeout=30.0)
@@ -323,10 +422,22 @@ class FleetManager:
 
     async def handle_web_client(self, websocket, path):
         """Handle WebSocket connection from web clients (Mainsail)"""
+        ok, normalized_path, auth_payload = await self._authenticate_ws_connection(
+            websocket,
+            path,
+            require_token=REQUIRE_WEB_WS_AUTH,
+            connection_kind="web-client",
+        )
+        if not ok:
+            return
+
+        if auth_payload is not None:
+            setattr(websocket, "auth_payload", auth_payload)
+
         subscribed_printer_id = None
         
         # Check if this is a per-printer connection: /ws/client/{printer_id}
-        match = re.match(r'^/ws/client/([a-f0-9]+)$', path)
+        match = re.match(r'^/ws/client/([a-f0-9]+)$', normalized_path)
         if match:
             subscribed_printer_id = match.group(1)
             logger.info(f"Web client subscribing to printer: {subscribed_printer_id}")
@@ -349,7 +460,7 @@ class FleetManager:
             self.web_clients.add(websocket)
         
         try:
-            logger.info(f"New web client connection from {websocket.remote_address}, path: {path}")
+            logger.info(f"New web client connection from {websocket.remote_address}, path: {normalized_path}")
             
             if subscribed_printer_id:
                 # For printer-specific connections, send initial connection status

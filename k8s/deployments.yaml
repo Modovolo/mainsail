@@ -134,15 +134,13 @@ spec:
               mountPath: /printer_data/config/moonraker.conf
               subPath: moonraker.conf
           livenessProbe:
-            httpGet:
-              path: /server/info
+            tcpSocket:
               port: 7125
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10
           readinessProbe:
-            httpGet:
-              path: /server/info
+            tcpSocket:
               port: 7125
             initialDelaySeconds: 10
             periodSeconds: 10

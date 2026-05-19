@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 # Configuration
 JWT_ALGORITHM = 'RS256'
 
+# Legacy refresh-token cookie lifetime (kept for backward compatibility with
+# routes/auth.py legacy login/refresh handlers; Keycloak now manages tokens).
+REFRESH_TOKEN_EXPIRE_DAYS = 7
+
 KEYCLOAK_ISSUER_URL = "https://ghn.modovolo.com/realms/workspace"
 KEYCLOAK_CLIENT_ID = "fleet"
 KEYCLOAK_JWKS_URL = "http://keycloak.keycloak.svc.cluster.local:8080/realms/workspace/protocol/openid-connect/certs"

@@ -52,6 +52,11 @@ export class FleetSocketClient {
         return this.printerId
     }
 
+    private getFreshToken(): string | null {
+        const storeToken = this.store?.getters?.['auth/token'] as string | null | undefined
+        return (storeToken ?? localStorage.getItem('fleet_token'))?.replace(/^Bearer\s+/i, '').trim() || null
+    }
+
     /**
      * Connect to a specific printer via fleet-manager proxy
      */
@@ -72,7 +77,10 @@ export class FleetSocketClient {
         // Build the WebSocket URL for fleet-manager proxy
         const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
         const host = window.location.host
-        const url = `${protocol}://${host}/ws/client/${printerId}`
+        const token = this.getFreshToken()
+        const url = token
+            ? `${protocol}://${host}/ws/client/${printerId}?token=${encodeURIComponent(token)}`
+            : `${protocol}://${host}/ws/client/${printerId}`
 
         console.log(`[FleetSocket] Connecting to ${url}`)
 

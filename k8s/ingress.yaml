@@ -170,6 +170,30 @@ spec:
                 name: fleet-manager
                 port:
                   number: 8080
+          # G-code recipes API endpoints
+          - path: /api/gcode-recipes
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
+          # Design tree API endpoints
+          - path: /api/design-tree
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
+          # PMI / downtime / inspections API endpoints
+          - path: /api/pmi
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-manager
+                port:
+                  number: 8080
           # Install script
           - path: /install.sh
             pathType: ImplementationSpecific

@@ -27,6 +27,32 @@ export class WebSocketClient {
         this.url = url
     }
 
+    private getFreshToken(): string | null {
+        const storeToken = this.store?.getters?.['auth/token'] as string | null | undefined
+        return (storeToken ?? localStorage.getItem('fleet_token'))?.replace(/^Bearer\s+/i, '').trim() || null
+    }
+
+    private buildConnectUrl(rawUrl: string): string {
+        try {
+            const parsed = new URL(rawUrl, window.location.href)
+
+            // Only attach auth tokens to same-origin fleet websocket endpoints.
+            if (parsed.host !== window.location.host || !parsed.pathname.startsWith('/ws/')) {
+                return rawUrl
+            }
+
+            const token = this.getFreshToken()
+            if (!token) {
+                return rawUrl
+            }
+
+            parsed.searchParams.set('token', token)
+            return parsed.toString()
+        } catch {
+            return rawUrl
+        }
+    }
+
     handleMessage(data: any) {
         const wait = this.getWaitById(data.id)
 
@@ -100,8 +126,9 @@ export class WebSocketClient {
             console.debug('[WebSocket] Closing existing instance before new connection')
         }
         this.instance?.close()
-        this.instance = new WebSocket(this.url)
-        console.debug(`[WebSocket] WebSocket created to: ${this.url}`)
+        const connectUrl = this.buildConnectUrl(this.url)
+        this.instance = new WebSocket(connectUrl)
+        console.debug(`[WebSocket] WebSocket created to: ${connectUrl}`)
 
         this.instance.onopen = () => {
             console.debug(`[WebSocket] onopen triggered for: ${this.url}`)

@@ -86,11 +86,11 @@ spec:
               value: "http://bfp-print-monitor:5000"
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
+              cpu: 200m
               memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
           volumeMounts:
             - name: fleet-files
               mountPath: /data/files
@@ -100,14 +100,16 @@ spec:
               port: 8080
             initialDelaySeconds: 60
             periodSeconds: 30
-            failureThreshold: 3
+            timeoutSeconds: 5
+            failureThreshold: 5
           readinessProbe:
             httpGet:
               path: /api/health
               port: 8080
             initialDelaySeconds: 30
             periodSeconds: 10
-            failureThreshold: 3
+            timeoutSeconds: 5
+            failureThreshold: 5
       volumes:
         - name: fleet-files
           persistentVolumeClaim:
