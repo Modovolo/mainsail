@@ -1,7 +1,13 @@
 describe('Dashboard', () => {
-    it('opens the page correctly', function () {
+    beforeEach(() => {
+        cy.clearLocalStorage()
+    })
+
+    it('redirects unauthenticated users to login', () => {
         cy.visit('/')
-        cy.wait(2000)
-        cy.contains('Connecting to localhost')
+
+        cy.location('pathname').should('eq', '/login')
+        cy.location('search').should('contain', 'redirect=%2F')
+        cy.contains('Login with Keycloak').should('be.visible')
     })
 })
