@@ -5,6 +5,7 @@ Unified telemetry feed for Fleet Dashboard and downstream RAG ingestion.
 import asyncio
 import logging
 import os
+from collections import deque
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
@@ -105,12 +106,25 @@ async def _fetch_klippy_log_tail(session: ClientSession, printer) -> Optional[Li
     if not host:
         return None
 
+    # Bound memory use even if klippy.log is large.
+    max_tail_bytes = 64 * 1024
     url = f'http://{host}:7125/server/files/klippy.log'
     try:
-        async with session.get(url) as response:
+        async with session.get(url, headers={'Range': f'bytes=-{max_tail_bytes}'}) as response:
             if response.status >= 400:
                 return None
-            text = await response.text()
+
+            chunks = deque()
+            total = 0
+            async for chunk in response.content.iter_chunked(4096):
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                total += len(chunk)
+                while total > max_tail_bytes and chunks:
+                    total -= len(chunks.popleft())
+
+            text = b''.join(chunks).decode('utf-8', errors='replace')
             return _tail_lines(text)
     except Exception:
         return None
