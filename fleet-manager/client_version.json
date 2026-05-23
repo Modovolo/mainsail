@@ -1,6 +1,0 @@
-{
-    "version": "3.5.1",
-    "min_version": "3.0.0",
-    "changelog": "Added fleet client OTA progress reporting, remote restart visibility, and improved version/status tracking",
-    "released": "2026-03-06"
-}

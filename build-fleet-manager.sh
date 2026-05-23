@@ -6,8 +6,14 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 K8S_DIR="$SCRIPT_DIR/k8s"
+FLEET_MANAGER_DIR="$(dirname "$SCRIPT_DIR")/fleet-manager"
 MOONRAKER_DIR="$(dirname "$SCRIPT_DIR")/moonraker"
 BFP_MONITOR_DIR="$(dirname "$SCRIPT_DIR")/bfp-print-monitor"
+
+# Backward-compat: if fleet-manager is still nested under mainsail, use that.
+if [ ! -d "$FLEET_MANAGER_DIR" ] && [ -d "$SCRIPT_DIR/fleet-manager" ]; then
+    FLEET_MANAGER_DIR="$SCRIPT_DIR/fleet-manager"
+fi
 
 # Registry
 REGISTRY="jmarji"
@@ -107,8 +113,12 @@ done
 
 # Build fleet-manager
 if [ "$BUILD_FLEET_MANAGER" = true ]; then
+    if [ ! -d "$FLEET_MANAGER_DIR" ]; then
+        echo -e "${RED}fleet-manager directory not found at $FLEET_MANAGER_DIR${NC}"
+        exit 1
+    fi
     echo -e "${YELLOW}Building fleet-manager...${NC}"
-    docker build -t $REGISTRY/fleet-manager:$TAG ./fleet-manager/
+    docker build -t $REGISTRY/fleet-manager:$TAG "$FLEET_MANAGER_DIR"
     echo -e "${YELLOW}Pushing fleet-manager...${NC}"
     docker push $REGISTRY/fleet-manager:$TAG
     echo -e "${GREEN}fleet-manager:$TAG pushed${NC}"

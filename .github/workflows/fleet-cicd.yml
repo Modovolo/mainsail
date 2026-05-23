@@ -13,6 +13,11 @@ on:
         required: false
         default: "jmarji"
         type: string
+      fleet_manager_repo:
+        description: "GitHub repo slug for fleet-manager source"
+        required: false
+        default: "Modovolo/fleet-manager"
+        type: string
       moonraker_repo:
         description: "GitHub repo slug for moonraker source"
         required: false
@@ -144,6 +149,14 @@ jobs:
           path: moonraker-src
           token: ${{ secrets.FLEET_REPO_READ_TOKEN || github.token }}
 
+      - name: Checkout fleet-manager repo
+        if: steps.flags.outputs.build_fleet_manager == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.fleet_manager_repo }}
+          path: fleet-manager-src
+          token: ${{ secrets.FLEET_REPO_READ_TOKEN || github.token }}
+
       - name: Checkout bfp-print-monitor repo
         if: steps.flags.outputs.build_monitor == 'true'
         uses: actions/checkout@v4
@@ -167,7 +180,7 @@ jobs:
         if: steps.flags.outputs.build_fleet_manager == 'true'
         uses: docker/build-push-action@v6
         with:
-          context: ./fleet-manager
+          context: ./fleet-manager-src
           push: true
           tags: ${{ env.REGISTRY_NAMESPACE }}/fleet-manager:${{ env.TAG }}
 
