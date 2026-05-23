@@ -34,7 +34,7 @@ permissions:
 
 env:
   IMAGE_NAME: mainsail
-  DOCKER_CONTEXT: .
+  BUILD_CONTEXT: .
   DOCKERFILE_PATH: Dockerfile
   K8S_MANIFEST_PATH: k8s/mainsail.yaml
   DEPLOYMENT_NAME: mainsail
@@ -87,7 +87,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker build -f "$DOCKERFILE_PATH" -t "local/${IMAGE_NAME}:${{ steps.meta.outputs.image_tag }}" "$DOCKER_CONTEXT"
+          docker build -f "$DOCKERFILE_PATH" -t "local/${IMAGE_NAME}:${{ steps.meta.outputs.image_tag }}" "$BUILD_CONTEXT"
 
   push:
     runs-on: ubuntu-latest
@@ -110,7 +110,7 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
-          context: ${{ env.DOCKER_CONTEXT }}
+          context: ${{ env.BUILD_CONTEXT }}
           file: ${{ env.DOCKERFILE_PATH }}
           push: true
           tags: ${{ needs.build.outputs.registry_namespace }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.image_tag }}
