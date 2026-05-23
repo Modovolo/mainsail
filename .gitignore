@@ -28,3 +28,13 @@ k8s/secrets.yaml
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Disabled legacy workflows
+.github/workflows/publish_docker.yml
+.github/workflows/notify-orchestration.yml
+.github/workflows/release.yml
+.github/workflows/auto-analyze.yml
+.github/workflows/check-pr-title.yml
+.github/workflows/label-actions.yml
+.github/workflows/stale.yml
+.github/workflows/check_locale.yml
