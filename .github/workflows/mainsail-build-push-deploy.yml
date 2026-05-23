@@ -1,9 +1,11 @@
 name: Mainsail Build Push Deploy
 
-"on":
+on:
   push:
     branches:
+      - develop
       - main
+      - master
   workflow_dispatch:
     inputs:
       tag:
