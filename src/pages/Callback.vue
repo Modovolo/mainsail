@@ -26,10 +26,8 @@ export default class OidcCallback extends Vue {
     async mounted() {
         try {
             const user = await userManager.signinCallback()
-            
-            // Dispatch login using Keycloak token instead of standard password payload. 
-            // In mainsail's default Vuex structure, we'll augment the 'auth/login' action later 
-            // or pass the token explicitly.
+
+            // Persist Keycloak token and hydrate fleet user profile.
             await this.$store.dispatch('auth/keycloakLogin', user)
 
             // Redirect back to home or desired URL

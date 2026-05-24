@@ -9,6 +9,7 @@ import Timelapse from '../pages/Timelapse.vue'
 import Machine from '../pages/Machine.vue'
 import Login from '../pages/Login.vue'
 import Callback from '../pages/Callback.vue'
+import SilentRenew from '../pages/SilentRenew.vue'
 import MyPrinters from '../pages/MyPrinters.vue'
 import CentralFiles from '../pages/CentralFiles.vue'
 import BuildPlateComposer from '../pages/BuildPlateComposer.vue'
@@ -59,6 +60,16 @@ const routes: AppRoute[] = [
         path: '/callback',
         icon: mdiLogin,
         component: Callback,
+        alwaysShow: true,
+        showInNavi: false,
+        meta: { requiresAuth: false, isPublic: true },
+    },
+    {
+        name: 'silent-renew',
+        title: 'Silent Renew',
+        path: '/silent-renew',
+        icon: mdiLogin,
+        component: SilentRenew,
         alwaysShow: true,
         showInNavi: false,
         meta: { requiresAuth: false, isPublic: true },

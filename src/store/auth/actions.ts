@@ -1,11 +1,39 @@
 import { ActionTree } from 'vuex'
-import { AuthState } from './types'
+import { AuthState, AuthUser } from './types'
 import { RootState } from '../types'
 import Vue from 'vue'
 import axios from 'axios'
+import { User as OidcUser } from 'oidc-client-ts'
+
+import { userManager } from '@/plugins/oidc'
 
 function normalizeToken(token: string | null | undefined): string {
     return (token ?? '').replace(/^Bearer\s+/i, '').trim()
+}
+
+function mapOidcUser(user: OidcUser): AuthUser {
+    const profile = (user?.profile ?? {}) as Record<string, unknown>
+    const username =
+        (profile.preferred_username as string) ||
+        (profile.email as string) ||
+        (profile.sub as string) ||
+        'unknown'
+
+    return {
+        id: (profile.sub as string) || username,
+        username,
+        email: profile.email as string | undefined,
+        role: 'user',
+    }
+}
+
+async function fetchBackendUser(): Promise<AuthUser | null> {
+    try {
+        const response = await axios.get('/api/auth/me')
+        return response.data?.user ?? null
+    } catch {
+        return null
+    }
 }
 
 // Map backend error messages to user-friendly messages
@@ -78,25 +106,29 @@ function getUserFriendlyError(error: any): string {
 
 export const actions: ActionTree<AuthState, RootState> = {
     async keycloakLogin({ commit }, user: any) {
-        const token = user.access_token
+        const oidcUser = user as OidcUser
+        const token = normalizeToken(oidcUser?.access_token)
+
+        if (!token) {
+            commit('setError', 'Authentication failed. Missing access token.')
+            return false
+        }
 
         commit('setToken', token)
-        commit('setUser', {
-            id: user.profile.sub,
-            username: user.profile.preferred_username || user.profile.email,
-            email: user.profile.email,
-            role: 'admin', // Depending on your setup mapping, you could extract this from JWT
-        })
-        commit('setAuthenticated', true)
-
         localStorage.setItem('fleet_token', token)
+        localStorage.removeItem('fleet_refresh_token')
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+
+        const backendUser = await fetchBackendUser()
+        commit('setUser', backendUser ?? mapOidcUser(oidcUser))
+        commit('setAuthenticated', true)
+        commit('setError', null)
         
         Vue.$toast.success('Login successful')
         return true
     },
 
-    async login({ commit, dispatch }, credentials: { username: string; password: string }) {
+    async login({ commit }, credentials: { username: string; password: string }) {
         commit('setLoading', true)
         commit('setError', null)
 
@@ -104,7 +136,7 @@ export const actions: ActionTree<AuthState, RootState> = {
             const response = await axios.post('/api/auth/login', credentials)
             const rawToken = response.data?.token
             const token = normalizeToken(rawToken)
-            const { refreshToken, user } = response.data
+            const { user } = response.data
 
             commit('setToken', token)
             commit('setUser', user)
@@ -135,62 +167,105 @@ export const actions: ActionTree<AuthState, RootState> = {
             // Ignore logout errors
         }
 
+        try {
+            await userManager.removeUser()
+        } catch (error) {
+            // Ignore OIDC cleanup errors
+        }
+
         commit('clearAuth')
         localStorage.removeItem('fleet_token')
+        localStorage.removeItem('fleet_refresh_token')
         delete axios.defaults.headers.common['Authorization']
 
         Vue.$toast.info('Logged out')
     },
 
-    async refreshToken({ commit, state, dispatch }) {
+    async refreshToken({ commit }) {
         try {
-            // Refresh token is sent automatically as HttpOnly cookie.
-            // Also send legacy body for backward compat during rollout.
-            const refreshToken = state.refreshToken || localStorage.getItem('fleet_refresh_token')
-            const response = await axios.post('/api/auth/refresh', refreshToken ? { refreshToken } : {})
-            const token = normalizeToken(response.data?.token)
+            let oidcUser = await userManager.getUser()
+            if (!oidcUser || oidcUser.expired) {
+                oidcUser = await userManager.signinSilent()
+            }
+
+            const token = normalizeToken(oidcUser?.access_token)
+            if (!token) {
+                return false
+            }
 
             commit('setToken', token)
             localStorage.setItem('fleet_token', token)
+            localStorage.removeItem('fleet_refresh_token')
             axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
 
             return true
-        } catch (error: any) {
-            const status = error.response?.status
-            // Only force-logout when the server explicitly rejects the refresh
-            // token (401/403). Transient network errors or 5xx responses should
-            // NOT destroy the local session — the user can retry later.
-            if (status === 401 || status === 403) {
-                dispatch('logout')
-            }
+        } catch (error) {
+            console.warn('OIDC token refresh failed:', error)
             return false
         }
     },
 
     async checkAuth({ commit, dispatch }) {
-        const token = normalizeToken(localStorage.getItem('fleet_token'))
-        
+        let oidcUser = await userManager.getUser()
+        if (!oidcUser) {
+            localStorage.removeItem('fleet_token')
+            delete axios.defaults.headers.common['Authorization']
+            return false
+        }
+
+        if (oidcUser.expired) {
+            const refreshed = await dispatch('refreshToken')
+            if (!refreshed) {
+                return false
+            }
+            oidcUser = await userManager.getUser()
+            if (!oidcUser) {
+                return false
+            }
+        }
+
+        let token = normalizeToken(oidcUser.access_token)
         if (!token) {
             return false
         }
 
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
 
-        try {
-            const response = await axios.get('/api/auth/me')
-            commit('setUser', response.data.user)
+        const applyAuthenticatedState = (user: AuthUser) => {
+            commit('setUser', user)
             commit('setToken', token)
             commit('setAuthenticated', true)
+            commit('setError', null)
+        }
+
+        try {
+            const response = await axios.get('/api/auth/me')
+            applyAuthenticatedState(response.data.user)
             return true
         } catch (error: any) {
             if (error.response?.status === 401) {
-                // Try to refresh token — refreshToken handles logout
-                // internally when the refresh token is genuinely expired.
-                return await dispatch('refreshToken')
+                const refreshed = await dispatch('refreshToken')
+                if (!refreshed) {
+                    return false
+                }
+
+                const refreshedUser = await userManager.getUser()
+                token = normalizeToken(refreshedUser?.access_token)
+                if (!token) {
+                    return false
+                }
+
+                axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+
+                const retryResponse = await axios.get('/api/auth/me')
+                applyAuthenticatedState(retryResponse.data.user)
+                return true
             }
-            // For network errors or non-auth failures, don't destroy the
-            // session. The user may simply be offline temporarily.
-            return false
+
+            // If fleet-manager is temporarily unavailable, keep the user
+            // authenticated using OIDC identity and retry API calls later.
+            applyAuthenticatedState(mapOidcUser(oidcUser))
+            return true
         }
     },
 
@@ -199,7 +274,7 @@ export const actions: ActionTree<AuthState, RootState> = {
         commit('setError', null)
 
         try {
-            const response = await axios.post('/api/auth/register', userData)
+            await axios.post('/api/auth/register', userData)
             Vue.$toast.success('Registration successful. Please login.')
             return true
         } catch (error: any) {
