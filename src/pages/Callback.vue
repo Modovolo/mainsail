@@ -24,6 +24,20 @@ import { userManager } from '../plugins/oidc'
 })
 export default class OidcCallback extends Vue {
     async mounted() {
+        const hasAuthResponse = /(?:^|[?&])(code|state|session_state|iss)=/.test(window.location.search)
+
+        if (!hasAuthResponse) {
+            const existingUser = await userManager.getUser()
+            if (existingUser && !existingUser.expired) {
+                await this.$store.dispatch('auth/keycloakLogin', existingUser)
+                this.$router.replace('/')
+                return
+            }
+
+            this.$router.replace('/login')
+            return
+        }
+
         try {
             const user = await userManager.signinCallback()
 
@@ -31,11 +45,28 @@ export default class OidcCallback extends Vue {
             await this.$store.dispatch('auth/keycloakLogin', user)
 
             // Redirect back to home or desired URL
-            this.$router.push('/')
+            this.$router.replace('/')
         } catch (e) {
+            const message = e instanceof Error ? e.message : String(e)
+
+            if (message.includes('No matching state found in storage')) {
+                await userManager.clearStaleState()
+
+                const existingUser = await userManager.getUser()
+                if (existingUser && !existingUser.expired) {
+                    await this.$store.dispatch('auth/keycloakLogin', existingUser)
+                    this.$router.replace('/')
+                    return
+                }
+
+                this.$toast.info('Session state expired. Please login again.')
+                this.$router.replace('/login')
+                return
+            }
+
             console.error('OIDC Callback Error:', e)
             this.$toast.error('Authentication check failed. Try logging in again.')
-            this.$router.push('/login')
+            this.$router.replace('/login')
         }
     }
 }
