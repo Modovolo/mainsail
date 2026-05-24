@@ -93,9 +93,24 @@ function setupAxiosAuthInterceptors() {
     axios.interceptors.response.use(
         (response) => response,
         async (error: AxiosError) => {
-            const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined
+            const originalRequest = error.config as
+                | (InternalAxiosRequestConfig & { _retry?: boolean; _transientRetryCount?: number })
+                | undefined
             const status = error.response?.status
             const url = originalRequest?.url ?? ''
+
+            const method = (originalRequest?.method ?? 'get').toLowerCase()
+            const isIdempotent = method === 'get' || method === 'head'
+            const isTransientStatus = status === 502 || status === 503 || status === 504
+
+            if (originalRequest && isIdempotent && isTransientStatus && !url.includes('/api/auth/refresh')) {
+                const retryCount = originalRequest._transientRetryCount ?? 0
+                if (retryCount < 2) {
+                    originalRequest._transientRetryCount = retryCount + 1
+                    await new Promise((resolve) => setTimeout(resolve, 250 * (retryCount + 1)))
+                    return axios(originalRequest)
+                }
+            }
 
             if (
                 !originalRequest ||
