@@ -11,6 +11,27 @@ function normalizeToken(token: string | null | undefined): string {
     return (token ?? '').replace(/^Bearer\s+/i, '').trim()
 }
 
+function isTokenExpiredOrNearExpiry(token: string, skewSeconds = 60): boolean {
+    try {
+        const payload = token.split('.')[1]
+        if (!payload) {
+            return false
+        }
+
+        const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+        const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
+        const claims = JSON.parse(atob(padded)) as { exp?: number }
+
+        if (typeof claims.exp !== 'number') {
+            return false
+        }
+
+        return claims.exp <= Math.floor(Date.now() / 1000) + skewSeconds
+    } catch {
+        return false
+    }
+}
+
 function mapOidcUser(user: OidcUser): AuthUser {
     const profile = (user?.profile ?? {}) as Record<string, unknown>
     const username =
@@ -29,7 +50,9 @@ function mapOidcUser(user: OidcUser): AuthUser {
 
 async function fetchBackendUser(): Promise<AuthUser | null> {
     try {
-        const response = await axios.get('/api/auth/me')
+        const response = await axios.get('/api/auth/me', {
+            timeout: 5000,
+        })
         return response.data?.user ?? null
     } catch {
         return null
@@ -105,9 +128,20 @@ function getUserFriendlyError(error: any): string {
 }
 
 export const actions: ActionTree<AuthState, RootState> = {
-    async keycloakLogin({ commit }, user: any) {
-        const oidcUser = user as OidcUser
-        const token = normalizeToken(oidcUser?.access_token)
+    async keycloakLogin({ commit, dispatch }, user: any) {
+        let oidcUser = user as OidcUser
+        let token = normalizeToken(oidcUser?.access_token)
+
+        if (!token || oidcUser?.expired || isTokenExpiredOrNearExpiry(token)) {
+            const refreshed = await dispatch('refreshToken')
+            if (!refreshed) {
+                commit('setError', 'Authentication failed. Session expired. Please log in again.')
+                return false
+            }
+
+            oidcUser = (await userManager.getUser()) as OidcUser
+            token = normalizeToken(oidcUser?.access_token)
+        }
 
         if (!token) {
             commit('setError', 'Authentication failed. Missing access token.')
@@ -119,10 +153,16 @@ export const actions: ActionTree<AuthState, RootState> = {
         localStorage.removeItem('fleet_refresh_token')
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
 
-        const backendUser = await fetchBackendUser()
-        commit('setUser', backendUser ?? mapOidcUser(oidcUser))
+        const oidcProfileUser = mapOidcUser(oidcUser)
+        commit('setUser', oidcProfileUser)
         commit('setAuthenticated', true)
         commit('setError', null)
+
+        void fetchBackendUser().then((backendUser) => {
+            if (backendUser) {
+                commit('setUser', backendUser)
+            }
+        })
         
         Vue.$toast.success('Login successful')
         return true
@@ -229,6 +269,20 @@ export const actions: ActionTree<AuthState, RootState> = {
             return false
         }
 
+        if (isTokenExpiredOrNearExpiry(token)) {
+            const refreshed = await dispatch('refreshToken')
+            if (!refreshed) {
+                return false
+            }
+
+            const refreshedUser = await userManager.getUser()
+            token = normalizeToken(refreshedUser?.access_token)
+            if (!token) {
+                return false
+            }
+            oidcUser = refreshedUser
+        }
+
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
 
         const applyAuthenticatedState = (user: AuthUser) => {
@@ -257,9 +311,15 @@ export const actions: ActionTree<AuthState, RootState> = {
 
                 axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
 
-                const retryResponse = await axios.get('/api/auth/me')
-                applyAuthenticatedState(retryResponse.data.user)
-                return true
+                try {
+                    const retryResponse = await axios.get('/api/auth/me', {
+                        timeout: 5000,
+                    })
+                    applyAuthenticatedState(retryResponse.data.user)
+                    return true
+                } catch {
+                    return false
+                }
             }
 
             // If fleet-manager is temporarily unavailable, keep the user
