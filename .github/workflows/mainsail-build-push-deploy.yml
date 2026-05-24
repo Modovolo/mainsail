@@ -104,7 +104,7 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: jmarji
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push image
@@ -137,12 +137,22 @@ jobs:
       - name: Configure kubeconfig
         shell: bash
         env:
-          KUBECONFIG_B64: ${{ secrets.FLEET_KUBECONFIG_B64 }}
+          LKE_KUBECONFIG: ${{ secrets.LKE_KUBECONFIG }}
         run: |
           set -euo pipefail
-          test -n "$KUBECONFIG_B64"
+          if [[ -z "$LKE_KUBECONFIG" ]]; then
+            echo "Missing required secret: LKE_KUBECONFIG"
+            exit 1
+          fi
           mkdir -p "$HOME/.kube"
-          echo "$KUBECONFIG_B64" | base64 --decode > "$HOME/.kube/config"
+
+          if printf '%s' "$LKE_KUBECONFIG" | grep -q 'apiVersion:'; then
+            printf '%s\n' "$LKE_KUBECONFIG" > "$HOME/.kube/config"
+          elif ! printf '%s' "$LKE_KUBECONFIG" | base64 --decode > "$HOME/.kube/config" 2>/dev/null; then
+            echo "LKE_KUBECONFIG is neither raw kubeconfig nor valid base64"
+            exit 1
+          fi
+
           chmod 600 "$HOME/.kube/config"
 
       - name: Update image and deploy
