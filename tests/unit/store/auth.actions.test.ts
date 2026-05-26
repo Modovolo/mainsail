@@ -79,7 +79,7 @@ describe('auth actions login reliability', () => {
 
         ;(axios as any).get.mockRejectedValueOnce(new Error('timeout'))
 
-        const ok = await actions.keycloakLogin({ commit, dispatch } as any, oidcUser)
+        const ok = await (actions.keycloakLogin as any)({ commit, dispatch } as any, oidcUser)
 
         expect(ok).toBe(true)
         expect((axios as any).get).toHaveBeenCalledWith('/api/auth/me', { timeout: 5000 })
@@ -120,7 +120,7 @@ describe('auth actions login reliability', () => {
             },
         })
 
-        const ok = await actions.keycloakLogin(
+        const ok = await (actions.keycloakLogin as any)(
             { commit, dispatch } as any,
             {
                 access_token: staleJwt,
@@ -156,7 +156,7 @@ describe('auth actions login reliability', () => {
             .mockRejectedValueOnce(createError(401))
             .mockRejectedValueOnce(createError(401))
 
-        const result = await actions.checkAuth({ commit, dispatch } as any)
+        const result = await (actions.checkAuth as any)({ commit, dispatch } as any)
 
         expect(result).toBe(false)
         expect(dispatch).toHaveBeenCalledWith('refreshToken')

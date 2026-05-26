@@ -276,6 +276,9 @@ export const actions: ActionTree<AuthState, RootState> = {
             }
 
             const refreshedUser = await userManager.getUser()
+            if (!refreshedUser) {
+                return false
+            }
             token = normalizeToken(refreshedUser?.access_token)
             if (!token) {
                 return false
@@ -324,6 +327,9 @@ export const actions: ActionTree<AuthState, RootState> = {
 
             // If fleet-manager is temporarily unavailable, keep the user
             // authenticated using OIDC identity and retry API calls later.
+            if (!oidcUser) {
+                return false
+            }
             applyAuthenticatedState(mapOidcUser(oidcUser))
             return true
         }
