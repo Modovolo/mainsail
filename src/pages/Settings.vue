@@ -180,14 +180,14 @@
                         <v-list>
                             <v-list-item>
                                 <v-list-item-icon>
-                                    <v-icon>mdi-key</v-icon>
+                                    <v-icon>mdi-account-cog</v-icon>
                                 </v-list-item-icon>
                                 <v-list-item-content>
-                                    <v-list-item-title>Change Password</v-list-item-title>
-                                    <v-list-item-subtitle>Update your account password</v-list-item-subtitle>
+                                    <v-list-item-title>Manage Account</v-list-item-title>
+                                    <v-list-item-subtitle>Change password, MFA, and profile in Keycloak</v-list-item-subtitle>
                                 </v-list-item-content>
                                 <v-list-item-action>
-                                    <v-btn text color="primary" @click="showPasswordDialog = true">Change</v-btn>
+                                    <v-btn text color="primary" href="https://ghn.modovolo.com/realms/workspace/account/" target="_blank" rel="noopener">Manage</v-btn>
                                 </v-list-item-action>
                             </v-list-item>
                             <v-divider inset />
@@ -417,64 +417,6 @@
             </v-card>
         </v-dialog>
 
-        <!-- Change Password Dialog -->
-        <v-dialog v-model="showPasswordDialog" max-width="450" persistent>
-            <v-card>
-                <v-card-title>
-                    <v-icon class="mr-2">mdi-key</v-icon>
-                    Change Password
-                </v-card-title>
-                <v-card-text>
-                    <v-form ref="passwordForm" v-model="passwordFormValid">
-                        <v-text-field
-                            v-model="passwordData.currentPassword"
-                            label="Current Password"
-                            :type="showCurrentPassword ? 'text' : 'password'"
-                            :append-icon="showCurrentPassword ? 'mdi-eye' : 'mdi-eye-off'"
-                            outlined
-                            dense
-                            :rules="[rules.required, rules.minLength]"
-                            class="mb-2"
-                            @click:append="showCurrentPassword = !showCurrentPassword"
-                        ></v-text-field>
-                        <v-text-field
-                            v-model="passwordData.newPassword"
-                            label="New Password"
-                            :type="showNewPassword ? 'text' : 'password'"
-                            :append-icon="showNewPassword ? 'mdi-eye' : 'mdi-eye-off'"
-                            outlined
-                            dense
-                            :rules="[rules.required, rules.minLength]"
-                            hint="Must be at least 8 characters"
-                            class="mb-2"
-                            @click:append="showNewPassword = !showNewPassword"
-                        ></v-text-field>
-                        <v-text-field
-                            v-model="passwordData.confirmPassword"
-                            label="Confirm New Password"
-                            :type="showConfirmPassword ? 'text' : 'password'"
-                            :append-icon="showConfirmPassword ? 'mdi-eye' : 'mdi-eye-off'"
-                            outlined
-                            dense
-                            :rules="[rules.required, rules.minLength, rules.passwordMatch]"
-                            @click:append="showConfirmPassword = !showConfirmPassword"
-                        ></v-text-field>
-                    </v-form>
-                </v-card-text>
-                <v-card-actions>
-                    <v-spacer></v-spacer>
-                    <v-btn text @click="closePasswordDialog">Cancel</v-btn>
-                    <v-btn 
-                        color="primary" 
-                        :loading="changingPassword" 
-                        :disabled="!passwordFormValid"
-                        @click="changePassword"
-                    >
-                        Change Password
-                    </v-btn>
-                </v-card-actions>
-            </v-card>
-        </v-dialog>
     </v-container>
 </template>
 
@@ -539,8 +481,6 @@ class PageSettings extends Mixins(BaseMixin) {
     showCreateDialog = false
     showDetailsDialog = false
     showDeleteDialog = false
-    showPasswordDialog = false
-
     newGroup = { name: '', description: '' }
     selectedGroup: Group | null = null
     groupToDelete: Group | null = null
@@ -550,24 +490,6 @@ class PageSettings extends Mixins(BaseMixin) {
     printersToAssign: string[] = []
     assigningPrinters = false
     ownedPrinters: OwnedPrinter[] = []
-    
-    // Password change properties
-    changingPassword = false
-    passwordFormValid = false
-    showCurrentPassword = false
-    showNewPassword = false
-    showConfirmPassword = false
-    passwordData = {
-        currentPassword: '',
-        newPassword: '',
-        confirmPassword: ''
-    }
-    
-    rules = {
-        required: (v: string) => !!v || 'Required',
-        minLength: (v: string) => (v && v.length >= 8) || 'Must be at least 8 characters',
-        passwordMatch: (v: string) => v === this.passwordData.newPassword || 'Passwords do not match'
-    }
     
     profile: UserProfile = {
         username: '',
@@ -834,61 +756,9 @@ class PageSettings extends Mixins(BaseMixin) {
         }
     }
 
-    closePasswordDialog(): void {
-        this.showPasswordDialog = false
-        this.passwordData = {
-            currentPassword: '',
-            newPassword: '',
-            confirmPassword: ''
-        }
-        this.showCurrentPassword = false
-        this.showNewPassword = false
-        this.showConfirmPassword = false
-    }
-
-    async changePassword(): Promise<void> {
-        if (!this.passwordFormValid) return
-        if (this.passwordData.newPassword !== this.passwordData.confirmPassword) {
-            this.$toast.error('Passwords do not match')
-            return
-        }
-
-        this.changingPassword = true
-        const token = localStorage.getItem('fleet_token')
-
-        try {
-            await axios.post('/api/auth/change-password', {
-                currentPassword: this.passwordData.currentPassword,
-                newPassword: this.passwordData.newPassword
-            }, {
-                headers: { Authorization: `Bearer ${token}` }
-            })
-            this.$toast.success('Password changed successfully')
-            this.closePasswordDialog()
-        } catch (error: any) {
-            const message = error.response?.data?.error || 'Failed to change password'
-            this.$toast.error(message)
-        } finally {
-            this.changingPassword = false
-        }
-    }
-
     async handleLogout(): Promise<void> {
-        try {
-            const token = localStorage.getItem('fleet_token')
-            if (token) {
-                await fetch('/api/auth/logout', {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${token}` }
-                })
-            }
-        } catch (error) {
-            console.error('Logout error:', error)
-        } finally {
-            localStorage.removeItem('fleet_token')
-            this.$store.commit('auth/clearAuth')
-            this.$router.push('/login')
-        }
+        await this.$store.dispatch('auth/logout')
+        this.$router.push('/login')
     }
 
     getRoleColor(role?: string): string {

@@ -27,21 +27,12 @@ router.beforeEach(async (to, from, next) => {
 
     // If authentication is required
     if (requiresAuth) {
-        // Check if we have a stored token and validate it
         if (!isAuthenticated) {
-            const hasToken = localStorage.getItem('fleet_token')
-            if (hasToken) {
-                // Try to validate the existing token
-                const valid = await store.dispatch('auth/checkAuth')
-                if (valid) {
-                    return next()
-                }
+            const valid = await store.dispatch('auth/checkAuth')
+            if (valid) {
+                return next()
             }
-            // Redirect to login with return URL
-            return next({
-                path: '/login',
-                query: { redirect: to.fullPath }
-            })
+            return next({ path: '/login', query: { redirect: to.fullPath } })
         }
     }
 

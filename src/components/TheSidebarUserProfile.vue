@@ -92,8 +92,7 @@ export default class TheSidebarUserProfile extends Mixins(BaseMixin) {
     userInfo: UserInfo | null = null
 
     get isLoggedIn(): boolean {
-        // Check Vuex auth state or localStorage
-        return this.$store.getters['auth/isAuthenticated'] || (!!localStorage.getItem('fleet_token') && this.userInfo !== null)
+        return this.$store.getters['auth/isAuthenticated']
     }
 
     get isIconsOnly(): boolean {
@@ -141,74 +140,18 @@ export default class TheSidebarUserProfile extends Mixins(BaseMixin) {
         this.$router.push('/login')
     }
 
-    async loadUserInfo(): Promise<void> {
-        // Check if already in Vuex store
-        if (this.$store.state.auth?.user) {
+    loadUserInfo(): void {
+        const user = this.$store.state.auth?.user
+        if (user) {
             this.userInfo = {
-                username: this.$store.state.auth.user.username,
-                email: this.$store.state.auth.user.email || '',
-                id: this.$store.state.auth.user.id,
-                role: this.$store.state.auth.user.role,
+                username: user.username,
+                email: user.email || '',
+                id: user.id,
+                role: user.role,
             }
-            return
-        }
-
-        const token = localStorage.getItem('fleet_token')
-        if (!token) {
-            this.userInfo = null
-            return
-        }
-
-        try {
-            const response = await fetch('/api/auth/me', {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            })
-
-            if (response.ok) {
-                const data = await response.json()
-                this.userInfo = {
-                    username: data.user.username,
-                    email: data.user.email || '',
-                    id: data.user.id,
-                    role: data.user.role,
-                }
-                
-                // Update Vuex store
-                this.$store.commit('auth/setUser', data.user)
-                this.$store.commit('auth/setAuthenticated', true)
-            } else if (response.status === 401) {
-                // Try refresh
-                await this.tryRefreshToken()
-            } else {
-                this.userInfo = null
-            }
-        } catch (error) {
-            console.error('Failed to load user info:', error)
+        } else {
             this.userInfo = null
         }
-    }
-
-    async tryRefreshToken(): Promise<void> {
-        try {
-            // Refresh token is sent as HttpOnly cookie automatically
-            const refreshed = await this.$store.dispatch('auth/refreshToken')
-            if (refreshed) {
-                await this.loadUserInfo()
-            } else {
-                this.clearAuth()
-            }
-        } catch (error) {
-            console.error('Failed to refresh token:', error)
-            this.clearAuth()
-        }
-    }
-
-    clearAuth(): void {
-        localStorage.removeItem('fleet_token')
-        this.$store.commit('auth/clearAuth')
-        this.userInfo = null
     }
 
     async handleLogout(): Promise<void> {

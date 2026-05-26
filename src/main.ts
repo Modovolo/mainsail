@@ -65,25 +65,37 @@ Vue.component('EChart', ECharts)
 
 Vue.use(VueResize)
 
-// Ensure cookies (including HttpOnly refresh token) are sent with same-origin requests
+// Ensure cookies are sent with same-origin requests
 axios.defaults.withCredentials = true
 
-function normalizeToken(token: string | null | undefined): string {
-    return (token ?? '').replace(/^Bearer\s+/i, '').trim()
-}
+import { userManager } from '@/plugins/oidc'
+
+// Keep fleet_token and Vuex in sync whenever Keycloak silently renews the token.
+userManager.events.addUserLoaded((oidcUser) => {
+    const token = oidcUser.access_token
+    localStorage.setItem('fleet_token', token)
+    store.commit('auth/setToken', token)
+    store.commit('auth/setAuthenticated', true)
+})
+
+userManager.events.addUserUnloaded(() => {
+    localStorage.removeItem('fleet_token')
+    store.commit('auth/clearAuth')
+})
 
 function setupAxiosAuthInterceptors() {
     let refreshPromise: Promise<boolean> | null = null
 
+    // Attach the current Keycloak token to every request.
     axios.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-        const currentToken = normalizeToken(
-            (store.getters['auth/token'] as string | null | undefined) ?? localStorage.getItem('fleet_token')
-        )
+        const token =
+            (store.getters['auth/token'] as string | null | undefined) ??
+            localStorage.getItem('fleet_token')
 
-        if (currentToken) {
+        if (token) {
             config.headers = config.headers ?? {}
             if (!config.headers.Authorization) {
-                config.headers.Authorization = `Bearer ${currentToken}`
+                config.headers.Authorization = `Bearer ${token}`
             }
         }
 
@@ -103,7 +115,7 @@ function setupAxiosAuthInterceptors() {
             const isIdempotent = method === 'get' || method === 'head'
             const isTransientStatus = status === 502 || status === 503 || status === 504
 
-            if (originalRequest && isIdempotent && isTransientStatus && !url.includes('/api/auth/refresh')) {
+            if (originalRequest && isIdempotent && isTransientStatus) {
                 const retryCount = originalRequest._transientRetryCount ?? 0
                 if (retryCount < 2) {
                     originalRequest._transientRetryCount = retryCount + 1
@@ -116,10 +128,7 @@ function setupAxiosAuthInterceptors() {
                 !originalRequest ||
                 status !== 401 ||
                 originalRequest._retry ||
-                url.includes('/api/auth/login') ||
-                url.includes('/api/auth/register') ||
-                url.includes('/api/auth/refresh') ||
-                url.includes('/api/auth/logout')
+                url.includes('/api/auth/')
             ) {
                 return Promise.reject(error)
             }
@@ -141,9 +150,9 @@ function setupAxiosAuthInterceptors() {
                 return Promise.reject(error)
             }
 
-            const nextToken = normalizeToken(
-                (store.getters['auth/token'] as string | null | undefined) ?? localStorage.getItem('fleet_token')
-            )
+            const nextToken =
+                (store.getters['auth/token'] as string | null | undefined) ??
+                localStorage.getItem('fleet_token')
 
             if (nextToken) {
                 originalRequest.headers = originalRequest.headers ?? {}

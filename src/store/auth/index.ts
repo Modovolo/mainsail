@@ -8,10 +8,8 @@ import { getters } from './getters'
 export const getDefaultState = (): AuthState => {
     return {
         token: null,
-        refreshToken: null,
         user: null,
         isAuthenticated: false,
-        loading: false,
         error: null,
     }
 }
