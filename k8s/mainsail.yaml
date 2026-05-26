@@ -25,6 +25,10 @@ spec:
           ports:
             - containerPort: 80
               name: http
+          volumeMounts:
+            - name: mainsail-config
+              mountPath: /usr/share/nginx/html/config.json
+              subPath: config.json
           readinessProbe:
             httpGet:
               path: /
@@ -37,6 +41,10 @@ spec:
               port: 80
             initialDelaySeconds: 15
             periodSeconds: 20
+      volumes:
+        - name: mainsail-config
+          configMap:
+            name: mainsail-config
 ---
 apiVersion: v1
 kind: Service
