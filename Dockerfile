@@ -24,7 +24,25 @@ WORKDIR /app
 COPY package*.json /app/
 
 # Install dependencies
-RUN npm ci --prefer-offline --no-audit
+RUN npm config set fetch-retries 6 \
+        && npm config set fetch-retry-factor 2 \
+        && npm config set fetch-retry-mintimeout 20000 \
+        && npm config set fetch-retry-maxtimeout 120000 \
+        && npm config set maxsockets 1 \
+        && install_ok=0 \
+        && for attempt in 1 2 3; do \
+                if npm ci --prefer-offline --no-audit; then \
+                    install_ok=1; \
+                    break; \
+                fi; \
+                if [ "$attempt" -eq 3 ]; then \
+                    echo "npm ci failed after ${attempt} attempts"; \
+                    exit 1; \
+                fi; \
+                echo "npm ci failed (attempt ${attempt}/3), retrying in $((attempt * 15))s"; \
+                sleep $((attempt * 15)); \
+            done \
+        && [ "$install_ok" -eq 1 ]
 
 # Copy source code
 COPY ./ /app/
