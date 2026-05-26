@@ -170,6 +170,12 @@ update_manifests() {
     sed -i "s|image: $REGISTRY/mainsail:.*|image: $REGISTRY/mainsail:$TAG|g" "$K8S_DIR/deployments.yaml"
     sed -i "s|image: $REGISTRY/moonraker:.*|image: $REGISTRY/moonraker:$TAG|g" "$K8S_DIR/deployments.yaml"
     sed -i "s|image: $REGISTRY/bfp-print-monitor-web:.*|image: $REGISTRY/bfp-print-monitor-web:$TAG|g" "$K8S_DIR/deployments.yaml"
+
+    # Update displayed container image hashes in mainsail config
+    sed -i "s|\"fleetManager\": \".*\"|\"fleetManager\": \"$TAG\"|g" "$K8S_DIR/configmaps.yaml"
+    sed -i "s|\"mainsail\": \".*\"|\"mainsail\": \"$TAG\"|g" "$K8S_DIR/configmaps.yaml"
+    sed -i "s|\"bfpPrintMonitor\": \".*\"|\"bfpPrintMonitor\": \"$TAG\"|g" "$K8S_DIR/configmaps.yaml"
+    sed -i "s|\"moonraker\": \".*\"|\"moonraker\": \"$TAG\"|g" "$K8S_DIR/configmaps.yaml"
     
     echo -e "${GREEN}Manifests updated${NC}"
 }

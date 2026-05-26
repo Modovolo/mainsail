@@ -4,12 +4,20 @@ import { PrinterState } from '@/store/printer/types'
 import { GuiState } from '@/store/gui/types'
 import { EditorState } from '@/store/editor/types'
 
+export interface ContainerImageHashes {
+    fleetManager?: string
+    mainsail?: string
+    bfpPrintMonitor?: string
+    moonraker?: string
+}
+
 export interface RootState {
     packageVersion: string
     debugMode: boolean
     naviDrawer: boolean | null
     instancesDB: 'moonraker' | 'browser' | 'json' | 'fleet'
     configInstances: ConfigJsonInstance[]
+    containerImageHashes: ContainerImageHashes
 
     socket?: SocketState
     gui?: GuiState
@@ -31,6 +39,7 @@ export interface ConfigJson {
     path?: string | null
     instancesDB?: 'moonraker' | 'browser' | 'json' | 'fleet'
     instances?: ConfigJsonInstance[]
+    containerImageHashes?: ContainerImageHashes
 }
 
 export interface ConfigJsonInstance {

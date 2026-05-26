@@ -15,4 +15,8 @@ export const mutations: MutationTree<RootState> = {
     setConfigInstances(state, payload) {
         Vue.set(state, 'configInstances', payload)
     },
+
+    setContainerImageHashes(state, payload) {
+        Vue.set(state, 'containerImageHashes', payload)
+    },
 }

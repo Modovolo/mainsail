@@ -6,5 +6,11 @@
     "port": null,
     "path": null,
     "instancesDB": "fleet",
-    "instances": []
+    "instances": [],
+    "containerImageHashes": {
+        "fleetManager": "latest",
+        "mainsail": "latest",
+        "bfpPrintMonitor": "latest",
+        "moonraker": "latest"
+    }
 }

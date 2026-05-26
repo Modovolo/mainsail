@@ -18,7 +18,13 @@ data:
       "instances": [],
       "hostname": null,
       "port": null,
-      "path": null
+      "path": null,
+      "containerImageHashes": {
+        "fleetManager": "latest",
+        "mainsail": "latest",
+        "bfpPrintMonitor": "latest",
+        "moonraker": "latest"
+      }
     }
   modovolo-logo-black.svg: |
     <svg width="507" height="567" viewBox="0 0 507 567" fill="none" xmlns="http://www.w3.org/2000/svg">

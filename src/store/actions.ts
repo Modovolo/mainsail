@@ -51,11 +51,20 @@ export const actions: ActionTree<RootState, RootState> = {
     /**
      * This function will parse the config.json content and config mainsail
      */
-    async importConfigJson({ commit }, payload: ConfigJson) {
+    async importConfigJson({ commit, state }, payload: ConfigJson) {
         type RootStateInstancesDbType = 'moonraker' | 'browser' | 'json' | 'fleet'
         let instancesDB: RootStateInstancesDbType = payload.instancesDB ?? 'moonraker'
         if (import.meta.env.VUE_APP_INSTANCES_DB)
             instancesDB = import.meta.env.VUE_APP_INSTANCES_DB as RootStateInstancesDbType
+
+        if (payload.containerImageHashes && typeof payload.containerImageHashes === 'object') {
+            commit('setContainerImageHashes', {
+                fleetManager: payload.containerImageHashes.fleetManager ?? state.containerImageHashes.fleetManager,
+                mainsail: payload.containerImageHashes.mainsail ?? state.containerImageHashes.mainsail,
+                bfpPrintMonitor: payload.containerImageHashes.bfpPrintMonitor ?? state.containerImageHashes.bfpPrintMonitor,
+                moonraker: payload.containerImageHashes.moonraker ?? state.containerImageHashes.moonraker,
+            })
+        }
 
         if (instancesDB !== 'moonraker') {
             commit('setInstancesDB', instancesDB)

@@ -30,6 +30,13 @@
             </v-list>
         </overlay-scrollbars>
         <template #append>
+            <div v-if="showContainerImageHashes" class="container-hashes px-4 pt-2">
+                <div class="text-caption text--disabled mb-2">Container Image Hashes</div>
+                <div v-for="entry in containerImageHashRows" :key="entry.label" class="hash-row">
+                    <span class="hash-label">{{ entry.label }}</span>
+                    <span class="hash-value">{{ entry.value }}</span>
+                </div>
+            </div>
             <v-list-item class="small-list-item mb-2">
                 <v-list-item-icon class="menu-item-icon">
                     <about-dialog />
@@ -130,6 +137,20 @@ export default class TheSidebar extends Mixins(NavigationMixin, BaseMixin, Theme
 
         return output
     }
+
+    get showContainerImageHashes(): boolean {
+        return this.instancesDB === 'fleet' && this.navigationStyle !== 'iconsOnly'
+    }
+
+    get containerImageHashRows() {
+        const hashes = this.$store.state.containerImageHashes ?? {}
+        return [
+            { label: 'fleet-manager', value: hashes.fleetManager ?? '--' },
+            { label: 'mainsail', value: hashes.mainsail ?? '--' },
+            { label: 'bfp-print-monitor', value: hashes.bfpPrintMonitor ?? '--' },
+            { label: 'moonraker', value: hashes.moonraker ?? '--' },
+        ]
+    }
 }
 </script>
 
@@ -157,5 +178,28 @@ export default class TheSidebar extends Mixins(NavigationMixin, BaseMixin, Theme
 
 .nav-scrollbar {
     height: 100%;
+}
+
+.container-hashes {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hash-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.72rem;
+    line-height: 1.3;
+    margin-bottom: 4px;
+    gap: 8px;
+}
+
+.hash-label {
+    opacity: 0.82;
+}
+
+.hash-value {
+    font-family: monospace;
+    opacity: 0.9;
 }
 </style>

@@ -26,6 +26,12 @@ export const getDefaultState = (): RootState => {
         naviDrawer: null,
         instancesDB: 'moonraker',
         configInstances: [],
+        containerImageHashes: {
+            fleetManager: '--',
+            mainsail: '--',
+            bfpPrintMonitor: '--',
+            moonraker: '--',
+        },
     }
 }
 

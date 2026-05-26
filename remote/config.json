@@ -4,5 +4,11 @@
     "hostname": null,
     "port": null,
     "instancesDB": "browser",
-    "instances": []
+    "instances": [],
+    "containerImageHashes": {
+        "fleetManager": "latest",
+        "mainsail": "latest",
+        "bfpPrintMonitor": "latest",
+        "moonraker": "latest"
+    }
 }
