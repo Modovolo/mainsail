@@ -12,7 +12,7 @@
                     </div>
                 </v-col>
                 <v-col cols="12" md="5" class="d-flex justify-end">
-                    <v-btn class="mr-2" color="secondary" @click="openDiscordDialog">
+                    <v-btn class="mr-2" color="secondary" :disabled="!monitor.available" @click="openDiscordDialog">
                         <v-icon left>mdi-discord</v-icon>
                         Discord Setup
                     </v-btn>
@@ -376,7 +376,11 @@ export default Vue.extend({
 
                 if (this.selectedPrinter) {
                     this.minConfidence = this.selectedPrinter.thresholds?.minConfidence ?? 0.6
-                    await this.loadSnapshot()
+                    if (this.monitor.available) {
+                        await this.loadSnapshot()
+                    } else {
+                        this.revokeSnapshotObjectUrl()
+                    }
                 }
             } catch (error) {
                 console.error('Failed to load monitoring overview:', error)
@@ -394,6 +398,11 @@ export default Vue.extend({
 
         async saveDiscordWebhook() {
             this.discordWebhookError = ''
+
+            if (!this.monitor.available) {
+                this.discordWebhookError = 'Monitor service is unavailable. Try again after monitor is healthy.'
+                return
+            }
 
             if (!this.discordWebhookInput) {
                 this.discordWebhookError = 'Discord webhook URL is required'
@@ -453,7 +462,11 @@ export default Vue.extend({
         selectPrinter(item: MonitoringPrinter) {
             this.selectedPrinterId = item.printerId
             this.minConfidence = item.thresholds?.minConfidence ?? 0.6
-            this.loadSnapshot()
+            if (this.monitor.available) {
+                this.loadSnapshot()
+            } else {
+                this.revokeSnapshotObjectUrl()
+            }
         },
 
         statusColor(status: string): string {
@@ -485,6 +498,11 @@ export default Vue.extend({
 
                 if (response.status === 401) {
                     this.showError('Monitoring authorization failed. Please refresh and try again.')
+                    return
+                }
+
+                if (response.status === 404) {
+                    this.revokeSnapshotObjectUrl()
                     return
                 }
 
