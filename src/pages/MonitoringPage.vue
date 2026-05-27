@@ -12,6 +12,10 @@
                     </div>
                 </v-col>
                 <v-col cols="12" md="5" class="d-flex justify-end">
+                    <v-btn class="mr-2" color="secondary" @click="openDiscordDialog">
+                        <v-icon left>mdi-discord</v-icon>
+                        Discord Setup
+                    </v-btn>
                     <v-btn color="primary" :loading="loading" @click="loadOverview">
                         <v-icon left>mdi-refresh</v-icon>
                         Refresh
@@ -29,6 +33,13 @@
                             </v-chip>
                             <div class="mt-2">Running: <strong>{{ monitor.running ? 'Yes' : 'No' }}</strong></div>
                             <div class="mt-1">Total defects: <strong>{{ monitor.totalDefects }}</strong></div>
+                            <div class="mt-1">
+                                Discord:
+                                <strong>{{ monitor.discordConfigured ? 'Configured' : 'Not configured' }}</strong>
+                            </div>
+                            <div v-if="monitor.discordWebhookMasked" class="caption mt-1">
+                                {{ monitor.discordWebhookMasked }}
+                            </div>
                         </v-card-text>
                     </v-card>
                 </v-col>
@@ -145,6 +156,34 @@
                 </v-col>
             </v-row>
 
+            <v-dialog v-model="discordDialog" max-width="640">
+                <v-card>
+                    <v-card-title class="headline">Configure Discord Integration</v-card-title>
+                    <v-card-text>
+                        <div class="mb-3">
+                            Enter your Discord webhook URL. This will be saved to the monitor config and used for alerts.
+                        </div>
+                        <v-text-field
+                            v-model.trim="discordWebhookInput"
+                            label="Discord webhook URL"
+                            placeholder="https://discord.com/api/webhooks/..."
+                            outlined
+                            dense
+                            :disabled="discordSaving"
+                            :error-messages="discordWebhookError"
+                        />
+                        <div class="caption">
+                            If the monitor is running, restart it after saving so the new webhook is applied.
+                        </div>
+                    </v-card-text>
+                    <v-card-actions>
+                        <v-spacer />
+                        <v-btn text :disabled="discordSaving" @click="discordDialog = false">Cancel</v-btn>
+                        <v-btn color="primary" :loading="discordSaving" @click="saveDiscordWebhook">Save</v-btn>
+                    </v-card-actions>
+                </v-card>
+            </v-dialog>
+
             <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="4000" top right>
                 {{ snackbarText }}
             </v-snackbar>
@@ -161,6 +200,8 @@ interface MonitorState {
     running: boolean
     reason?: string | null
     totalDefects: number
+    discordConfigured: boolean
+    discordWebhookMasked?: string
 }
 
 interface DefectSummary {
@@ -199,11 +240,17 @@ export default Vue.extend({
                 running: false,
                 reason: null,
                 totalDefects: 0,
+                discordConfigured: false,
+                discordWebhookMasked: '',
             } as MonitorState,
             printers: [] as MonitoringPrinter[],
             selectedPrinterId: null as string | null,
             snapshotObjectUrl: null as string | null,
             minConfidence: 0.6,
+            discordDialog: false,
+            discordSaving: false,
+            discordWebhookInput: '',
+            discordWebhookError: '',
             snackbar: false,
             snackbarText: '',
             snackbarColor: 'success',
@@ -317,7 +364,10 @@ export default Vue.extend({
                 }
 
                 const payload = await response.json()
-                this.monitor = payload.monitor || this.monitor
+                this.monitor = {
+                    ...this.monitor,
+                    ...(payload.monitor || {}),
+                }
                 this.printers = payload.printers || []
 
                 if (!this.selectedPrinterId && this.printers.length > 0) {
@@ -333,6 +383,70 @@ export default Vue.extend({
                 this.showError('Failed to load monitoring overview')
             } finally {
                 this.loading = false
+            }
+        },
+
+        openDiscordDialog() {
+            this.discordWebhookError = ''
+            this.discordWebhookInput = ''
+            this.discordDialog = true
+        },
+
+        async saveDiscordWebhook() {
+            this.discordWebhookError = ''
+
+            if (!this.discordWebhookInput) {
+                this.discordWebhookError = 'Discord webhook URL is required'
+                return
+            }
+
+            if (!/^https?:\/\//i.test(this.discordWebhookInput)) {
+                this.discordWebhookError = 'Webhook must start with http:// or https://'
+                return
+            }
+
+            this.discordSaving = true
+            try {
+                const response = await this.fetchWithAuthRetry('/api/monitoring/discord-webhook', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ webhookUrl: this.discordWebhookInput }),
+                })
+
+                if (!response) {
+                    this.showError('Failed to update Discord integration')
+                    return
+                }
+
+                if (response.status === 401) {
+                    this.showError('Monitoring authorization failed. Please refresh and try again.')
+                    return
+                }
+
+                const payload = await response.json().catch(() => ({}))
+
+                if (!response.ok) {
+                    this.discordWebhookError = payload.error || 'Failed to update Discord integration'
+                    return
+                }
+
+                this.monitor.discordConfigured = Boolean(payload.monitor?.discordConfigured)
+                this.monitor.discordWebhookMasked = payload.monitor?.discordWebhookMasked || ''
+                this.discordDialog = false
+
+                const restartRequired = Boolean(payload.monitor?.restartRequired)
+                if (restartRequired) {
+                    this.showSuccess('Discord webhook saved. Restart monitor to apply changes.')
+                } else {
+                    this.showSuccess(payload.message || 'Discord integration updated')
+                }
+            } catch (error) {
+                console.error('Failed to update Discord integration:', error)
+                this.showError('Failed to update Discord integration')
+            } finally {
+                this.discordSaving = false
             }
         },
 
