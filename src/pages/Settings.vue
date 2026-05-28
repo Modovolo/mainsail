@@ -40,6 +40,15 @@
                                     <v-chip x-small>{{ groups.length }}</v-chip>
                                 </v-list-item-action>
                             </v-list-item>
+
+                            <v-list-item value="integrations">
+                                <v-list-item-icon>
+                                    <v-icon>mdi-connection</v-icon>
+                                </v-list-item-icon>
+                                <v-list-item-content>
+                                    <v-list-item-title>Integrations</v-list-item-title>
+                                </v-list-item-content>
+                            </v-list-item>
                             
                             <v-list-item value="security">
                                 <v-list-item-icon>
@@ -169,6 +178,69 @@
                         </v-list>
                     </v-card>
                 </div>
+
+                <!-- Integrations Tab -->
+                <v-card v-if="activeTab === 'integrations'" class="pa-4">
+                    <v-card-title class="px-0 pt-0 d-flex align-center">
+                        <v-icon class="mr-2">mdi-connection</v-icon>
+                        Integrations
+                    </v-card-title>
+                    <v-card-text class="px-0">
+                        <p class="text-body-2 grey--text mb-4">
+                            Configure third-party integrations for fleet events.
+                        </p>
+
+                        <v-card outlined class="pa-4">
+                            <div class="text-subtitle-1 font-weight-medium mb-2">Discord Webhooks</div>
+                            <div class="text-body-2 grey--text mb-4">
+                                Downtime records created from PMIs & Reporting will be posted to these webhook endpoints.
+                            </div>
+
+                            <div v-if="integrationsLoading" class="py-2">
+                                <v-progress-linear indeterminate color="primary" />
+                            </div>
+
+                            <div v-else>
+                                <v-row
+                                    v-for="(webhook, index) in discordWebhookInputs"
+                                    :key="`discord-webhook-${index}`"
+                                    align="center"
+                                >
+                                    <v-col cols="12" md="10">
+                                        <v-text-field
+                                            v-model="discordWebhookInputs[index]"
+                                            label="Discord webhook URL"
+                                            placeholder="https://discord.com/api/webhooks/..."
+                                            outlined
+                                            dense
+                                            :error-messages="discordWebhookErrors[index] ? [discordWebhookErrors[index]] : []"
+                                        />
+                                    </v-col>
+                                    <v-col cols="12" md="2" class="d-flex justify-end">
+                                        <v-btn
+                                            icon
+                                            :disabled="discordWebhookInputs.length === 1 && !discordWebhookInputs[0]"
+                                            @click="removeDiscordWebhook(index)"
+                                        >
+                                            <v-icon color="error">mdi-delete</v-icon>
+                                        </v-btn>
+                                    </v-col>
+                                </v-row>
+
+                                <div class="d-flex align-center mt-2">
+                                    <v-btn text color="primary" @click="addDiscordWebhookField">
+                                        <v-icon left>mdi-plus</v-icon>
+                                        Add Webhook
+                                    </v-btn>
+                                    <v-spacer />
+                                    <v-btn color="primary" :loading="integrationsSaving" @click="saveIntegrations">
+                                        Save Integrations
+                                    </v-btn>
+                                </div>
+                            </div>
+                        </v-card>
+                    </v-card-text>
+                </v-card>
                 
                 <!-- Security Tab -->
                 <v-card v-if="activeTab === 'security'" class="pa-4">
@@ -490,6 +562,11 @@ class PageSettings extends Mixins(BaseMixin) {
     printersToAssign: string[] = []
     assigningPrinters = false
     ownedPrinters: OwnedPrinter[] = []
+
+    integrationsLoading = false
+    integrationsSaving = false
+    discordWebhookInputs: string[] = ['']
+    discordWebhookErrors: string[] = ['']
     
     profile: UserProfile = {
         username: '',
@@ -515,8 +592,11 @@ class PageSettings extends Mixins(BaseMixin) {
 
     async mounted() {
         await this.loadProfile()
-        await this.loadGroups()
-        await this.loadOwnedPrinters()
+        await Promise.all([
+            this.loadGroups(),
+            this.loadOwnedPrinters(),
+            this.loadIntegrations(),
+        ])
     }
 
     async loadProfile(): Promise<void> {
@@ -573,6 +653,120 @@ class PageSettings extends Mixins(BaseMixin) {
             )
         } catch (error) {
             console.error('Failed to load owned printers:', error)
+        }
+    }
+
+    async loadIntegrations(): Promise<void> {
+        const token = localStorage.getItem('fleet_token')
+        if (!token) return
+
+        this.integrationsLoading = true
+        try {
+            const response = await axios.get('/api/user-settings/integrations', {
+                headers: { Authorization: `Bearer ${token}` }
+            })
+
+            const webhooks = response.data?.integrations?.discord?.webhooks
+            if (Array.isArray(webhooks) && webhooks.length > 0) {
+                this.discordWebhookInputs = webhooks
+            } else {
+                this.discordWebhookInputs = ['']
+            }
+
+            this.discordWebhookErrors = this.discordWebhookInputs.map(() => '')
+        } catch (error) {
+            console.error('Failed to load integrations:', error)
+            this.$toast.error('Failed to load integration settings')
+        } finally {
+            this.integrationsLoading = false
+        }
+    }
+
+    addDiscordWebhookField(): void {
+        this.discordWebhookInputs.push('')
+        this.discordWebhookErrors.push('')
+    }
+
+    removeDiscordWebhook(index: number): void {
+        this.discordWebhookInputs.splice(index, 1)
+        this.discordWebhookErrors.splice(index, 1)
+
+        if (this.discordWebhookInputs.length === 0) {
+            this.discordWebhookInputs = ['']
+            this.discordWebhookErrors = ['']
+        }
+    }
+
+    validateDiscordWebhook(url: string): boolean {
+        const webhookPattern = /^https?:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/?$/i
+        return webhookPattern.test(url)
+    }
+
+    getNormalizedDiscordWebhooks(): string[] {
+        const seen = new Set<string>()
+        const normalized: string[] = []
+
+        for (const rawValue of this.discordWebhookInputs) {
+            const value = (rawValue || '').trim()
+            if (!value || seen.has(value)) continue
+            seen.add(value)
+            normalized.push(value)
+        }
+
+        return normalized
+    }
+
+    validateDiscordWebhookInputs(): boolean {
+        this.discordWebhookErrors = this.discordWebhookInputs.map(() => '')
+        let valid = true
+
+        this.discordWebhookInputs.forEach((rawValue, index) => {
+            const value = (rawValue || '').trim()
+            if (!value) return
+
+            if (!this.validateDiscordWebhook(value)) {
+                this.discordWebhookErrors.splice(index, 1, 'Invalid Discord webhook URL')
+                valid = false
+            }
+        })
+
+        return valid
+    }
+
+    async saveIntegrations(): Promise<void> {
+        const token = localStorage.getItem('fleet_token')
+        if (!token) return
+
+        if (!this.validateDiscordWebhookInputs()) {
+            this.$toast.error('Please fix invalid webhook URLs before saving')
+            return
+        }
+
+        const webhooks = this.getNormalizedDiscordWebhooks()
+
+        this.integrationsSaving = true
+        try {
+            const response = await axios.put('/api/user-settings/integrations', {
+                discord: {
+                    webhooks,
+                },
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            })
+
+            const savedWebhooks = response.data?.integrations?.discord?.webhooks
+            if (Array.isArray(savedWebhooks) && savedWebhooks.length > 0) {
+                this.discordWebhookInputs = savedWebhooks
+            } else {
+                this.discordWebhookInputs = ['']
+            }
+            this.discordWebhookErrors = this.discordWebhookInputs.map(() => '')
+
+            this.$toast.success('Integration settings saved')
+        } catch (error: any) {
+            this.$toast.error(error.response?.data?.error || 'Failed to save integration settings')
+        } finally {
+            this.integrationsSaving = false
         }
     }
 

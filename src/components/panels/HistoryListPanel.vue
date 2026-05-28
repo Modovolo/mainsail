@@ -241,18 +241,23 @@ export default class HistoryListPanel extends Mixins(BaseMixin, HistoryMixin, Hi
     set selectedPrinter(newVal: string) {
         this.$store.dispatch('gui/saveSetting', { name: 'view.history.selectedPrinter', value: newVal })
 
-        // Update the route query so /history?printer=<id> can be bookmarked/shared
+        // Update the route query so /history?printer=<id> and /charts?printer=<id> can be bookmarked/shared.
         try {
-            if (this.$route.name === 'history' || this.$route.path === '/history') {
-                const query = { ...(this.$route.query || {}) }
+            if (this.$route.name === 'history' || this.$route.name === 'charts' || this.$route.path === '/history' || this.$route.path === '/charts') {
+                const query: Record<string, any> = { ...(this.$route.query || {}) }
                 if (!newVal || newVal === 'all') {
                     delete query.printer
                 } else {
                     query.printer = newVal
                 }
 
-                // replace to avoid polluting history stack
-                this.$router.replace({ name: this.$route.name || 'history', query })
+                const currentPrinter = (this.$route.query?.printer as string | undefined) ?? undefined
+                const nextPrinter = (query.printer as string | undefined) ?? undefined
+
+                // Replace to avoid polluting history stack and avoid redundant navigation errors.
+                if (currentPrinter !== nextPrinter) {
+                    this.$router.replace({ name: this.$route.name || 'history', query }).catch(() => {})
+                }
             }
         } catch (_) {
             // ignore if router not available or route mismatch
@@ -311,8 +316,8 @@ export default class HistoryListPanel extends Mixins(BaseMixin, HistoryMixin, Hi
             // Avoid duplicate loading entries
             if (!this.loadings.includes('historyLoadAll')) this.$store.dispatch('socket/addLoading', { name: 'historyLoadAll' })
 
-            // Case: local root server
-            if (selectedPrinter === 'local' || (!isFleetMode && selectedPrinter === 'all')) {
+            // Case: local root server or an 'all' fallback when farm aggregation is unavailable.
+            if (selectedPrinter === 'local' || selectedPrinter === 'all') {
                 this.$store.dispatch('server/history/reset')
                 this.$socket.emit('server.history.list', { start: 0, limit: 50 }, { action: 'server/history/getHistory' })
                 this.$socket.emit('server.history.totals', {}, { action: 'server/history/getTotals' })

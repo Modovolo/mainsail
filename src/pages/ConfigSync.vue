@@ -484,7 +484,7 @@
                             <v-text-field
                                 v-model="templateForm.sourcePath"
                                 label="Source Path (Optional)"
-                                placeholder="e.g., printer.cfg or configs/mainsail-idex.cfg"
+                                placeholder="e.g., printer.cfg or configs/mainsail_idex.cfg"
                                 outlined
                                 dense
                                 prepend-icon="mdi-link-variant"
@@ -1073,6 +1073,12 @@ export default class ConfigSync extends Mixins(BaseMixin) {
     lineReviewDialog = false
     lineReviewCandidateId: string | null = null
     lineReviewOps: DiffOperation[] = []
+    readonly idexConfigFilenameAliases: string[] = [
+        'mainsail-idex.cfg',
+        'mainsail_idex.cfg',
+        'mainsaild_idex.cfg',
+        'mainsaild-idex.cfg',
+    ]
 
     get lineReviewCandidate(): MigrationCandidate | null {
         if (!this.lineReviewCandidateId) return null
@@ -1277,10 +1283,25 @@ export default class ConfigSync extends Mixins(BaseMixin) {
                 })
             }
 
-            let response = await fetchSnapshot(['printer.cfg', 'mainsail-idex.cfg'])
-            if (response.status === 404) {
-                // mainsail-idex.cfg is optional and not present on all printers
-                response = await fetchSnapshot(['printer.cfg'])
+            const snapshotRequests: string[][] = [
+                ['printer.cfg', 'mainsail-idex.cfg'],
+                ['printer.cfg', 'mainsail_idex.cfg'],
+                ['printer.cfg', 'mainsaild_idex.cfg'],
+                ['printer.cfg', 'mainsaild-idex.cfg'],
+                ['printer.cfg'],
+            ]
+
+            let response: Response | null = null
+            for (const filenames of snapshotRequests) {
+                response = await fetchSnapshot(filenames)
+                if (response.status !== 404) {
+                    break
+                }
+            }
+
+            if (!response) {
+                this.setPrinterConfigFileState(printerId, [], 'Failed to fetch files', false, [], true)
+                return
             }
 
             if (!response.ok) {
@@ -1332,6 +1353,26 @@ export default class ConfigSync extends Mixins(BaseMixin) {
 
     normalizeConfigPath(path: string): string {
         return path.replace(/^\/+/, '').replace(/\\/g, '/').trim()
+    }
+
+    isIdexConfigBasename(filename: string): boolean {
+        const normalized = (filename || '').trim().toLowerCase()
+        return this.idexConfigFilenameAliases.includes(normalized)
+    }
+
+    expandConfigPathAliases(path: string): string[] {
+        const normalized = this.normalizeConfigPath(path)
+        if (!normalized) return []
+
+        const fileBasename = this.getBasename(normalized).toLowerCase()
+        if (!this.isIdexConfigBasename(fileBasename)) {
+            return [normalized]
+        }
+
+        const dirname = this.getDirname(normalized)
+        return Array.from(new Set(this.idexConfigFilenameAliases.map((alias: string) => (
+            dirname ? `${dirname}/${alias}` : alias
+        ))))
     }
 
     getBasename(path: string): string {
@@ -1473,19 +1514,34 @@ export default class ConfigSync extends Mixins(BaseMixin) {
             .map((value: string) => this.normalizeConfigPath(value))
             .filter((value: string, index: number, source: string[]) => !!value && source.indexOf(value) === index)
 
-        for (const candidatePath of candidatePaths) {
+        const expandedCandidatePaths = candidatePaths
+            .flatMap((candidatePath: string) => this.expandConfigPathAliases(candidatePath))
+            .filter((value: string, index: number, source: string[]) => !!value && source.indexOf(value) === index)
+
+        for (const candidatePath of expandedCandidatePaths) {
             const exactMatch = entries.find(
                 (entry: ConfigSnapshotFile) => this.normalizeConfigPath(entry.path) === candidatePath
             )
             if (exactMatch) return exactMatch
         }
 
-        for (const candidatePath of candidatePaths) {
-            const candidateBasename = this.getBasename(candidatePath)
+        for (const candidatePath of expandedCandidatePaths) {
+            const candidateBasename = this.getBasename(candidatePath).toLowerCase()
             if (!candidateBasename) continue
 
             const basenameMatches = entries
-                .filter((entry: ConfigSnapshotFile) => this.getBasename(entry.path) === candidateBasename)
+                .filter((entry: ConfigSnapshotFile) => {
+                    const entryBasename = this.getBasename(entry.path).toLowerCase()
+                    if (entryBasename === candidateBasename) {
+                        return true
+                    }
+
+                    if (!this.isIdexConfigBasename(candidateBasename)) {
+                        return false
+                    }
+
+                    return this.isIdexConfigBasename(entryBasename)
+                })
                 .sort((left: ConfigSnapshotFile, right: ConfigSnapshotFile) =>
                     this.normalizeConfigPath(left.path).localeCompare(this.normalizeConfigPath(right.path))
                 )
@@ -1920,7 +1976,7 @@ export default class ConfigSync extends Mixins(BaseMixin) {
                 },
                 body: JSON.stringify({
                     printerId: printer.printerId,
-                    sourceType: 'synthesized',
+                    sourceType: 'runtime',
                     files,
                 }),
             })
@@ -1943,7 +1999,7 @@ export default class ConfigSync extends Mixins(BaseMixin) {
                             .join(' | ')
                         this.showError(`No migration changes detected. ${unmatchedCount} unmatched template(s): ${previewItems}`)
                     } else {
-                        this.showError('No migration changes detected for synthesized targets (printer.cfg, mainsail-idex.cfg)')
+                        this.showError('No migration changes detected for printer config files')
                     }
                     return
                 }

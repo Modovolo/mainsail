@@ -83,7 +83,9 @@ export default class HistoryFilterPanel extends Mixins(BaseMixin) {
         this.$nextTick(() => {
             try {
                 this.applyFilter()
-            } catch (_) {}
+            } catch (_) {
+                // Ignore early mount races; applyFilter can be retried by user action.
+            }
         })
     }
 
@@ -92,12 +94,20 @@ export default class HistoryFilterPanel extends Mixins(BaseMixin) {
 
         // update URL
         try {
-            const query = { ...(this.$route.query || {}) }
+            const query: Record<string, any> = { ...(this.$route.query || {}) }
             if (!newVal || newVal === 'all') delete query.printer
             else query.printer = newVal
 
-            this.$router.replace({ name: this.$route.name || 'history', query })
-        } catch (_) {}
+            const currentPrinter = (this.$route.query?.printer as string | undefined) ?? undefined
+            const nextPrinter = (query.printer as string | undefined) ?? undefined
+
+            // Avoid redundant navigation and swallow duplicate-route rejections.
+            if (currentPrinter !== nextPrinter) {
+                this.$router.replace({ name: this.$route.name || 'history', query }).catch(() => undefined)
+            }
+        } catch (_) {
+            // Ignore router state races while the page is mounting.
+        }
 
         // persist setting
         this.$store.dispatch('gui/saveSetting', { name: 'view.history.selectedPrinter', value: newVal })
@@ -109,7 +119,9 @@ export default class HistoryFilterPanel extends Mixins(BaseMixin) {
         // Show loading indication for any fetch-type selection (local/remote/aggregate)
         try {
             this.$store.dispatch('socket/addLoading', { name: 'historyLoadAll' })
-        } catch (_) {}
+        } catch (_) {
+            // Loading indicator is best-effort only.
+        }
 
         // Local only
         if (newVal === 'local') {
@@ -119,14 +131,21 @@ export default class HistoryFilterPanel extends Mixins(BaseMixin) {
             return
         }
 
-        // All: aggregated farm
-        if (newVal === 'all' && isFleetMode && printersCount > 0) {
-            this.$store.dispatch('server/history/initFarmHistory')
+        // All: aggregate across farm printers when available, otherwise load local history.
+        if (newVal === 'all') {
+            if (isFleetMode && printersCount > 0) {
+                this.$store.dispatch('server/history/initFarmHistory')
+                return
+            }
+
+            this.$store.dispatch('server/history/reset')
+            this.$socket.emit('server.history.list', { start: 0, limit: 50 }, { action: 'server/history/getHistory' })
+            this.$socket.emit('server.history.totals', {}, { action: 'server/history/getTotals' })
             return
         }
 
         // specific printer
-        if (newVal !== 'all' && newVal !== 'local') {
+        if (newVal !== 'local') {
             this.$store.dispatch('server/history/reset')
 
             // request from remote printer via farm module

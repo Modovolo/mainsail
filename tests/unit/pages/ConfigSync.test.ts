@@ -10,9 +10,24 @@ describe('ConfigSync loadPrinterConfigFiles', () => {
         vi.unstubAllGlobals()
     })
 
-    it('falls back to printer.cfg when mainsail-idex.cfg request returns 404', async () => {
+    it('tries idex filename aliases before falling back to printer.cfg', async () => {
         const fetchMock = vi
             .fn()
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({ error: 'Printer not found' }),
+            })
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({ error: 'Printer not found' }),
+            })
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({ error: 'Printer not found' }),
+            })
             .mockResolvedValueOnce({
                 ok: false,
                 status: 404,
@@ -58,15 +73,27 @@ describe('ConfigSync loadPrinterConfigFiles', () => {
 
         await vm.loadPrinterConfigFiles('printer-1')
 
-        expect(fetchMock).toHaveBeenCalledTimes(2)
+        expect(fetchMock).toHaveBeenCalledTimes(5)
 
         const firstCallBody = JSON.parse(fetchMock.mock.calls[0][1].body)
         expect(firstCallBody.filenames).toEqual(['printer.cfg', 'mainsail-idex.cfg'])
         expect(firstCallBody.includeDependencies).toBe(true)
 
         const secondCallBody = JSON.parse(fetchMock.mock.calls[1][1].body)
-        expect(secondCallBody.filenames).toEqual(['printer.cfg'])
+        expect(secondCallBody.filenames).toEqual(['printer.cfg', 'mainsail_idex.cfg'])
         expect(secondCallBody.includeDependencies).toBe(true)
+
+        const thirdCallBody = JSON.parse(fetchMock.mock.calls[2][1].body)
+        expect(thirdCallBody.filenames).toEqual(['printer.cfg', 'mainsaild_idex.cfg'])
+        expect(thirdCallBody.includeDependencies).toBe(true)
+
+        const fourthCallBody = JSON.parse(fetchMock.mock.calls[3][1].body)
+        expect(fourthCallBody.filenames).toEqual(['printer.cfg', 'mainsaild-idex.cfg'])
+        expect(fourthCallBody.includeDependencies).toBe(true)
+
+        const fifthCallBody = JSON.parse(fetchMock.mock.calls[4][1].body)
+        expect(fifthCallBody.filenames).toEqual(['printer.cfg'])
+        expect(fifthCallBody.includeDependencies).toBe(true)
 
         const updatedPrinter = vm.printerStatuses[0]
         expect(updatedPrinter.configFiles).toEqual(['printer.cfg'])
@@ -75,6 +102,84 @@ describe('ConfigSync loadPrinterConfigFiles', () => {
                 path: 'printer.cfg',
                 content: 'abc',
                 contentHash: 'hash-a',
+            },
+        ])
+        expect(updatedPrinter.configFilesLoaded).toBe(true)
+        expect(updatedPrinter.configFilesLoading).toBe(false)
+        expect(updatedPrinter.configFilesError).toBeUndefined()
+    })
+
+    it('loads mainsail_idex.cfg when hyphenated idex filename is missing', async () => {
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({ error: 'Printer not found' }),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    files: [
+                        { path: 'printer.cfg', content: 'abc', content_hash: 'hash-a' },
+                        { path: 'mainsail_idex.cfg', content: 'macro', content_hash: 'hash-b' },
+                    ],
+                }),
+            })
+
+        vi.stubGlobal('fetch', fetchMock)
+
+        const vm: any = new (ConfigSync as any)()
+        vm.$store = {
+            getters: {
+                'auth/token': 'token-123',
+            },
+            dispatch: vi.fn(),
+        }
+        vm.$router = { push: vi.fn() }
+        vm.$route = { fullPath: '/config-sync' }
+        vm.showError = vi.fn()
+        vm.getConfigFetchDebugMessage = vi.fn().mockResolvedValue('debug message')
+        vm.printerStatuses = [
+            {
+                printerId: 'printer-1',
+                printerName: 'Printer 1',
+                isOnline: true,
+                templates: [],
+                configFiles: [],
+                configFilesError: undefined,
+                configFilesLoading: false,
+                configFilesLoaded: false,
+                configFileEntries: [],
+                migrationPendingVerification: false,
+            },
+        ]
+
+        await vm.loadPrinterConfigFiles('printer-1')
+
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+
+        const firstCallBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        expect(firstCallBody.filenames).toEqual(['printer.cfg', 'mainsail-idex.cfg'])
+        expect(firstCallBody.includeDependencies).toBe(true)
+
+        const secondCallBody = JSON.parse(fetchMock.mock.calls[1][1].body)
+        expect(secondCallBody.filenames).toEqual(['printer.cfg', 'mainsail_idex.cfg'])
+        expect(secondCallBody.includeDependencies).toBe(true)
+
+        const updatedPrinter = vm.printerStatuses[0]
+        expect(updatedPrinter.configFiles).toEqual(['mainsail_idex.cfg', 'printer.cfg'])
+        expect(updatedPrinter.configFileEntries).toEqual([
+            {
+                path: 'printer.cfg',
+                content: 'abc',
+                contentHash: 'hash-a',
+            },
+            {
+                path: 'mainsail_idex.cfg',
+                content: 'macro',
+                contentHash: 'hash-b',
             },
         ])
         expect(updatedPrinter.configFilesLoaded).toBe(true)
