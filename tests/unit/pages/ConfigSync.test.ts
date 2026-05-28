@@ -252,3 +252,120 @@ describe('ConfigSync loadPrinterConfigFiles', () => {
         expect(vm.selectedSyncConfigIds).toEqual(['tpl-printer'])
     })
 })
+
+describe('ConfigSync startMigrationReview', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    function buildVmWithLoadedConfigEntries() {
+        const vm: any = new (ConfigSync as any)()
+        vm.$store = {
+            getters: {
+                'auth/token': 'token-123',
+            },
+            dispatch: vi.fn(),
+        }
+        vm.$router = { push: vi.fn() }
+        vm.$route = { fullPath: '/config-sync' }
+        vm.showError = vi.fn()
+        vm.showSuccess = vi.fn()
+        vm.loadPrinterConfigFiles = vi.fn()
+        vm.printerStatuses = [
+            {
+                printerId: 'printer-1',
+                printerName: 'Printer 1',
+                isOnline: true,
+                templates: [
+                    {
+                        templateId: 'tpl-printer',
+                        templateName: 'printer.cfg',
+                        filename: 'printer.cfg',
+                        currentVersion: '1.0',
+                        syncedVersion: '1.0',
+                        syncedAt: null,
+                        status: 'synced',
+                    },
+                    {
+                        templateId: 'tpl-idex',
+                        templateName: 'mainsail_idex.cfg',
+                        filename: 'mainsail_idex.cfg',
+                        currentVersion: '1.0',
+                        syncedVersion: null,
+                        syncedAt: null,
+                        status: 'missing',
+                    },
+                ],
+                configFiles: ['printer.cfg', 'mainsail_idex.cfg'],
+                configFilesError: undefined,
+                configFilesLoading: false,
+                configFilesLoaded: true,
+                configFileEntries: [
+                    {
+                        path: 'printer.cfg',
+                        content: 'cHJpbnRlcg==',
+                        contentHash: 'hash-printer',
+                    },
+                    {
+                        path: 'mainsail_idex.cfg',
+                        content: 'aWRleA==',
+                        contentHash: 'hash-idex',
+                    },
+                ],
+                migrationPendingVerification: false,
+            },
+        ]
+        return vm
+    }
+
+    it('sends selected templateIds for template-scoped migration review', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                candidates: [],
+                unmatchedTemplates: [],
+            }),
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        const vm = buildVmWithLoadedConfigEntries()
+        const printer = vm.printerStatuses[0]
+
+        await vm.startMigrationReview(printer, ['tpl-idex'], 'mainsail_idex.cfg')
+
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        expect(requestBody.printerId).toBe('printer-1')
+        expect(requestBody.sourceType).toBe('runtime')
+        expect(requestBody.templateIds).toEqual(['tpl-idex'])
+        expect(requestBody.files.map((f: any) => f.path).sort()).toEqual(['mainsail_idex.cfg', 'printer.cfg'])
+    })
+
+    it('does not send templateIds when reviewing all templates', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                candidates: [],
+                unmatchedTemplates: [],
+            }),
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        const vm = buildVmWithLoadedConfigEntries()
+        const printer = vm.printerStatuses[0]
+
+        await vm.startMigrationReview(printer)
+
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        expect(requestBody.printerId).toBe('printer-1')
+        expect(requestBody.sourceType).toBe('runtime')
+        expect(requestBody.templateIds).toBeUndefined()
+    })
+})

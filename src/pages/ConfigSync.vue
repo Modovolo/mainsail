@@ -213,17 +213,43 @@
                                 </v-list-item-content>
 
                                 <v-list-item-action>
-                                    <v-btn
-                                        color="orange"
-                                        small
-                                        class="mb-2"
-                                        :disabled="!printer.isOnline || !!printer.configFilesLoading"
-                                        :loading="migratingPrinter === printer.printerId"
-                                        @click="startMigrationReview(printer)"
+                                    <v-menu
+                                        offset-y
+                                        :disabled="!printer.isOnline || !!printer.configFilesLoading || migrationTemplateOptions(printer).length === 0"
                                     >
-                                        <v-icon left small>mdi-file-replace</v-icon>
-                                        Migrate & Review
-                                    </v-btn>
+                                        <template #activator="{ on, attrs }">
+                                            <v-btn
+                                                color="orange"
+                                                small
+                                                class="mb-2"
+                                                :disabled="!printer.isOnline || !!printer.configFilesLoading || migrationTemplateOptions(printer).length === 0"
+                                                :loading="migratingPrinter === printer.printerId"
+                                                v-bind="attrs"
+                                                v-on="on"
+                                            >
+                                                <v-icon left small>mdi-file-replace</v-icon>
+                                                Migrate & Review
+                                                <v-icon right x-small>mdi-menu-down</v-icon>
+                                            </v-btn>
+                                        </template>
+
+                                        <v-list dense>
+                                            <v-list-item @click="startMigrationReview(printer)">
+                                                <v-list-item-title>All templates</v-list-item-title>
+                                            </v-list-item>
+                                            <v-divider></v-divider>
+                                            <v-list-item
+                                                v-for="templateOption in migrationTemplateOptions(printer)"
+                                                :key="`migration-option-${printer.printerId}-${templateOption.templateId}`"
+                                                @click="startMigrationReview(printer, [templateOption.templateId], templateOption.templateName)"
+                                            >
+                                                <v-list-item-content>
+                                                    <v-list-item-title>{{ templateOption.templateName }}</v-list-item-title>
+                                                    <v-list-item-subtitle>{{ templateOption.sourcePath || templateOption.filename }}</v-list-item-subtitle>
+                                                </v-list-item-content>
+                                            </v-list-item>
+                                        </v-list>
+                                    </v-menu>
 
                                     <v-btn
                                         color="warning"
@@ -1126,6 +1152,17 @@ export default class ConfigSync extends Mixins(BaseMixin) {
         return Object.keys(this.syncConfigsSelection).filter((templateId: string) => !!this.syncConfigsSelection[templateId])
     }
 
+    migrationTemplateOptions(printer: PrinterStatus): TemplateStatus[] {
+        return (printer.templates || [])
+            .filter((template: TemplateStatus) => !!template.templateId)
+            .slice()
+            .sort((left: TemplateStatus, right: TemplateStatus) => {
+                const leftLabel = `${left.templateName || ''}|${left.filename || ''}`.toLowerCase()
+                const rightLabel = `${right.templateName || ''}|${right.filename || ''}`.toLowerCase()
+                return leftLabel.localeCompare(rightLabel)
+            })
+    }
+
     mounted() {
         this.refreshData()
         this.loadClientStatus()
@@ -1944,7 +1981,7 @@ export default class ConfigSync extends Mixins(BaseMixin) {
         this.migrationVerificationConfirmed = false
     }
 
-    async startMigrationReview(printer: PrinterStatus) {
+    async startMigrationReview(printer: PrinterStatus, templateIds: string[] = [], templateLabel: string | null = null) {
         if (!printer.isOnline) {
             this.showError('Printer is offline')
             return
@@ -1978,6 +2015,7 @@ export default class ConfigSync extends Mixins(BaseMixin) {
                     printerId: printer.printerId,
                     sourceType: 'runtime',
                     files,
+                    templateIds: templateIds.length ? templateIds : undefined,
                 }),
             })
 
@@ -1991,15 +2029,16 @@ export default class ConfigSync extends Mixins(BaseMixin) {
                 this.migrationUnmatchedTemplates = payload.unmatchedTemplates || []
 
                 if (!candidates.length) {
+                    const templateScopeLabel = templateLabel ? ` for ${templateLabel}` : ''
                     const unmatchedCount = this.migrationUnmatchedTemplates.length
                     if (unmatchedCount > 0) {
                         const previewItems = this.migrationUnmatchedTemplates
                             .slice(0, 3)
                             .map(item => `${item.templateName}: ${item.reason}`)
                             .join(' | ')
-                        this.showError(`No migration changes detected. ${unmatchedCount} unmatched template(s): ${previewItems}`)
+                        this.showError(`No migration changes detected${templateScopeLabel}. ${unmatchedCount} unmatched template(s): ${previewItems}`)
                     } else {
-                        this.showError('No migration changes detected for printer config files')
+                        this.showError(`No migration changes detected${templateScopeLabel}`)
                     }
                     return
                 }
