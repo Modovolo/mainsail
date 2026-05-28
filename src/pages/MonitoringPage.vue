@@ -473,6 +473,8 @@ export default Vue.extend({
             switch (status) {
                 case 'printing':
                     return 'success'
+                case 'ready':
+                    return 'info'
                 case 'idle':
                     return 'grey'
                 case 'unknown':
