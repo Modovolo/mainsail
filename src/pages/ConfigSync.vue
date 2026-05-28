@@ -668,7 +668,7 @@
                                     <div class="font-weight-medium">{{ candidate.templateName }}</div>
                                     <div class="text-caption grey--text">{{ candidate.filename }}</div>
                                     <div
-                                        v-if="candidate.verificationSummary && candidate.verificationSummary.totalChecks > 0"
+                                        v-if="(candidate.reviewMode === 'migration' && candidate.verificationSummary && candidate.verificationSummary.totalChecks > 0) || (candidate.reviewMode === 'macro_merge' && candidate.macroMergeSummary)"
                                         class="text-caption mt-1"
                                         :class="getMigrationVerificationTextClass(candidate)"
                                     >
@@ -688,7 +688,7 @@
                                             {{ candidate.hasContentChanges === false ? 'View File' : 'View Diff' }}
                                         </v-btn>
                                         <v-btn
-                                            v-if="candidate.hasContentChanges !== false && candidate.reviewMode !== 'passthrough'"
+                                            v-if="candidate.hasContentChanges !== false && candidate.reviewMode === 'migration'"
                                             x-small
                                             text
                                             color="primary"
@@ -696,7 +696,7 @@
                                             Review Lines
                                         </v-btn>
                                         <v-btn
-                                            v-if="candidate.verificationSummary && candidate.verificationSummary.totalChecks > 0"
+                                            v-if="candidate.reviewMode === 'migration' && candidate.verificationSummary && candidate.verificationSummary.totalChecks > 0"
                                             x-small
                                             text
                                             :color="candidate.verificationSummary.missingChecks || candidate.verificationSummary.mismatchedChecks ? 'error' : 'success'"
@@ -732,6 +732,7 @@
                         v-for="candidate in migrationCandidates"
                         :key="'pins-' + candidate.templateId"
                         class="mt-5"
+                        v-if="candidate.reviewMode === 'migration'"
                     >
                         <div class="d-flex align-center mb-2">
                             <v-icon small class="mr-1">mdi-chip</v-icon>
@@ -806,6 +807,83 @@
                                             color="error"
                                             class="ml-1"
                                         >mdi-close-circle</v-icon>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </v-simple-table>
+                    </div>
+
+                    <div
+                        v-for="candidate in migrationCandidates"
+                        :key="'macro-' + candidate.templateId"
+                        class="mt-5"
+                        v-if="candidate.reviewMode === 'macro_merge'"
+                    >
+                        <div class="d-flex align-center mb-2">
+                            <v-icon small class="mr-1">mdi-source-merge</v-icon>
+                            <span class="text-subtitle-2 font-weight-medium">Section Merge Decisions — {{ candidate.templateName }}</span>
+                        </div>
+
+                        <v-alert
+                            v-if="!candidate.macroSections || candidate.macroSections.length === 0"
+                            type="info"
+                            text
+                            dense
+                        >
+                            No section metadata returned for macro merge review.
+                        </v-alert>
+
+                        <v-simple-table v-else dense class="macro-merge-table">
+                            <thead>
+                                <tr>
+                                    <th class="text-center" style="width: 80px;">Use</th>
+                                    <th>Section</th>
+                                    <th>Status</th>
+                                    <th>Choice</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr
+                                    v-for="section in candidate.macroSections"
+                                    :key="`${candidate.templateId}-${section.sectionHeader}`"
+                                >
+                                    <td class="text-center">
+                                        <v-checkbox
+                                            :input-value="!!section.selected"
+                                            hide-details
+                                            class="mt-0 pt-0"
+                                            @change="setMacroSectionSelected(candidate, section.sectionHeader, $event)"
+                                        ></v-checkbox>
+                                    </td>
+                                    <td>
+                                        <div class="text-caption font-weight-medium">{{ section.sectionHeader }}</div>
+                                        <div v-if="section.sectionType" class="text-caption grey--text">{{ section.sectionType }}</div>
+                                    </td>
+                                    <td>
+                                        <v-chip x-small :color="getMacroSectionStatusColor(section.classification)" outlined>
+                                            {{ section.classification }}
+                                        </v-chip>
+                                    </td>
+                                    <td>
+                                        <v-btn
+                                            x-small
+                                            class="mr-1"
+                                            :disabled="!section.selected || !section.templateContent"
+                                            :color="section.choice === 'template' ? 'primary' : 'grey'"
+                                            :outlined="section.choice !== 'template'"
+                                            @click="setMacroSectionChoice(candidate, section.sectionHeader, 'template')"
+                                        >
+                                            Template
+                                        </v-btn>
+                                        <v-btn
+                                            x-small
+                                            :disabled="!section.selected || !section.sourceContent"
+                                            :color="section.choice === 'source' ? 'info' : 'grey'"
+                                            :outlined="section.choice !== 'source'"
+                                            @click="setMacroSectionChoice(candidate, section.sectionHeader, 'source')"
+                                        >
+                                            Printer
+                                        </v-btn>
                                     </td>
                                 </tr>
                             </tbody>
@@ -980,6 +1058,29 @@ interface ClientStatus {
     lastSeen?: string | null
 }
 
+type MacroMergeClassification = 'identical' | 'template_only' | 'remote_only' | 'conflict'
+
+interface MacroMergeSection {
+    sectionHeader: string
+    sectionType?: string
+    classification: MacroMergeClassification
+    defaultChoice?: 'template' | 'source'
+    defaultSelected?: boolean
+    templateContent?: string | null
+    sourceContent?: string | null
+    hasDiff?: boolean
+    choice?: 'template' | 'source'
+    selected?: boolean
+}
+
+interface MacroMergeSummary {
+    totalSections: number
+    identicalSections: number
+    templateOnlySections: number
+    remoteOnlySections: number
+    conflictSections: number
+}
+
 interface MigrationCandidate {
     templateId: string
     templateName: string
@@ -994,8 +1095,11 @@ interface MigrationCandidate {
     matchCandidateCount?: number
     content: string
     contentHash: string
-    reviewMode?: 'migration' | 'passthrough'
+    reviewMode?: 'migration' | 'macro_merge'
     hasContentChanges?: boolean
+    sourceContent?: string
+    macroMergeSummary?: MacroMergeSummary
+    macroSections?: MacroMergeSection[]
     verificationSummary?: {
         totalChecks: number
         matchedChecks: number
@@ -1684,12 +1788,130 @@ export default class ConfigSync extends Mixins(BaseMixin) {
         }
     }
 
+    isMacroMergeCandidate(candidate: MigrationCandidate): boolean {
+        return candidate.reviewMode === 'macro_merge'
+    }
+
+    initializeMacroMergeSections(candidate: MigrationCandidate) {
+        if (!this.isMacroMergeCandidate(candidate)) return
+
+        const normalizedSections = (candidate.macroSections || []).map((section: MacroMergeSection) => {
+            const defaultChoice = section.defaultChoice === 'source' ? 'source' : 'template'
+            const hasTemplate = !!section.templateContent
+            const hasSource = !!section.sourceContent
+            const normalizedChoice = section.choice || defaultChoice
+
+            let choice: 'template' | 'source' = normalizedChoice === 'source' ? 'source' : 'template'
+            if (choice === 'source' && !hasSource && hasTemplate) {
+                choice = 'template'
+            }
+            if (choice === 'template' && !hasTemplate && hasSource) {
+                choice = 'source'
+            }
+
+            const defaultSelected = typeof section.defaultSelected === 'boolean' ? section.defaultSelected : section.classification !== 'remote_only'
+            const selected = typeof section.selected === 'boolean' ? section.selected : defaultSelected
+
+            return {
+                ...section,
+                choice,
+                selected,
+            }
+        })
+
+        candidate.macroSections = normalizedSections
+        this.refreshMacroMergeCandidateContent(candidate)
+    }
+
+    buildCandidateContentFromMacroSections(candidate: MigrationCandidate): string {
+        const sections = candidate.macroSections || []
+        const merged: string[] = []
+
+        sections.forEach((section: MacroMergeSection) => {
+            if (!section.selected) return
+            const preferred = section.choice === 'source' ? section.sourceContent : section.templateContent
+            const fallback = section.templateContent || section.sourceContent || ''
+            const chosen = (preferred || fallback || '').trim()
+            if (chosen) {
+                merged.push(chosen)
+            }
+        })
+
+        return merged.join('\n\n')
+    }
+
+    refreshMacroMergeCandidateContent(candidate: MigrationCandidate) {
+        if (!this.isMacroMergeCandidate(candidate)) return
+        const rebuilt = this.buildCandidateContentFromMacroSections(candidate)
+        candidate.content = rebuilt
+        candidate.contentHash = ''
+        candidate.hasContentChanges = rebuilt !== (candidate.currentContent || '')
+    }
+
+    setMacroSectionSelected(candidate: MigrationCandidate, sectionHeader: string, selected: boolean) {
+        if (!this.isMacroMergeCandidate(candidate)) return
+        const sections = candidate.macroSections || []
+        candidate.macroSections = sections.map((section: MacroMergeSection) => {
+            if (section.sectionHeader !== sectionHeader) return section
+            return {
+                ...section,
+                selected: !!selected,
+            }
+        })
+        this.refreshMacroMergeCandidateContent(candidate)
+    }
+
+    setMacroSectionChoice(candidate: MigrationCandidate, sectionHeader: string, choice: 'template' | 'source') {
+        if (!this.isMacroMergeCandidate(candidate)) return
+        const sections = candidate.macroSections || []
+        candidate.macroSections = sections.map((section: MacroMergeSection) => {
+            if (section.sectionHeader !== sectionHeader) return section
+            const hasTemplate = !!section.templateContent
+            const hasSource = !!section.sourceContent
+            const safeChoice = choice === 'source'
+                ? (hasSource ? 'source' : 'template')
+                : (hasTemplate ? 'template' : 'source')
+
+            return {
+                ...section,
+                choice: safeChoice,
+                selected: true,
+            }
+        })
+        this.refreshMacroMergeCandidateContent(candidate)
+    }
+
+    macroSectionDecisionPayload(candidate: MigrationCandidate): Array<{ sectionHeader: string; selected: boolean; choice: 'template' | 'source' }> {
+        return (candidate.macroSections || []).map((section: MacroMergeSection) => ({
+            sectionHeader: section.sectionHeader,
+            selected: !!section.selected,
+            choice: section.choice === 'source' ? 'source' : 'template',
+        }))
+    }
+
+    getMacroSectionStatusColor(classification: MacroMergeClassification): string {
+        if (classification === 'conflict') return 'warning'
+        if (classification === 'remote_only') return 'info'
+        if (classification === 'template_only') return 'primary'
+        return 'success'
+    }
+
+    formatMacroMergeSummary(candidate: MigrationCandidate): string {
+        const summary = candidate.macroMergeSummary
+        if (!summary) {
+            return 'No macro section summary available'
+        }
+        return `Sections: ${summary.totalSections} total · ${summary.conflictSections} conflicts · ${summary.remoteOnlySections} remote-only · ${summary.templateOnlySections} template-only`
+    }
+
     openMigrationCandidateInEditor(candidate: MigrationCandidate) {
         const normalizedPath = this.normalizeConfigPath(candidate.filename || `${candidate.templateName}.cfg`)
         const oldContent = candidate.currentContent || ''
-        const newContent = candidate.content || ''
+        const newContent = this.isMacroMergeCandidate(candidate)
+            ? (this.buildCandidateContentFromMacroSections(candidate) || candidate.content || '')
+            : (candidate.content || '')
 
-        if (candidate.hasContentChanges === false && candidate.reviewMode === 'passthrough') {
+        if (candidate.hasContentChanges === false) {
             this.$store.commit('editor/setPermissions', 'r')
             this.$store.commit('editor/openFile', {
                 filename: this.getBasename(normalizedPath),
@@ -1769,6 +1991,9 @@ export default class ConfigSync extends Mixins(BaseMixin) {
     }
 
     openLineReviewDialog(candidate: MigrationCandidate) {
+        if (candidate.reviewMode !== 'migration') {
+            return
+        }
         this.initializeLineDecisions(candidate)
         const allOps = this.buildDiffOperations(candidate.currentContent || '', candidate.content || '')
         this.lineReviewOps = allOps.filter((op: DiffOperation) => op.type !== 'equal')
@@ -1888,6 +2113,10 @@ export default class ConfigSync extends Mixins(BaseMixin) {
     }
 
     formatMigrationVerificationSummary(candidate: MigrationCandidate): string {
+        if (this.isMacroMergeCandidate(candidate)) {
+            return this.formatMacroMergeSummary(candidate)
+        }
+
         const summary = candidate.verificationSummary
         if (!summary || summary.totalChecks === 0) {
             return 'No auto-verifiable pin or position values found'
@@ -1901,6 +2130,12 @@ export default class ConfigSync extends Mixins(BaseMixin) {
     }
 
     getMigrationVerificationTextClass(candidate: MigrationCandidate): string {
+        if (this.isMacroMergeCandidate(candidate)) {
+            const summary = candidate.macroMergeSummary
+            if (!summary) return 'grey--text'
+            return summary.conflictSections > 0 ? 'warning--text' : 'info--text'
+        }
+
         const summary = candidate.verificationSummary
         if (!summary || summary.totalChecks === 0) {
             return 'grey--text'
@@ -1920,6 +2155,9 @@ export default class ConfigSync extends Mixins(BaseMixin) {
     }
 
     setMigrationDecision(candidate: MigrationCandidate, decision: 'accepted' | 'declined') {
+        if (this.isMacroMergeCandidate(candidate)) {
+            this.initializeMacroMergeSections(candidate)
+        }
         candidate.decision = decision
     }
 
@@ -2024,7 +2262,10 @@ export default class ConfigSync extends Mixins(BaseMixin) {
                 const candidates: MigrationCandidate[] = (payload.candidates || []).map((candidate: MigrationCandidate) => ({
                     ...candidate,
                     decision: null,
-                }))
+                })).map((candidate: MigrationCandidate) => {
+                    this.initializeMacroMergeSections(candidate)
+                    return candidate
+                })
 
                 this.migrationUnmatchedTemplates = payload.unmatchedTemplates || []
 
@@ -2094,16 +2335,22 @@ export default class ConfigSync extends Mixins(BaseMixin) {
                     verificationConfirmed: true,
                     candidates: this.acceptedMigrationCandidates.map(candidate => ({
                         templateId: candidate.templateId,
+                        reviewMode: candidate.reviewMode,
                         proposedVersion: candidate.proposedVersion,
                         sourcePath: candidate.sourcePath,
                         content: candidate.content,
+                        sourceContent: candidate.sourceContent,
+                        macroSectionDecisions: this.isMacroMergeCandidate(candidate)
+                            ? this.macroSectionDecisionPayload(candidate)
+                            : undefined,
                     })),
                 }),
             })
 
             if (response.ok) {
                 const payload = await response.json()
-                this.showSuccess(payload.message || 'Accepted migration changes applied')
+                const baseMessage = payload.message || 'Accepted migration changes applied'
+                this.showSuccess(`${baseMessage}. Run Sync Configs to push updated templates to this printer.`)
                 this.setPrinterMigrationPending(this.migrationPrinter.printerId, false)
                 this.closeMigrationDialog(false)
                 await this.refreshData()
@@ -2683,6 +2930,11 @@ export default class ConfigSync extends Mixins(BaseMixin) {
 
 .pin-row-missing {
     background-color: rgba(244, 67, 54, 0.08) !important;
+}
+
+.macro-merge-table {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
 }
 
 .line-review-table {

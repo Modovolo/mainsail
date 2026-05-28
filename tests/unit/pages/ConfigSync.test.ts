@@ -368,4 +368,165 @@ describe('ConfigSync startMigrationReview', () => {
         expect(requestBody.sourceType).toBe('runtime')
         expect(requestBody.templateIds).toBeUndefined()
     })
+
+    it('initializes macro section defaults for macro_merge candidates', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                candidates: [
+                    {
+                        templateId: 'tpl-idex',
+                        templateName: 'mainsail_idex.cfg',
+                        filename: 'mainsail_idex.cfg',
+                        currentVersion: '1.0',
+                        proposedVersion: '1.0',
+                        sourcePath: 'mainsail_idex.cfg',
+                        currentContent: '[gcode_macro PRINT_START]\ngcode:\n  M117 template',
+                        content: '[gcode_macro PRINT_START]\ngcode:\n  M117 template',
+                        contentHash: 'hash-a',
+                        reviewMode: 'macro_merge',
+                        hasContentChanges: false,
+                        sourceContent: '[gcode_macro PRINT_START]\ngcode:\n  M117 printer',
+                        macroMergeSummary: {
+                            totalSections: 2,
+                            identicalSections: 0,
+                            templateOnlySections: 0,
+                            remoteOnlySections: 1,
+                            conflictSections: 1,
+                        },
+                        macroSections: [
+                            {
+                                sectionHeader: '[gcode_macro PRINT_START]',
+                                sectionType: 'gcode_macro',
+                                classification: 'conflict',
+                                defaultChoice: 'template',
+                                defaultSelected: true,
+                                templateContent: '[gcode_macro PRINT_START]\ngcode:\n  M117 template',
+                                sourceContent: '[gcode_macro PRINT_START]\ngcode:\n  M117 printer',
+                            },
+                            {
+                                sectionHeader: '[gcode_macro REMOTE_ONLY]',
+                                sectionType: 'gcode_macro',
+                                classification: 'remote_only',
+                                defaultChoice: 'source',
+                                defaultSelected: false,
+                                templateContent: null,
+                                sourceContent: '[gcode_macro REMOTE_ONLY]\ngcode:\n  RESPOND MSG="remote"',
+                            },
+                        ],
+                    },
+                ],
+                unmatchedTemplates: [],
+            }),
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        const vm = buildVmWithLoadedConfigEntries()
+        const printer = vm.printerStatuses[0]
+
+        await vm.startMigrationReview(printer, ['tpl-idex'], 'mainsail_idex.cfg')
+
+        expect(vm.migrationCandidates).toHaveLength(1)
+        const candidate = vm.migrationCandidates[0]
+        expect(candidate.reviewMode).toBe('macro_merge')
+        expect(candidate.macroSections[0].selected).toBe(true)
+        expect(candidate.macroSections[0].choice).toBe('template')
+        expect(candidate.macroSections[1].selected).toBe(false)
+        expect(candidate.macroSections[1].choice).toBe('source')
+    })
+})
+
+describe('ConfigSync applyAcceptedMigration', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    it('sends macro section decisions for macro_merge candidates', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                message: 'Applied 1 verified migration template(s)',
+            }),
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        const vm: any = new (ConfigSync as any)()
+        vm.$store = {
+            getters: {
+                'auth/token': 'token-123',
+            },
+            dispatch: vi.fn(),
+        }
+        vm.$router = { push: vi.fn() }
+        vm.$route = { fullPath: '/config-sync' }
+        vm.showError = vi.fn()
+        vm.showSuccess = vi.fn()
+        vm.refreshData = vi.fn().mockResolvedValue(undefined)
+        vm.printerStatuses = [
+            {
+                printerId: 'printer-1',
+                printerName: 'Printer 1',
+                isOnline: true,
+                templates: [],
+                migrationPendingVerification: true,
+            },
+        ]
+
+        vm.migrationPrinter = {
+            printerId: 'printer-1',
+            printerName: 'Printer 1',
+        }
+        vm.migrationVerificationConfirmed = true
+        vm.migrationCandidates = [
+            {
+                templateId: 'tpl-idex',
+                templateName: 'mainsail_idex.cfg',
+                filename: 'mainsail_idex.cfg',
+                currentVersion: '1.0',
+                proposedVersion: '1.1',
+                sourcePath: 'mainsail_idex.cfg',
+                currentContent: '[gcode_macro PRINT_START]\ngcode:\n  M117 template',
+                content: '[gcode_macro PRINT_START]\ngcode:\n  M117 printer\n\n[gcode_macro REMOTE_ONLY]\ngcode:\n  RESPOND MSG="remote"',
+                contentHash: 'hash-a',
+                reviewMode: 'macro_merge',
+                sourceContent: '[gcode_macro PRINT_START]\ngcode:\n  M117 printer\n\n[gcode_macro REMOTE_ONLY]\ngcode:\n  RESPOND MSG="remote"',
+                macroSections: [
+                    {
+                        sectionHeader: '[gcode_macro PRINT_START]',
+                        classification: 'conflict',
+                        templateContent: '[gcode_macro PRINT_START]\ngcode:\n  M117 template',
+                        sourceContent: '[gcode_macro PRINT_START]\ngcode:\n  M117 printer',
+                        selected: true,
+                        choice: 'source',
+                    },
+                    {
+                        sectionHeader: '[gcode_macro REMOTE_ONLY]',
+                        classification: 'remote_only',
+                        templateContent: null,
+                        sourceContent: '[gcode_macro REMOTE_ONLY]\ngcode:\n  RESPOND MSG="remote"',
+                        selected: true,
+                        choice: 'source',
+                    },
+                ],
+                decision: 'accepted',
+            },
+        ]
+
+        await vm.applyAcceptedMigration()
+
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        expect(requestBody.printerId).toBe('printer-1')
+        expect(requestBody.verificationConfirmed).toBe(true)
+        expect(requestBody.candidates).toHaveLength(1)
+        expect(requestBody.candidates[0].reviewMode).toBe('macro_merge')
+        expect(requestBody.candidates[0].macroSectionDecisions).toEqual([
+            { sectionHeader: '[gcode_macro PRINT_START]', selected: true, choice: 'source' },
+            { sectionHeader: '[gcode_macro REMOTE_ONLY]', selected: true, choice: 'source' },
+        ])
+        expect(vm.showSuccess).toHaveBeenCalled()
+        expect(vm.showSuccess.mock.calls[0][0]).toContain('Run Sync Configs')
+    })
 })
