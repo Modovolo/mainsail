@@ -49,6 +49,15 @@
                                     <v-list-item-title>Integrations</v-list-item-title>
                                 </v-list-item-content>
                             </v-list-item>
+
+                            <v-list-item v-if="isAdmin" value="syncConfig">
+                                <v-list-item-icon>
+                                    <v-icon>mdi-cog-sync</v-icon>
+                                </v-list-item-icon>
+                                <v-list-item-content>
+                                    <v-list-item-title>Sync Config</v-list-item-title>
+                                </v-list-item-content>
+                            </v-list-item>
                             
                             <v-list-item value="security">
                                 <v-list-item-icon>
@@ -239,6 +248,123 @@
                                 </div>
                             </div>
                         </v-card>
+                    </v-card-text>
+                </v-card>
+
+                <!-- Admin Sync Config Tab -->
+                <v-card v-if="activeTab === 'syncConfig' && isAdmin" class="pa-4">
+                    <v-card-title class="px-0 pt-0 d-flex align-center">
+                        <v-icon class="mr-2">mdi-cog-sync</v-icon>
+                        Monday Sync Configuration
+                    </v-card-title>
+                    <v-card-text class="px-0">
+                        <p class="text-body-2 grey--text mb-4">
+                            Configure how Monday boards populate GCode recipe and design library structures.
+                            This section is admin-only.
+                        </p>
+
+                        <div v-if="syncConfigLoading" class="py-2">
+                            <v-progress-linear indeterminate color="primary" />
+                        </div>
+
+                        <div v-else>
+                            <v-switch
+                                v-model="syncConfigEnabled"
+                                label="Enable Monday sync"
+                                hide-details
+                                class="mb-4"
+                            />
+
+                            <v-row>
+                                <v-col cols="12" md="6">
+                                    <v-text-field
+                                        v-model="syncGcodeBoardId"
+                                        label="GCode Recipes Board ID"
+                                        outlined
+                                        dense
+                                    />
+                                </v-col>
+                                <v-col cols="12" md="6">
+                                    <v-text-field
+                                        v-model="syncDesignBoardId"
+                                        label="Design Library Board ID"
+                                        outlined
+                                        dense
+                                    />
+                                </v-col>
+                            </v-row>
+
+                            <v-row>
+                                <v-col cols="12" md="4">
+                                    <v-select
+                                        v-model="syncScheduleMode"
+                                        :items="['manual', 'cron']"
+                                        label="Schedule Mode"
+                                        outlined
+                                        dense
+                                    />
+                                </v-col>
+                                <v-col cols="12" md="8" v-if="syncScheduleMode === 'cron'">
+                                    <v-text-field
+                                        v-model="syncCronExpression"
+                                        label="Cron Expression"
+                                        placeholder="*/15 * * * *"
+                                        outlined
+                                        dense
+                                    />
+                                </v-col>
+                            </v-row>
+
+                            <v-row>
+                                <v-col cols="12" md="4">
+                                    <v-switch
+                                        v-model="syncDryRun"
+                                        label="Dry Run"
+                                        hide-details
+                                    />
+                                </v-col>
+                                <v-col cols="12" md="4">
+                                    <v-switch
+                                        v-model="syncAllowDeletes"
+                                        label="Allow Deletes"
+                                        hide-details
+                                    />
+                                </v-col>
+                                <v-col cols="12" md="4">
+                                    <v-text-field
+                                        v-model.number="syncMaxItemsPerRun"
+                                        label="Max Items Per Run"
+                                        type="number"
+                                        min="1"
+                                        max="1000"
+                                        outlined
+                                        dense
+                                    />
+                                </v-col>
+                            </v-row>
+
+                            <v-textarea
+                                v-model="syncGcodeMappingJson"
+                                label="GCode Recipes Mapping (JSON object)"
+                                outlined
+                                rows="6"
+                                class="mb-3"
+                            />
+
+                            <v-textarea
+                                v-model="syncDesignMappingJson"
+                                label="Design Library Mapping (JSON object)"
+                                outlined
+                                rows="6"
+                            />
+
+                            <div class="d-flex align-center mt-2">
+                                <v-spacer />
+                                <v-btn color="primary" :loading="syncConfigSaving" @click="saveMondaySyncConfig">
+                                    Save Sync Configuration
+                                </v-btn>
+                            </div>
+                        </div>
                     </v-card-text>
                 </v-card>
                 
@@ -542,6 +668,26 @@ interface UserProfile {
     createdAt?: string
 }
 
+interface MondaySyncConfig {
+    boards: {
+        gcodeRecipesBoardId: string
+        designLibraryBoardId: string
+    }
+    mappings: {
+        gcodeRecipes: Record<string, string>
+        designLibrary: Record<string, string>
+    }
+    safety: {
+        dryRun: boolean
+        allowDeletes: boolean
+        maxItemsPerRun: number
+    }
+    schedule: {
+        mode: 'manual' | 'cron'
+        cronExpression: string
+    }
+}
+
 @Component
 class PageSettings extends Mixins(BaseMixin) {
     activeTab = 'profile'
@@ -567,6 +713,19 @@ class PageSettings extends Mixins(BaseMixin) {
     integrationsSaving = false
     discordWebhookInputs: string[] = ['']
     discordWebhookErrors: string[] = ['']
+
+    syncConfigLoading = false
+    syncConfigSaving = false
+    syncConfigEnabled = false
+    syncGcodeBoardId = ''
+    syncDesignBoardId = ''
+    syncScheduleMode: 'manual' | 'cron' = 'manual'
+    syncCronExpression = ''
+    syncDryRun = true
+    syncAllowDeletes = false
+    syncMaxItemsPerRun = 100
+    syncGcodeMappingJson = '{}'
+    syncDesignMappingJson = '{}'
     
     profile: UserProfile = {
         username: '',
@@ -590,13 +749,24 @@ class PageSettings extends Mixins(BaseMixin) {
         return 'Not available'
     }
 
+    get isAdmin(): boolean {
+        const role = this.profile.role || this.$store.state.auth?.user?.role
+        return role === 'admin'
+    }
+
     async mounted() {
         await this.loadProfile()
-        await Promise.all([
+        const loaders: Array<Promise<void>> = [
             this.loadGroups(),
             this.loadOwnedPrinters(),
             this.loadIntegrations(),
-        ])
+        ]
+
+        if (this.isAdmin) {
+            loaders.push(this.loadMondaySyncConfig())
+        }
+
+        await Promise.all(loaders)
     }
 
     async loadProfile(): Promise<void> {
@@ -767,6 +937,152 @@ class PageSettings extends Mixins(BaseMixin) {
             this.$toast.error(error.response?.data?.error || 'Failed to save integration settings')
         } finally {
             this.integrationsSaving = false
+        }
+    }
+
+    async loadMondaySyncConfig(): Promise<void> {
+        const token = localStorage.getItem('fleet_token')
+        if (!token) return
+
+        this.syncConfigLoading = true
+        try {
+            const response = await axios.get('/api/admin/sync-config/monday', {
+                headers: { Authorization: `Bearer ${token}` }
+            })
+
+            const payload = response.data || {}
+            const syncConfig = (payload.syncConfig || {}) as MondaySyncConfig
+            const boards = syncConfig.boards || {
+                gcodeRecipesBoardId: '',
+                designLibraryBoardId: '',
+            }
+            const mappings = syncConfig.mappings || {
+                gcodeRecipes: {},
+                designLibrary: {},
+            }
+            const safety = syncConfig.safety || {
+                dryRun: true,
+                allowDeletes: false,
+                maxItemsPerRun: 100,
+            }
+            const schedule = syncConfig.schedule || {
+                mode: 'manual',
+                cronExpression: '',
+            }
+
+            this.syncConfigEnabled = Boolean(payload.isEnabled)
+            this.syncGcodeBoardId = boards.gcodeRecipesBoardId || ''
+            this.syncDesignBoardId = boards.designLibraryBoardId || ''
+            this.syncDryRun = Boolean(safety.dryRun)
+            this.syncAllowDeletes = Boolean(safety.allowDeletes)
+            this.syncMaxItemsPerRun = Number(safety.maxItemsPerRun) || 100
+            this.syncScheduleMode = schedule.mode === 'cron' ? 'cron' : 'manual'
+            this.syncCronExpression = schedule.cronExpression || ''
+            this.syncGcodeMappingJson = JSON.stringify(mappings.gcodeRecipes || {}, null, 2)
+            this.syncDesignMappingJson = JSON.stringify(mappings.designLibrary || {}, null, 2)
+        } catch (error: any) {
+            this.$toast.error(error.response?.data?.error || 'Failed to load sync configuration')
+        } finally {
+            this.syncConfigLoading = false
+        }
+    }
+
+    parseMappingJson(rawValue: string, label: string): Record<string, string> | null {
+        const value = (rawValue || '').trim() || '{}'
+        let parsed: any
+
+        try {
+            parsed = JSON.parse(value)
+        } catch {
+            this.$toast.error(`${label} must be valid JSON`)
+            return null
+        }
+
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            this.$toast.error(`${label} must be a JSON object`)
+            return null
+        }
+
+        const normalized: Record<string, string> = {}
+        for (const [key, mappedValue] of Object.entries(parsed)) {
+            if (typeof key !== 'string' || typeof mappedValue !== 'string') {
+                this.$toast.error(`${label} keys and values must be strings`)
+                return null
+            }
+
+            const normalizedKey = key.trim()
+            const normalizedValue = mappedValue.trim()
+            if (!normalizedKey || !normalizedValue) {
+                this.$toast.error(`${label} keys and values cannot be empty`)
+                return null
+            }
+
+            normalized[normalizedKey] = normalizedValue
+        }
+
+        return normalized
+    }
+
+    async saveMondaySyncConfig(): Promise<void> {
+        const token = localStorage.getItem('fleet_token')
+        if (!token) return
+
+        if (!this.syncGcodeBoardId.trim() || !this.syncDesignBoardId.trim()) {
+            this.$toast.error('Both board IDs are required')
+            return
+        }
+
+        if (this.syncScheduleMode === 'cron' && !this.syncCronExpression.trim()) {
+            this.$toast.error('Cron expression is required when schedule mode is cron')
+            return
+        }
+
+        const maxItemsPerRun = Number(this.syncMaxItemsPerRun)
+        if (!Number.isInteger(maxItemsPerRun) || maxItemsPerRun < 1 || maxItemsPerRun > 1000) {
+            this.$toast.error('Max items per run must be an integer between 1 and 1000')
+            return
+        }
+
+        const gcodeRecipesMapping = this.parseMappingJson(this.syncGcodeMappingJson, 'GCode mapping')
+        if (!gcodeRecipesMapping) return
+
+        const designLibraryMapping = this.parseMappingJson(this.syncDesignMappingJson, 'Design mapping')
+        if (!designLibraryMapping) return
+
+        const payload = {
+            isEnabled: this.syncConfigEnabled,
+            syncConfig: {
+                boards: {
+                    gcodeRecipesBoardId: this.syncGcodeBoardId.trim(),
+                    designLibraryBoardId: this.syncDesignBoardId.trim(),
+                },
+                mappings: {
+                    gcodeRecipes: gcodeRecipesMapping,
+                    designLibrary: designLibraryMapping,
+                },
+                safety: {
+                    dryRun: this.syncDryRun,
+                    allowDeletes: this.syncAllowDeletes,
+                    maxItemsPerRun,
+                },
+                schedule: {
+                    mode: this.syncScheduleMode,
+                    cronExpression: this.syncScheduleMode === 'cron' ? this.syncCronExpression.trim() : '',
+                },
+            },
+        }
+
+        this.syncConfigSaving = true
+        try {
+            await axios.put('/api/admin/sync-config/monday', payload, {
+                headers: { Authorization: `Bearer ${token}` }
+            })
+            this.$toast.success('Sync configuration saved')
+            await this.loadMondaySyncConfig()
+        } catch (error: any) {
+            this.$toast.error(error.response?.data?.error || 'Failed to save sync configuration')
+        } finally {
+            this.syncConfigSaving = false
         }
     }
 
