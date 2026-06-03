@@ -14,6 +14,7 @@ import {
     PrepareAction,
     PrepareViewMode,
     TransformMode,
+    SlicerBackendMode,
     SliceParams,
     SliceProfile,
     PrinterProfile,
@@ -24,6 +25,13 @@ import {
     AdhesionType,
     FootprintData,
 } from './types'
+
+const SLICER_BACKEND_STORAGE_KEY = 'prepare.slicerBackend'
+const DEFAULT_SLICER_BACKEND: SlicerBackendMode = 'auto'
+
+function isValidSlicerBackend(value: unknown): value is SlicerBackendMode {
+    return value === 'auto' || value === 'local_worker' || value === 'preflight_container'
+}
 
 const DEFAULT_SLICE_PARAMS: SliceParams = {
     layer_height: 0.2,
@@ -163,6 +171,7 @@ export const getDefaultState = (): PrepareState => ({
     selectedWidgetIds: [],
     sliceParams: { ...DEFAULT_SLICE_PARAMS },
     qualityPreset: 'normal',
+    slicerBackend: DEFAULT_SLICER_BACKEND,
     profiles: [],
     activeProfileId: null,
     printerProfiles: [...BUILTIN_PRINTER_PROFILES],
@@ -190,6 +199,7 @@ export const prepare: Module<PrepareState, any> = {
         transformMode: (state) => state.transformMode,
         sliceParams: (state) => state.sliceParams,
         qualityPreset: (state) => state.qualityPreset,
+        slicerBackend: (state) => state.slicerBackend,
         isSlicing: (state) => state.isSlicing,
         currentJob: (state) => state.currentJob,
         lastResult: (state) => state.lastResult,
@@ -254,6 +264,9 @@ export const prepare: Module<PrepareState, any> = {
             if (presetParams) {
                 state.sliceParams = { ...state.sliceParams, ...presetParams }
             }
+        },
+        setSlicerBackend(state, backend: SlicerBackendMode) {
+            state.slicerBackend = backend
         },
 
         // Profiles
@@ -381,7 +394,15 @@ export const prepare: Module<PrepareState, any> = {
 
         reset(state) {
             // Preserve profiles and printer settings across resets
-            const { profiles, activeProfileId, printerProfiles, customPrinterProfiles, activePrinterId, sliceParams } = state
+            const {
+                profiles,
+                activeProfileId,
+                printerProfiles,
+                customPrinterProfiles,
+                activePrinterId,
+                sliceParams,
+                slicerBackend,
+            } = state
             Object.assign(state, getDefaultState())
             state.profiles = profiles
             state.activeProfileId = activeProfileId
@@ -389,6 +410,7 @@ export const prepare: Module<PrepareState, any> = {
             state.customPrinterProfiles = customPrinterProfiles.map(withPrinterDefaults)
             state.activePrinterId = activePrinterId
             state.sliceParams = sliceParams
+            state.slicerBackend = slicerBackend
         },
     },
     actions: {
@@ -431,6 +453,20 @@ export const prepare: Module<PrepareState, any> = {
             if (activeId) {
                 commit('setActivePrinter', activeId)
             }
+
+            const slicerBackend = localStorage.getItem(SLICER_BACKEND_STORAGE_KEY)
+            if (isValidSlicerBackend(slicerBackend)) {
+                commit('setSlicerBackend', slicerBackend)
+            }
+        },
+
+        selectSlicerBackend({ commit }, backend: SlicerBackendMode) {
+            if (!isValidSlicerBackend(backend)) {
+                return
+            }
+
+            commit('setSlicerBackend', backend)
+            localStorage.setItem(SLICER_BACKEND_STORAGE_KEY, backend)
         },
 
         selectPrinter({ commit }, id: string) {

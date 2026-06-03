@@ -27,6 +27,8 @@ export type PrepareAction =
 
 export type TransformMode = 'move' | 'rotate' | 'scale'
 
+export type SlicerBackendMode = 'auto' | 'local_worker' | 'preflight_container'
+
 export type AdhesionType = 'none' | 'brim' | 'mouse_ears' | 'raft_pads' | 'combined'
 
 export interface AdhesionMarker {
@@ -196,6 +198,7 @@ export interface PrepareState {
     // Slice parameters
     sliceParams: SliceParams
     qualityPreset: 'draft' | 'normal' | 'fine' | 'ultra'
+    slicerBackend: SlicerBackendMode
 
     // Profiles
     profiles: SliceProfile[]

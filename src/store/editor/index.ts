@@ -8,11 +8,18 @@ export const getDefaultState = (): EditorState => {
     return {
         bool: false,
         diffMode: false,
+        splitMode: false,
         filename: '',
         permissions: '',
         fileroot: '',
         filepath: '',
         sourcecode: '',
+        splitLeftTitle: '',
+        splitRightTitle: '',
+        splitLeftFilename: '',
+        splitRightFilename: '',
+        splitLeftContent: '',
+        splitRightContent: '',
         loaderBool: false,
         loaderProgress: {
             direction: 'downloading',

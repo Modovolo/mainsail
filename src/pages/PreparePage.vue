@@ -1065,6 +1065,7 @@ import ObjectListPanel from '@/components/panels/Prepare/ObjectListPanel.vue'
 import TransformPanel from '@/components/panels/Prepare/TransformPanel.vue'
 import SliceSettingsPanel from '@/components/panels/Prepare/SliceSettingsPanel.vue'
 import { getSlicerEngine } from '@/util/slicer/SlicerEngine'
+import { getSlicerClient } from '@/util/slicerClient'
 import { mapSettings } from '@/util/slicer/settingsMapper'
 import type { SlicerConfig } from '@/util/slicer/types'
 import {
@@ -1125,8 +1126,14 @@ interface SliceResult {
     estimated_time_formatted: string
 }
 
-import { PrinterProfile, BedHeaterZone } from '@/store/prepare/types'
-import type { AdhesionMarker } from '@/store/prepare/types'
+interface NormalizedSliceOutput {
+    gcode: string
+    toolpaths: any[] | null
+    result: SliceResult
+}
+
+import { PrinterProfile } from '@/store/prepare/types'
+import type { AdhesionMarker, SlicerBackendMode } from '@/store/prepare/types'
 
 const EMPTY_PRINTER_PROFILE: PrinterProfile = {
     id: '',
@@ -1375,6 +1382,29 @@ export default class PreparePage extends Mixins(BaseMixin) {
     
     get slicerServiceUrl(): string {
         return process.env.VUE_APP_SLICER_URL || 'http://localhost:8090'
+    }
+
+    get slicerBackendMode(): SlicerBackendMode {
+        return this.$store.state.prepare.slicerBackend || 'auto'
+    }
+
+    get slicerApiBaseUrl(): string | undefined {
+        const explicit = process.env.VUE_APP_SLICER_API_URL
+        if (explicit) {
+            return explicit
+        }
+
+        const host = process.env.VUE_APP_SLICER_URL
+        if (!host) {
+            return undefined
+        }
+
+        const trimmed = host.replace(/\/$/, '')
+        if (trimmed.endsWith('/api/slicer')) {
+            return trimmed
+        }
+
+        return `${trimmed}/api/slicer`
     }
     
     get selectedWidgetIds(): string[] {
@@ -2686,15 +2716,10 @@ export default class PreparePage extends Mixins(BaseMixin) {
             config.raftPadPositions = markers
                 .filter((m: AdhesionMarker) => m.type === 'raft_pad')
                 .map((m: AdhesionMarker) => ({ x: m.x, y: m.y }))
-            
-            this.slicingMessage = 'Starting slicer engine...'
-            
-            // Run slicer in Web Worker
-            const engine = getSlicerEngine()
-            const output = await engine.slice(vertices, config, (progress) => {
-                this.slicingProgress = progress.progress
-                this.slicingMessage = progress.message
-            }, thumbnail)
+
+            this.slicingMessage = 'Selecting slicer backend...'
+
+            const output = await this.runSliceWithSelectedBackend(vertices, config, thumbnail)
             
             // Store the G-code and structured toolpath data
             this.lastGcodeOutput = output.gcode
@@ -2702,12 +2727,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             this.$store.commit('prepare/setLastToolpaths', output.toolpaths)
             
             // Show results
-            this.sliceResult = {
-                layer_count: output.result.layerCount,
-                filament_used_m: output.result.filamentUsedM,
-                filament_weight_g: output.result.filamentWeightG,
-                estimated_time_formatted: output.result.estimatedTimeFormatted,
-            }
+            this.sliceResult = output.result
             
             this.jobId = Date.now().toString(36)
             this.showSlicingDialog = false
@@ -2721,6 +2741,115 @@ export default class PreparePage extends Mixins(BaseMixin) {
         } finally {
             this.isSlicing = false
             this.showSlicingDialog = false
+        }
+    }
+
+    private async resolveSlicerBackendMode(): Promise<'local_worker' | 'preflight_container'> {
+        if (this.slicerBackendMode === 'local_worker' || this.slicerBackendMode === 'preflight_container') {
+            return this.slicerBackendMode
+        }
+
+        const client = getSlicerClient(this.slicerApiBaseUrl)
+        const remoteAvailable = await client.isAvailable()
+        return remoteAvailable ? 'preflight_container' : 'local_worker'
+    }
+
+    private async runSliceWithSelectedBackend(
+        vertices: Float32Array,
+        config: SlicerConfig,
+        thumbnail?: string
+    ): Promise<NormalizedSliceOutput> {
+        const mode = await this.resolveSlicerBackendMode()
+
+        if (mode === 'preflight_container') {
+            try {
+                return await this.sliceWithRemoteClient(vertices)
+            } catch (error) {
+                if (this.slicerBackendMode === 'preflight_container') {
+                    throw error
+                }
+                console.warn('Remote slicer failed, falling back to local worker', error)
+                this.slicingMessage = 'Remote slicer unavailable, falling back to local worker...'
+            }
+        }
+
+        return this.sliceWithLocalWorker(vertices, config, thumbnail)
+    }
+
+    private async sliceWithLocalWorker(
+        vertices: Float32Array,
+        config: SlicerConfig,
+        thumbnail?: string
+    ): Promise<NormalizedSliceOutput> {
+        this.slicingMessage = 'Starting local slicer worker...'
+
+        const engine = getSlicerEngine()
+        const output = await engine.slice(
+            vertices,
+            config,
+            (progress) => {
+                this.slicingProgress = progress.progress
+                this.slicingMessage = progress.message
+            },
+            thumbnail
+        )
+
+        return {
+            gcode: output.gcode,
+            toolpaths: output.toolpaths,
+            result: {
+                layer_count: output.result.layerCount,
+                filament_used_m: output.result.filamentUsedM,
+                filament_weight_g: output.result.filamentWeightG,
+                estimated_time_formatted: output.result.estimatedTimeFormatted,
+            },
+        }
+    }
+
+    private async sliceWithRemoteClient(vertices: Float32Array): Promise<NormalizedSliceOutput> {
+        this.slicingMessage = 'Starting preFlight container slicing...'
+
+        const client = getSlicerClient(this.slicerApiBaseUrl)
+        const stlData = encodeSTL(vertices)
+        const meshBuffer = stlData.buffer.slice(stlData.byteOffset, stlData.byteOffset + stlData.byteLength) as ArrayBuffer
+
+        const completion = await new Promise<{ result: SliceResult; gcodeUrl: string }>((resolve, reject) => {
+            client
+                .slice(
+                    {
+                        meshes: [meshBuffer],
+                        params: this.sliceParams,
+                        printerProfile: this.currentPrinterProfile.id,
+                    },
+                    {
+                        onProgress: (event) => {
+                            this.slicingProgress = event.progress
+                            this.slicingMessage = event.message || `Slicing (${event.stage})...`
+                        },
+                        onComplete: (event) => {
+                            resolve({ result: event.result, gcodeUrl: event.gcode_url })
+                        },
+                        onError: (event) => {
+                            reject(new Error(event.details || event.error || 'Remote slicing failed'))
+                        },
+                    }
+                )
+                .then((jobId) => {
+                    this.jobId = jobId
+                })
+                .catch(reject)
+        })
+
+        const gcode = await client.getGcodeText(completion.gcodeUrl)
+
+        return {
+            gcode,
+            toolpaths: null,
+            result: {
+                ...completion.result,
+                gcode_url: completion.gcodeUrl,
+                gcode_size: gcode.length,
+            },
         }
     }
     

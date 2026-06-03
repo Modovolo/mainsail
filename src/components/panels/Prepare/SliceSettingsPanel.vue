@@ -41,6 +41,22 @@
             </v-btn-toggle>
         </div>
 
+        <div class="mb-4">
+            <v-select
+                :value="slicerBackend"
+                :items="slicerBackendOptions"
+                label="Slicer Backend"
+                outlined
+                dense
+                hide-details
+                :menu-props="{ zIndex: 200 }"
+                class="mb-2"
+                @input="setSlicerBackend" />
+            <div class="text-caption grey--text">
+                Local Worker runs in browser. preFlight Container uses remote headless slicing.
+            </div>
+        </div>
+
         <v-divider class="mb-4" />
 
         <v-expansion-panels v-model="openPanels" multiple flat accordion>
@@ -562,7 +578,7 @@
 import Component from 'vue-class-component'
 import { Mixins, Prop, Watch } from 'vue-property-decorator'
 import BaseMixin from '@/components/mixins/base'
-import type { SliceParams, PrinterProfile } from '@/store/prepare/types'
+import type { SliceParams, PrinterProfile, SlicerBackendMode } from '@/store/prepare/types'
 import {
     mdiDotsVertical,
     mdiContentSave,
@@ -624,6 +640,12 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
         { text: 'Mouse Ears', value: 'mouse_ears' },
         { text: 'Raft Pads', value: 'raft_pads' },
         { text: 'Combined', value: 'combined' },
+    ]
+
+    slicerBackendOptions = [
+        { text: 'Auto (prefer preFlight container)', value: 'auto' },
+        { text: 'Local Worker (browser)', value: 'local_worker' },
+        { text: 'preFlight Container (remote)', value: 'preflight_container' },
     ]
 
     get params(): SliceParams {
@@ -693,6 +715,10 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
 
     get adhesionMarkerCount(): number {
         return this.$store.state.prepare.adhesionMarkers?.length ?? 0
+    }
+
+    get slicerBackend(): SlicerBackendMode {
+        return this.$store.state.prepare.slicerBackend || 'auto'
     }
 
     created() {
@@ -880,6 +906,10 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
 
     setPreset(preset: string): void {
         this.$store.commit('prepare/setQualityPreset', preset)
+    }
+
+    setSlicerBackend(mode: SlicerBackendMode): void {
+        this.$store.dispatch('prepare/selectSlicerBackend', mode)
     }
 
     resetToDefaults(): void {

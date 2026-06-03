@@ -8,21 +8,21 @@
             :transition="false"
             @close="close"
             @keydown.esc="escClose"
-            @keydown.ctrl.shift.s.prevent="restartServiceNameExists && save(restartServiceName)"
-            @keydown.meta.shift.s.prevent="restartServiceNameExists && save(restartServiceName)"
-            @keydown.ctrl.s.prevent="save(null)"
-            @keydown.meta.s.prevent="save(null)">
+            @keydown.ctrl.shift.s.prevent="!isSplitMode && restartServiceNameExists && save(restartServiceName)"
+            @keydown.meta.shift.s.prevent="!isSplitMode && restartServiceNameExists && save(restartServiceName)"
+            @keydown.ctrl.s.prevent="!isSplitMode && save(null)"
+            @keydown.meta.s.prevent="!isSplitMode && save(null)">
             <panel
                 card-class="editor-dialog"
-                :icon="isWriteable ? mdiFileDocumentEditOutline : mdiFileDocumentOutline"
+                :icon="editorIcon"
                 :title="title">
                 <template #buttons>
-                    <v-btn text tile class="d-none d-md-flex" @click="dialogDevices = true">
+                    <v-btn v-if="!isSplitMode" text tile class="d-none d-md-flex" @click="dialogDevices = true">
                         <v-icon small class="mr-1">{{ mdiUsb }}</v-icon>
                         {{ $t('Editor.DeviceDialog') }}
                     </v-btn>
                     <v-btn
-                        v-if="restartServiceName === 'klipper'"
+                        v-if="!isSplitMode && restartServiceName === 'klipper'"
                         text
                         tile
                         :href="klipperConfigReference"
@@ -31,12 +31,17 @@
                         <v-icon small class="mr-1">{{ mdiHelp }}</v-icon>
                         {{ $t('Editor.ConfigReference') }}
                     </v-btn>
-                    <v-btn v-if="existsFileStructure" text tile class="d-none d-md-flex" @click="toggleFileStructure">
+                    <v-btn
+                        v-if="!isSplitMode && existsFileStructure"
+                        text
+                        tile
+                        class="d-none d-md-flex"
+                        @click="toggleFileStructure">
                         <v-icon small class="mr-1">{{ mdiFormatListCheckbox }}</v-icon>
                         {{ $t('Editor.FileStructure') }}
                     </v-btn>
                     <v-btn
-                        v-if="restartServiceNameExists && !isDiffMode"
+                        v-if="!isSplitMode && restartServiceNameExists && !isDiffMode"
                         color="primary"
                         text
                         tile
@@ -45,7 +50,7 @@
                         <v-icon small class="mr-1">{{ mdiRestart }}</v-icon>
                         {{ $t('Editor.SaveRestart') }}
                     </v-btn>
-                    <v-btn v-if="isWriteable && !isDiffMode" icon tile @click="save(null)">
+                    <v-btn v-if="!isSplitMode && isWriteable && !isDiffMode" icon tile @click="save(null)">
                         <v-icon>{{ mdiContentSave }}</v-icon>
                     </v-btn>
                     <v-btn icon tile @click="close">
@@ -53,17 +58,47 @@
                     </v-btn>
                 </template>
                 <v-card-text class="pa-0 d-flex">
-                    <codemirror-async
-                        v-if="show"
-                        ref="editor"
-                        v-model="sourcecode"
-                        :name="filename"
-                        :file-extension="fileExtension"
-                        :diff-mode="isDiffMode"
-                        class="codemirror"
-                        :class="{ withSidebar: existsFileStructure && fileStructureSidebar }"
-                        @lineChange="lineChanges" />
-                    <div v-if="existsFileStructure && fileStructureSidebar" class="d-none d-md-flex structure-sidebar">
+                    <template v-if="isSplitMode">
+                        <div class="split-review-layout">
+                            <div class="split-review-pane">
+                                <div class="split-review-pane-title">{{ splitLeftTitle }}</div>
+                                <codemirror-async
+                                    v-if="show"
+                                    :value="splitLeftContent"
+                                    :name="splitLeftFilename"
+                                    :file-extension="splitLeftFileExtension"
+                                    :read-only="true"
+                                    class="codemirror split-codemirror" />
+                            </div>
+                            <div class="split-review-divider"></div>
+                            <div class="split-review-pane">
+                                <div class="split-review-pane-title">{{ splitRightTitle }}</div>
+                                <codemirror-async
+                                    v-if="show"
+                                    :value="splitRightContent"
+                                    :name="splitRightFilename"
+                                    :file-extension="splitRightFileExtension"
+                                    :read-only="true"
+                                    class="codemirror split-codemirror" />
+                            </div>
+                        </div>
+                    </template>
+                    <template v-else>
+                        <codemirror-async
+                            v-if="show"
+                            ref="editor"
+                            v-model="sourcecode"
+                            :name="filename"
+                            :file-extension="fileExtension"
+                            :diff-mode="isDiffMode"
+                            :read-only="isDiffMode || !isWriteable"
+                            class="codemirror"
+                            :class="{ withSidebar: existsFileStructure && fileStructureSidebar }"
+                            @lineChange="lineChanges" />
+                    </template>
+                    <div
+                        v-if="!isSplitMode && existsFileStructure && fileStructureSidebar"
+                        class="d-none d-md-flex structure-sidebar">
                         <v-treeview
                             activatable
                             dense
@@ -230,6 +265,10 @@ export default class TheEditor extends Mixins(BaseMixin) {
         return this.$store.state.editor.diffMode ?? false
     }
 
+    get isSplitMode() {
+        return this.$store.state.editor.splitMode ?? false
+    }
+
     get filepath(): string {
         return this.$store.state.editor.filepath ?? ''
     }
@@ -248,6 +287,42 @@ export default class TheEditor extends Mixins(BaseMixin) {
         if (this.filename.lastIndexOf('.')) return this.filename.slice(this.filename.lastIndexOf('.') + 1)
 
         return ''
+    }
+
+    get splitLeftTitle(): string {
+        return this.$store.state.editor.splitLeftTitle ?? 'Template'
+    }
+
+    get splitRightTitle(): string {
+        return this.$store.state.editor.splitRightTitle ?? 'Remote'
+    }
+
+    get splitLeftFilename(): string {
+        return this.$store.state.editor.splitLeftFilename ?? this.filename
+    }
+
+    get splitRightFilename(): string {
+        return this.$store.state.editor.splitRightFilename ?? this.filename
+    }
+
+    get splitLeftContent(): string {
+        return this.$store.state.editor.splitLeftContent ?? ''
+    }
+
+    get splitRightContent(): string {
+        return this.$store.state.editor.splitRightContent ?? ''
+    }
+
+    get splitLeftFileExtension(): string {
+        return this.getExtension(this.splitLeftFilename)
+    }
+
+    get splitRightFileExtension(): string {
+        return this.getExtension(this.splitRightFilename)
+    }
+
+    get editorIcon() {
+        return !this.isSplitMode && this.isWriteable ? this.mdiFileDocumentEditOutline : this.mdiFileDocumentOutline
     }
 
     get fileroot() {
@@ -339,6 +414,8 @@ export default class TheEditor extends Mixins(BaseMixin) {
     get title() {
         const title = this.filepath ? `${this.filepath}/${this.filename}` : this.filename
 
+        if (this.isSplitMode) return `Diff Review (${this.$t('Editor.FileReadOnly')})`
+
         if (this.isDiffMode) return `${title} (${this.$t('Editor.FileReadOnly')}) · Diff Review`
 
         if (!this.isWriteable) return `${title} (${this.$t('Editor.FileReadOnly')})`
@@ -366,6 +443,13 @@ export default class TheEditor extends Mixins(BaseMixin) {
 
     get fileStructureSidebar() {
         return this.$store.state.gui.editor.fileStructureSidebar
+    }
+
+    getExtension(filename: string): string {
+        const value = filename || ''
+        if (!value.includes('.')) return ''
+
+        return value.slice(value.lastIndexOf('.') + 1)
     }
 
     set fileStructureSidebar(newVal) {
@@ -552,6 +636,48 @@ export default class TheEditor extends Mixins(BaseMixin) {
     }
     .codemirror.withSidebar {
         width: calc(100% - 300px);
+    }
+}
+
+.split-review-layout {
+    display: flex;
+    width: 100%;
+    min-height: calc(100vh - 48px);
+}
+
+.split-review-pane {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.split-review-pane-title {
+    padding: 10px 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+}
+
+.split-review-divider {
+    width: 1px;
+    background: rgba(128, 128, 128, 0.25);
+}
+
+.split-codemirror {
+    width: 100%;
+    flex: 1 1 auto;
+}
+
+@media screen and (max-width: 959px) {
+    .split-review-layout {
+        flex-direction: column;
+    }
+
+    .split-review-divider {
+        width: 100%;
+        height: 1px;
     }
 }
 

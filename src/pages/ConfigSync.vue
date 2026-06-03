@@ -1027,6 +1027,7 @@ interface TemplateStatus {
 interface PrinterStatus {
     printerId: string
     printerName: string
+    printerHost?: string
     isOnline: boolean
     templates: TemplateStatus[]
     configFiles?: string[]
@@ -1097,7 +1098,7 @@ interface MigrationCandidate {
     contentHash: string
     reviewMode?: 'migration' | 'macro_merge'
     hasContentChanges?: boolean
-    sourceContent?: string
+    sourceContent?: string | null
     macroMergeSummary?: MacroMergeSummary
     macroSections?: MacroMergeSection[]
     verificationSummary?: {
@@ -1906,7 +1907,7 @@ export default class ConfigSync extends Mixins(BaseMixin) {
 
     openMigrationCandidateInEditor(candidate: MigrationCandidate) {
         const normalizedPath = this.normalizeConfigPath(candidate.filename || `${candidate.templateName}.cfg`)
-        const oldContent = candidate.currentContent || ''
+        const templateContent = candidate.currentContent || ''
         const newContent = this.isMacroMergeCandidate(candidate)
             ? (this.buildCandidateContentFromMacroSections(candidate) || candidate.content || '')
             : (candidate.content || '')
@@ -1923,20 +1924,24 @@ export default class ConfigSync extends Mixins(BaseMixin) {
             return
         }
 
-        const diffText = this.buildUnifiedDiff(
-            oldContent,
-            newContent,
-            `${candidate.templateName} (current)`,
-            `${candidate.templateName} (proposed)`
-        )
+        const remotePath = this.normalizeConfigPath(candidate.sourcePath || candidate.filename || normalizedPath)
+        const remoteFilename = this.getBasename(remotePath)
+        const remoteContent = candidate.sourceContent || newContent || ''
+        const remoteHost = this.migrationPrinter?.printerHost || this.migrationPrinter?.printerName || this.migrationPrinter?.printerId || 'unknown-host'
 
         this.$store.commit('editor/setPermissions', 'r')
         this.$store.commit('editor/openFile', {
-            filename: `${this.getBasename(normalizedPath)}.diff`,
+            filename: `${this.getBasename(normalizedPath)}.review`,
             fileroot: 'config',
             filepath: this.getDirname(normalizedPath),
-            file: diffText,
-            diffMode: true,
+            file: templateContent,
+            splitMode: true,
+            splitLeftTitle: `Template · ${this.getBasename(normalizedPath)}`,
+            splitRightTitle: `${remoteFilename} · ${remoteHost}`,
+            splitLeftFilename: this.getBasename(normalizedPath),
+            splitRightFilename: remoteFilename,
+            splitLeftContent: templateContent,
+            splitRightContent: remoteContent,
         })
         this.$store.commit('editor/showEditor')
     }

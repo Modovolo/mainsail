@@ -22,17 +22,26 @@ export const mutations: MutationTree<EditorState> = {
     },
 
     openFile(state, payload) {
+        const file = payload.file ?? ''
+
         Vue.set(state, 'diffMode', !!payload.diffMode)
+        Vue.set(state, 'splitMode', !!payload.splitMode)
         Vue.set(state, 'filename', payload.filename)
         Vue.set(state, 'fileroot', payload.fileroot)
         Vue.set(state, 'filepath', payload.filepath)
-        Vue.set(state, 'sourcecode', payload.file)
+        Vue.set(state, 'sourcecode', file)
+        Vue.set(state, 'splitLeftTitle', payload.splitLeftTitle ?? '')
+        Vue.set(state, 'splitRightTitle', payload.splitRightTitle ?? '')
+        Vue.set(state, 'splitLeftFilename', payload.splitLeftFilename ?? '')
+        Vue.set(state, 'splitRightFilename', payload.splitRightFilename ?? '')
+        Vue.set(state, 'splitLeftContent', payload.splitLeftContent ?? '')
+        Vue.set(state, 'splitRightContent', payload.splitRightContent ?? '')
 
         // Because the used editor converts all Windows-Style line endings with unix ones on load,
         // the hash is computed with the source always having unix-style line endings.
         // https://github.com/codemirror/CodeMirror/issues/3395
 
-        Vue.set(state, 'loadedHash', sha256(payload.file.replace(/(?:\r\n|\r|\n)/g, '\n')))
+        Vue.set(state, 'loadedHash', sha256(file.replace(/(?:\r\n|\r|\n)/g, '\n')))
         Vue.set(state, 'changed', false)
         Vue.set(state, 'bool', true)
     },

@@ -45,6 +45,9 @@ export default class Codemirror extends Mixins(BaseMixin, ThemeMixin) {
     @Prop({ required: false, default: false })
     declare readonly diffMode: boolean
 
+    @Prop({ required: false, default: false })
+    declare readonly readOnly: boolean
+
     @Watch('value')
     valueChanged(newVal: string) {
         const cm_value = this.cminstance?.state?.doc.toString()
@@ -87,6 +90,8 @@ export default class Codemirror extends Mixins(BaseMixin, ThemeMixin) {
             EditorView.theme({}, { dark: this.themeMode === 'dark' }),
             basicSetup,
             this.vscodeTheme,
+            EditorState.readOnly.of(this.readOnly),
+            EditorView.editable.of(!this.readOnly),
             indentUnit.of(' '.repeat(this.tabSize)),
             keymap.of([indentWithTab]),
             EditorView.updateListener.of((update) => {
