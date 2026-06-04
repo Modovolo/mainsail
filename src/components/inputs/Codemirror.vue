@@ -48,12 +48,31 @@ export default class Codemirror extends Mixins(BaseMixin, ThemeMixin) {
     @Prop({ required: false, default: false })
     declare readonly readOnly: boolean
 
+    @Prop({ required: false, default: () => [] })
+    declare readonly highlightedLines: number[]
+
+    @Prop({ required: false, default: 'none' })
+    declare readonly highlightMode: 'none' | 'add' | 'remove'
+
     @Watch('value')
     valueChanged(newVal: string) {
         const cm_value = this.cminstance?.state?.doc.toString()
         if (newVal !== cm_value) {
             this.setCmValue(newVal)
         }
+    }
+
+    @Watch('highlightedLines', { deep: true })
+    highlightedLinesChanged() {
+        this.refreshEditorState()
+    }
+
+    @Watch('highlightMode')
+    @Watch('diffMode')
+    @Watch('readOnly')
+    @Watch('fileExtension')
+    editorConfigChanged() {
+        this.refreshEditorState()
     }
 
     mounted(): void {
@@ -83,6 +102,11 @@ export default class Codemirror extends Mixins(BaseMixin, ThemeMixin) {
 
     setCmValue(content: string) {
         this.cminstance?.setState(EditorState.create({ doc: content, extensions: this.cmExtensions }))
+    }
+
+    refreshEditorState() {
+        const currentValue = this.cminstance?.state?.doc.toString() ?? this.value ?? this.code ?? this.content
+        this.setCmValue(currentValue)
     }
 
     get cmExtensions() {
@@ -155,6 +179,64 @@ export default class Codemirror extends Mixins(BaseMixin, ThemeMixin) {
                     },
                     '.cm-diff-remove-line': {
                         backgroundColor: 'rgba(248, 81, 73, 0.18)',
+                    },
+                })
+            )
+        }
+
+        const normalizedHighlightedLines = (this.highlightedLines || [])
+            .map((line) => Number(line))
+            .filter((line) => Number.isInteger(line) && line > 0)
+
+        if (this.highlightMode !== 'none' && normalizedHighlightedLines.length > 0) {
+            const highlightedLineSet = new Set<number>(normalizedHighlightedLines)
+            const lineClass = this.highlightMode === 'add' ? 'cm-split-add-line' : 'cm-split-remove-line'
+
+            const highlightedLineDecorator = ViewPlugin.fromClass(
+                class {
+                    decorations
+
+                    constructor(view: EditorView) {
+                        this.decorations = this.buildDecorations(view)
+                    }
+
+                    update(update: any) {
+                        if (update.docChanged || update.viewportChanged) {
+                            this.decorations = this.buildDecorations(update.view)
+                        }
+                    }
+
+                    buildDecorations(view: EditorView) {
+                        const builder = new RangeSetBuilder<Decoration>()
+
+                        for (const range of view.visibleRanges) {
+                            let line = view.state.doc.lineAt(range.from)
+                            while (line.from <= range.to) {
+                                if (highlightedLineSet.has(line.number)) {
+                                    builder.add(line.from, line.from, Decoration.line({ class: lineClass }))
+                                }
+
+                                if (line.to >= range.to) break
+                                line = view.state.doc.line(line.number + 1)
+                            }
+                        }
+
+                        return builder.finish()
+                    }
+                },
+                {
+                    decorations: (plugin) => plugin.decorations,
+                }
+            )
+
+            extensions.push(
+                highlightedLineDecorator,
+                EditorView.theme({
+                    '.cm-split-add-line': {
+                        backgroundColor: 'rgba(46, 160, 67, 0.16)',
+                    },
+                    '.cm-split-remove-line': {
+                        backgroundColor: 'rgba(248, 81, 73, 0.16)',
                     },
                 })
             )

@@ -67,6 +67,8 @@
                                     :value="splitLeftContent"
                                     :name="splitLeftFilename"
                                     :file-extension="splitLeftFileExtension"
+                                    :highlighted-lines="splitLeftHighlightLines"
+                                    highlight-mode="remove"
                                     :read-only="true"
                                     class="codemirror split-codemirror" />
                             </div>
@@ -78,6 +80,8 @@
                                     :value="splitRightContent"
                                     :name="splitRightFilename"
                                     :file-extension="splitRightFileExtension"
+                                    :highlighted-lines="splitRightHighlightLines"
+                                    highlight-mode="add"
                                     :read-only="true"
                                     class="codemirror split-codemirror" />
                             </div>
@@ -313,6 +317,29 @@ export default class TheEditor extends Mixins(BaseMixin) {
         return this.$store.state.editor.splitRightContent ?? ''
     }
 
+    get splitDiffHighlightLines(): { left: number[]; right: number[] } {
+        const leftContent = this.splitLeftContent || ''
+        const rightContent = this.splitRightContent || ''
+
+        if (!leftContent && !rightContent) {
+            return { left: [], right: [] }
+        }
+
+        if (leftContent === rightContent) {
+            return { left: [], right: [] }
+        }
+
+        return this.buildSplitDiffHighlightLines(leftContent, rightContent)
+    }
+
+    get splitLeftHighlightLines(): number[] {
+        return this.splitDiffHighlightLines.left
+    }
+
+    get splitRightHighlightLines(): number[] {
+        return this.splitDiffHighlightLines.right
+    }
+
     get splitLeftFileExtension(): string {
         return this.getExtension(this.splitLeftFilename)
     }
@@ -450,6 +477,61 @@ export default class TheEditor extends Mixins(BaseMixin) {
         if (!value.includes('.')) return ''
 
         return value.slice(value.lastIndexOf('.') + 1)
+    }
+
+    buildSplitDiffHighlightLines(leftContent: string, rightContent: string): { left: number[]; right: number[] } {
+        const leftLines = leftContent.split('\n')
+        const rightLines = rightContent.split('\n')
+        const leftCount = leftLines.length
+        const rightCount = rightLines.length
+
+        const lcs: number[][] = Array.from({ length: leftCount + 1 }, () => Array<number>(rightCount + 1).fill(0))
+
+        for (let i = 1; i <= leftCount; i++) {
+            for (let j = 1; j <= rightCount; j++) {
+                if (leftLines[i - 1] === rightLines[j - 1]) {
+                    lcs[i][j] = lcs[i - 1][j - 1] + 1
+                } else {
+                    lcs[i][j] = Math.max(lcs[i - 1][j], lcs[i][j - 1])
+                }
+            }
+        }
+
+        const leftHighlightedLines: number[] = []
+        const rightHighlightedLines: number[] = []
+        let i = leftCount
+        let j = rightCount
+
+        while (i > 0 && j > 0) {
+            if (leftLines[i - 1] === rightLines[j - 1]) {
+                i--
+                j--
+            } else if (lcs[i - 1][j] >= lcs[i][j - 1]) {
+                leftHighlightedLines.push(i)
+                i--
+            } else {
+                rightHighlightedLines.push(j)
+                j--
+            }
+        }
+
+        while (i > 0) {
+            leftHighlightedLines.push(i)
+            i--
+        }
+
+        while (j > 0) {
+            rightHighlightedLines.push(j)
+            j--
+        }
+
+        leftHighlightedLines.reverse()
+        rightHighlightedLines.reverse()
+
+        return {
+            left: leftHighlightedLines,
+            right: rightHighlightedLines,
+        }
     }
 
     set fileStructureSidebar(newVal) {
