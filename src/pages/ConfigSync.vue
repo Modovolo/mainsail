@@ -264,6 +264,17 @@
                                     </v-btn>
 
                                     <v-btn
+                                        color="secondary"
+                                        small
+                                        class="mb-2"
+                                        :loading="loadingBackupsPrinter === printer.printerId"
+                                        @click="openBackupsDialog(printer)"
+                                    >
+                                        <v-icon left small>mdi-history</v-icon>
+                                        Backups
+                                    </v-btn>
+
+                                    <v-btn
                                         color="primary"
                                         small
                                         :disabled="!printer.isOnline || templates.length === 0 || !!printer.migrationPendingVerification"
@@ -612,6 +623,83 @@
                         <v-icon left>mdi-sync</v-icon>
                         Push Selected Configs
                     </v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
+        <v-dialog v-model="backupsDialog" max-width="980" persistent>
+            <v-card>
+                <v-card-title class="secondary white--text d-flex align-center">
+                    <v-icon class="mr-2" color="white">mdi-history</v-icon>
+                    Migration Backups
+                    <v-spacer></v-spacer>
+                    <v-btn icon dark :loading="backupsLoading" @click="refreshBackupsDialog">
+                        <v-icon>mdi-refresh</v-icon>
+                    </v-btn>
+                </v-card-title>
+                <v-card-text class="pa-6">
+                    <div class="text-body-2 mb-3">
+                        Backups captured before migration apply for
+                        <strong>{{ backupsPrinter?.printerName }}</strong>.
+                    </div>
+                    <v-alert type="info" dense text class="mb-4">
+                        Retention policy keeps the latest 10 backups per printer.
+                    </v-alert>
+
+                    <v-simple-table dense v-if="backupEntries.length">
+                        <thead>
+                            <tr>
+                                <th>File</th>
+                                <th>Template</th>
+                                <th>Created</th>
+                                <th>Version</th>
+                                <th>Status</th>
+                                <th class="text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="backup in backupEntries" :key="backup.id">
+                                <td class="text-caption font-weight-medium">{{ backup.filename }}</td>
+                                <td>
+                                    <div class="text-caption">{{ backup.templateName }}</div>
+                                    <div class="text-caption grey--text">{{ backup.sourcePath }}</div>
+                                </td>
+                                <td class="text-caption">{{ formatDateStr(backup.createdAt) }}</td>
+                                <td>
+                                    <v-chip x-small outlined color="info">
+                                        v{{ backup.versionBefore }} → v{{ backup.versionAfter }}
+                                    </v-chip>
+                                </td>
+                                <td>
+                                    <v-chip
+                                        x-small
+                                        :color="backup.restoredAt ? 'success' : 'grey'"
+                                        :outlined="!backup.restoredAt"
+                                    >
+                                        {{ backup.restoredAt ? 'restored' : 'available' }}
+                                    </v-chip>
+                                </td>
+                                <td class="text-right">
+                                    <v-btn
+                                        x-small
+                                        color="primary"
+                                        :loading="restoringBackupId === backup.id"
+                                        @click="restoreMigrationBackup(backup)"
+                                    >
+                                        Restore
+                                    </v-btn>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </v-simple-table>
+
+                    <v-alert v-else type="info" text dense>
+                        No migration backups found for this printer.
+                    </v-alert>
+                </v-card-text>
+                <v-card-actions class="px-6 pb-4">
+                    <v-spacer></v-spacer>
+                    <v-btn text @click="closeBackupsDialog">Close</v-btn>
                 </v-card-actions>
             </v-card>
         </v-dialog>
@@ -1044,6 +1132,23 @@ interface ConfigSnapshotFile {
     contentHash?: string
 }
 
+interface ConfigMigrationBackupEntry {
+    id: string
+    printerId: string
+    templateId: string
+    templateName: string
+    sourcePath: string
+    filename: string
+    contentHash: string
+    versionBefore: string
+    versionAfter: string
+    reason: string
+    createdBy: string
+    createdAt: string
+    restoredBy?: string | null
+    restoredAt?: string | null
+}
+
 interface ClientStatus {
     printerId: string
     printerName: string
@@ -1152,6 +1257,12 @@ export default class ConfigSync extends Mixins(BaseMixin) {
     syncConfigsDialog = false
     syncConfigsPrinter: PrinterStatus | null = null
     syncConfigsSelection: Record<string, boolean> = {}
+    backupsDialog = false
+    backupsPrinter: PrinterStatus | null = null
+    backupEntries: ConfigMigrationBackupEntry[] = []
+    backupsLoading = false
+    loadingBackupsPrinter: string | null = null
+    restoringBackupId: string | null = null
 
     // Dialog states
     templateDialog = false
@@ -1495,6 +1606,34 @@ export default class ConfigSync extends Mixins(BaseMixin) {
 
     normalizeConfigPath(path: string): string {
         return path.replace(/^\/+/, '').replace(/\\/g, '/').trim()
+    }
+
+    isRuntimeBackupTargetPath(path: string): boolean {
+        const baseName = this.getBasename(path).toLowerCase()
+        if (baseName === 'printer.cfg') return true
+        return this.isIdexConfigBasename(baseName)
+    }
+
+    buildBackupCandidatesForApply(): Array<{ templateId: string; sourcePath: string; sourceContent: string; proposedVersion: string }> {
+        const requests = new Map<string, { templateId: string; sourcePath: string; sourceContent: string; proposedVersion: string }>()
+
+        this.migrationCandidates.forEach((candidate: MigrationCandidate) => {
+            const sourcePath = this.normalizeConfigPath(candidate.sourcePath || '')
+            const sourceContent = candidate.sourceContent || ''
+
+            if (!candidate.templateId || !sourcePath || !sourceContent) return
+            if (!this.isRuntimeBackupTargetPath(sourcePath)) return
+
+            const key = `${candidate.templateId}:${sourcePath}`
+            requests.set(key, {
+                templateId: candidate.templateId,
+                sourcePath,
+                sourceContent,
+                proposedVersion: candidate.proposedVersion,
+            })
+        })
+
+        return Array.from(requests.values())
     }
 
     isIdexConfigBasename(filename: string): boolean {
@@ -2338,6 +2477,7 @@ export default class ConfigSync extends Mixins(BaseMixin) {
                 body: JSON.stringify({
                     printerId: this.migrationPrinter.printerId,
                     verificationConfirmed: true,
+                    backupCandidates: this.buildBackupCandidatesForApply(),
                     candidates: this.acceptedMigrationCandidates.map(candidate => ({
                         templateId: candidate.templateId,
                         reviewMode: candidate.reviewMode,
@@ -2355,10 +2495,18 @@ export default class ConfigSync extends Mixins(BaseMixin) {
             if (response.ok) {
                 const payload = await response.json()
                 const baseMessage = payload.message || 'Accepted migration changes applied'
-                this.showSuccess(`${baseMessage}. Run Sync Configs to push updated templates to this printer.`)
+                const backupCount = Number(payload.backupCount || 0)
+                const backupSummary = backupCount > 0
+                    ? ` Created ${backupCount} backup${backupCount > 1 ? 's' : ''} of running printer config files.`
+                    : ''
+                this.showSuccess(`${baseMessage}.${backupSummary} Run Sync Configs to push updated templates to this printer.`)
                 this.setPrinterMigrationPending(this.migrationPrinter.printerId, false)
                 this.closeMigrationDialog(false)
                 await this.refreshData()
+
+                if (this.backupsDialog && this.backupsPrinter?.printerId === this.migrationPrinter.printerId) {
+                    await this.loadMigrationBackups(this.backupsPrinter.printerId)
+                }
             } else if (response.status === 401) {
                 await this.handleUnauthorized()
             } else {
@@ -2542,6 +2690,95 @@ export default class ConfigSync extends Mixins(BaseMixin) {
             this.showError('Failed to delete template')
         } finally {
             this.deleting = false
+        }
+    }
+
+    async openBackupsDialog(printer: PrinterStatus) {
+        this.backupsPrinter = printer
+        this.backupsDialog = true
+        this.loadingBackupsPrinter = printer.printerId
+
+        try {
+            await this.loadMigrationBackups(printer.printerId)
+        } finally {
+            this.loadingBackupsPrinter = null
+        }
+    }
+
+    closeBackupsDialog() {
+        this.backupsDialog = false
+        this.backupsPrinter = null
+        this.backupEntries = []
+        this.restoringBackupId = null
+    }
+
+    async refreshBackupsDialog() {
+        if (!this.backupsPrinter) return
+        await this.loadMigrationBackups(this.backupsPrinter.printerId)
+    }
+
+    async loadMigrationBackups(printerId: string) {
+        this.backupsLoading = true
+        try {
+            const response = await fetch(`/api/config-sync/backups/${printerId}?limit=50`, {
+                headers: this.authHeaders,
+            })
+
+            if (response.ok) {
+                const payload = await response.json()
+                this.backupEntries = payload.backups || []
+            } else if (response.status === 401) {
+                await this.handleUnauthorized()
+            } else {
+                const payload = await response.json().catch(() => ({}))
+                this.showError(payload.error || 'Failed to load migration backups')
+            }
+        } catch (error) {
+            console.error('Error loading migration backups:', error)
+            this.showError('Failed to load migration backups')
+        } finally {
+            this.backupsLoading = false
+        }
+    }
+
+    async restoreMigrationBackup(backup: ConfigMigrationBackupEntry) {
+        if (!this.backupsPrinter) return
+
+        const confirmed = window.confirm(
+            `Restore ${backup.filename} backup from ${this.formatDateStr(backup.createdAt)}?\n\n` +
+            'This updates the template content. Push Sync Configs afterwards to apply it to the printer.'
+        )
+        if (!confirmed) return
+
+        this.restoringBackupId = backup.id
+        try {
+            const response = await fetch(`/api/config-sync/backups/${this.backupsPrinter.printerId}/restore`, {
+                method: 'POST',
+                headers: {
+                    ...this.authHeaders,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ backupId: backup.id }),
+            })
+
+            if (response.ok) {
+                const payload = await response.json()
+                this.showSuccess(payload.message || `Restored backup for ${backup.filename}`)
+                await Promise.all([
+                    this.loadMigrationBackups(this.backupsPrinter.printerId),
+                    this.refreshData(),
+                ])
+            } else if (response.status === 401) {
+                await this.handleUnauthorized()
+            } else {
+                const payload = await response.json().catch(() => ({}))
+                this.showError(payload.error || 'Failed to restore migration backup')
+            }
+        } catch (error) {
+            console.error('Error restoring migration backup:', error)
+            this.showError('Failed to restore migration backup')
+        } finally {
+            this.restoringBackupId = null
         }
     }
 
