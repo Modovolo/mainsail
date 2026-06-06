@@ -80,6 +80,15 @@ spec:
                 secretKeyRef:
                   name: fleet-manager-secrets
                   key: email-from
+            - name: INVENTORY_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-secrets
+                  key: inventory-service-token
+            - name: INVENTORY_SERVICE_USERNAME
+              value: "inventory-service"
+            - name: INVENTORY_SERVICE_EMAIL
+              value: "inventory@modovolo.com"
             - name: FLEET_URL
               value: "https://fleet.modovolo.com"
             - name: BFP_MONITOR_BASE_URL
