@@ -773,7 +773,7 @@
                                 <td class="text-center">
                                     <div class="d-flex flex-column align-center">
                                         <v-btn x-small text color="primary" @click="openMigrationCandidateInEditor(candidate)">
-                                            {{ candidate.hasContentChanges === false ? 'View File' : 'View Diff' }}
+                                            {{ migrationReviewButtonText(candidate) }}
                                         </v-btn>
                                         <v-btn
                                             v-if="candidate.hasContentChanges !== false && candidate.reviewMode === 'migration'"
@@ -2056,6 +2056,14 @@ export default class ConfigSync extends Mixins(BaseMixin) {
         return `Sections: ${summary.totalSections} total · ${summary.conflictSections} conflicts · ${summary.remoteOnlySections} remote-only · ${summary.templateOnlySections} template-only`
     }
 
+    canOpenSplitReview(candidate: MigrationCandidate): boolean {
+        return typeof candidate.currentContent === 'string' && typeof candidate.sourceContent === 'string'
+    }
+
+    migrationReviewButtonText(candidate: MigrationCandidate): string {
+        return this.canOpenSplitReview(candidate) ? 'View Diff' : 'View File'
+    }
+
     openMigrationCandidateInEditor(candidate: MigrationCandidate) {
         const normalizedPath = this.normalizeConfigPath(candidate.filename || `${candidate.templateName}.cfg`)
         const templateContent = candidate.currentContent || ''
@@ -2063,7 +2071,7 @@ export default class ConfigSync extends Mixins(BaseMixin) {
             ? (this.buildCandidateContentFromMacroSections(candidate) || candidate.content || '')
             : (candidate.content || '')
 
-        if (candidate.hasContentChanges === false) {
+        if (!this.canOpenSplitReview(candidate)) {
             this.$store.commit('editor/setPermissions', 'r')
             this.$store.commit('editor/openFile', {
                 filename: this.getBasename(normalizedPath),
