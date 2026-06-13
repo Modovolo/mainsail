@@ -64,12 +64,12 @@
                                 <div class="split-review-pane-title">{{ splitLeftTitle }}</div>
                                 <codemirror-async
                                     v-if="show"
-                                    :value="splitLeftContent"
+                                    v-model="splitLeftContent"
                                     :name="splitLeftFilename"
                                     :file-extension="splitLeftFileExtension"
                                     :highlighted-lines="splitLeftHighlightLines"
                                     highlight-mode="remove"
-                                    :read-only="true"
+                                    :read-only="false"
                                     class="codemirror split-codemirror" />
                             </div>
                             <div class="split-review-divider"></div>
@@ -77,12 +77,12 @@
                                 <div class="split-review-pane-title">{{ splitRightTitle }}</div>
                                 <codemirror-async
                                     v-if="show"
-                                    :value="splitRightContent"
+                                    v-model="splitRightContent"
                                     :name="splitRightFilename"
                                     :file-extension="splitRightFileExtension"
                                     :highlighted-lines="splitRightHighlightLines"
                                     highlight-mode="add"
-                                    :read-only="true"
+                                    :read-only="false"
                                     class="codemirror split-codemirror" />
                             </div>
                         </div>
@@ -313,8 +313,16 @@ export default class TheEditor extends Mixins(BaseMixin) {
         return this.$store.state.editor.splitLeftContent ?? ''
     }
 
+    set splitLeftContent(newVal: string) {
+        this.$store.commit('editor/updateSplitLeftContent', newVal)
+    }
+
     get splitRightContent(): string {
         return this.$store.state.editor.splitRightContent ?? ''
+    }
+
+    set splitRightContent(newVal: string) {
+        this.$store.commit('editor/updateSplitRightContent', newVal)
     }
 
     get splitDiffHighlightLines(): { left: number[]; right: number[] } {
@@ -441,7 +449,7 @@ export default class TheEditor extends Mixins(BaseMixin) {
     get title() {
         const title = this.filepath ? `${this.filepath}/${this.filename}` : this.filename
 
-        if (this.isSplitMode) return `Diff Review (${this.$t('Editor.FileReadOnly')})`
+        if (this.isSplitMode) return 'Diff Review · Editable'
 
         if (this.isDiffMode) return `${title} (${this.$t('Editor.FileReadOnly')}) · Diff Review`
 

@@ -12,7 +12,7 @@ import BaseMixin from '../mixins/base'
 import ThemeMixin from '../mixins/theme'
 import { basicSetup } from 'codemirror'
 import { Decoration, EditorView, ViewPlugin, keymap } from '@codemirror/view'
-import { EditorState, RangeSetBuilder } from '@codemirror/state'
+import { Compartment, EditorState, Extension, RangeSetBuilder } from '@codemirror/state'
 import { vscodeDark, vscodeLight } from '@uiw/codemirror-theme-vscode'
 import { StreamLanguage } from '@codemirror/language'
 import { klipper_config } from '@/plugins/StreamParserKlipperConfig'
@@ -27,6 +27,7 @@ export default class Codemirror extends Mixins(BaseMixin, ThemeMixin) {
     private content = ''
     private codemirror: null | EditorView = null
     private cminstance: null | EditorView = null
+    private highlightCompartment = new Compartment()
 
     @Ref('editor') editor!: HTMLElement
 
@@ -64,7 +65,13 @@ export default class Codemirror extends Mixins(BaseMixin, ThemeMixin) {
 
     @Watch('highlightedLines', { deep: true })
     highlightedLinesChanged() {
-        this.refreshEditorState()
+        if (!this.cminstance) return
+
+        // Reconfigure only the highlight decorations so the document and cursor
+        // position are preserved while the diff updates during live editing.
+        this.cminstance.dispatch({
+            effects: this.highlightCompartment.reconfigure(this.buildHighlightExtension()),
+        })
     }
 
     @Watch('highlightMode')
@@ -107,6 +114,68 @@ export default class Codemirror extends Mixins(BaseMixin, ThemeMixin) {
     refreshEditorState() {
         const currentValue = this.cminstance?.state?.doc.toString() ?? this.value ?? this.code ?? this.content
         this.setCmValue(currentValue)
+    }
+
+    buildHighlightExtension(): Extension {
+        const normalizedHighlightedLines = (this.highlightedLines || [])
+            .map((line) => Number(line))
+            .filter((line) => Number.isInteger(line) && line > 0)
+
+        if (this.highlightMode === 'none' || normalizedHighlightedLines.length === 0) {
+            return []
+        }
+
+        const highlightedLineSet = new Set<number>(normalizedHighlightedLines)
+        const lineClass = this.highlightMode === 'add' ? 'cm-split-add-line' : 'cm-split-remove-line'
+
+        const highlightedLineDecorator = ViewPlugin.fromClass(
+            class {
+                decorations
+
+                constructor(view: EditorView) {
+                    this.decorations = this.buildDecorations(view)
+                }
+
+                update(update: any) {
+                    if (update.docChanged || update.viewportChanged) {
+                        this.decorations = this.buildDecorations(update.view)
+                    }
+                }
+
+                buildDecorations(view: EditorView) {
+                    const builder = new RangeSetBuilder<Decoration>()
+
+                    for (const range of view.visibleRanges) {
+                        let line = view.state.doc.lineAt(range.from)
+                        while (line.from <= range.to) {
+                            if (highlightedLineSet.has(line.number)) {
+                                builder.add(line.from, line.from, Decoration.line({ class: lineClass }))
+                            }
+
+                            if (line.to >= range.to) break
+                            line = view.state.doc.line(line.number + 1)
+                        }
+                    }
+
+                    return builder.finish()
+                }
+            },
+            {
+                decorations: (plugin) => plugin.decorations,
+            }
+        )
+
+        return [
+            highlightedLineDecorator,
+            EditorView.theme({
+                '.cm-split-add-line': {
+                    backgroundColor: 'rgba(46, 160, 67, 0.16)',
+                },
+                '.cm-split-remove-line': {
+                    backgroundColor: 'rgba(248, 81, 73, 0.16)',
+                },
+            }),
+        ]
     }
 
     get cmExtensions() {
@@ -184,63 +253,9 @@ export default class Codemirror extends Mixins(BaseMixin, ThemeMixin) {
             )
         }
 
-        const normalizedHighlightedLines = (this.highlightedLines || [])
-            .map((line) => Number(line))
-            .filter((line) => Number.isInteger(line) && line > 0)
-
-        if (this.highlightMode !== 'none' && normalizedHighlightedLines.length > 0) {
-            const highlightedLineSet = new Set<number>(normalizedHighlightedLines)
-            const lineClass = this.highlightMode === 'add' ? 'cm-split-add-line' : 'cm-split-remove-line'
-
-            const highlightedLineDecorator = ViewPlugin.fromClass(
-                class {
-                    decorations
-
-                    constructor(view: EditorView) {
-                        this.decorations = this.buildDecorations(view)
-                    }
-
-                    update(update: any) {
-                        if (update.docChanged || update.viewportChanged) {
-                            this.decorations = this.buildDecorations(update.view)
-                        }
-                    }
-
-                    buildDecorations(view: EditorView) {
-                        const builder = new RangeSetBuilder<Decoration>()
-
-                        for (const range of view.visibleRanges) {
-                            let line = view.state.doc.lineAt(range.from)
-                            while (line.from <= range.to) {
-                                if (highlightedLineSet.has(line.number)) {
-                                    builder.add(line.from, line.from, Decoration.line({ class: lineClass }))
-                                }
-
-                                if (line.to >= range.to) break
-                                line = view.state.doc.line(line.number + 1)
-                            }
-                        }
-
-                        return builder.finish()
-                    }
-                },
-                {
-                    decorations: (plugin) => plugin.decorations,
-                }
-            )
-
-            extensions.push(
-                highlightedLineDecorator,
-                EditorView.theme({
-                    '.cm-split-add-line': {
-                        backgroundColor: 'rgba(46, 160, 67, 0.16)',
-                    },
-                    '.cm-split-remove-line': {
-                        backgroundColor: 'rgba(248, 81, 73, 0.16)',
-                    },
-                })
-            )
-        }
+        // Highlight decorations live in a compartment so they can be reconfigured
+        // (during live editing) without recreating the editor state and losing the cursor.
+        extensions.push(this.highlightCompartment.of(this.buildHighlightExtension()))
 
         if (['cfg', 'conf'].includes(this.fileExtension)) extensions.push(StreamLanguage.define(klipper_config))
         else if (['gcode'].includes(this.fileExtension)) extensions.push(StreamLanguage.define(gcode))

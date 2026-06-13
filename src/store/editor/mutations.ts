@@ -62,6 +62,14 @@ export const mutations: MutationTree<EditorState> = {
         Vue.set(state, 'bool', false)
     },
 
+    updateSplitLeftContent(state, payload) {
+        Vue.set(state, 'splitLeftContent', payload)
+    },
+
+    updateSplitRightContent(state, payload) {
+        Vue.set(state, 'splitRightContent', payload)
+    },
+
     updateSourcecode(state, payload) {
         Vue.set(state, 'sourcecode', payload)
 

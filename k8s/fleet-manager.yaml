@@ -52,11 +52,6 @@ spec:
                 secretKeyRef:
                   name: fleet-manager-secrets
                   key: jwt-secret
-            - name: ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: fleet-manager-secrets
-                  key: admin-password
             - name: DB_HOST
               value: "postgresql"
             - name: DB_PORT
