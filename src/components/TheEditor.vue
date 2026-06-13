@@ -10,8 +10,8 @@
             @keydown.esc="escClose"
             @keydown.ctrl.shift.s.prevent="!isSplitMode && restartServiceNameExists && save(restartServiceName)"
             @keydown.meta.shift.s.prevent="!isSplitMode && restartServiceNameExists && save(restartServiceName)"
-            @keydown.ctrl.s.prevent="!isSplitMode && save(null)"
-            @keydown.meta.s.prevent="!isSplitMode && save(null)">
+            @keydown.ctrl.s.prevent="isSplitMode ? saveSplit() : save(null)"
+            @keydown.meta.s.prevent="isSplitMode ? saveSplit() : save(null)">
             <panel
                 card-class="editor-dialog"
                 :icon="editorIcon"
@@ -52,6 +52,17 @@
                     </v-btn>
                     <v-btn v-if="!isSplitMode && isWriteable && !isDiffMode" icon tile @click="save(null)">
                         <v-icon>{{ mdiContentSave }}</v-icon>
+                    </v-btn>
+                    <v-btn
+                        v-if="isSplitMode"
+                        color="primary"
+                        text
+                        tile
+                        :loading="splitSaving"
+                        class="d-none d-sm-flex"
+                        @click="saveSplit()">
+                        <v-icon small class="mr-1">{{ mdiContentSave }}</v-icon>
+                        Save Both
                     </v-btn>
                     <v-btn icon tile @click="close">
                         <v-icon>{{ mdiCloseThick }}</v-icon>
@@ -233,6 +244,7 @@ export default class TheEditor extends Mixins(BaseMixin) {
     structureActive: number[] = []
     structureOpen: number[] = []
     structureActiveChangedBySidebar: boolean = false
+    splitSaving = false
 
     formatFilesize = formatFilesize
 
@@ -621,6 +633,23 @@ export default class TheEditor extends Mixins(BaseMixin) {
         this.$store.dispatch('editor/saveFile', {
             content: this.sourcecode,
             restartServiceName: restartServiceName,
+        })
+    }
+
+    // Saving in split (diff review) mode is handled by whoever opened the editor
+    // (currently ConfigSync). We expose the current pane contents via a root event
+    // and reflect the in-flight state back through `editor/setSplitSaving`.
+    saveSplit() {
+        if (this.splitSaving) return
+
+        this.splitSaving = true
+        this.$root.$emit('editor:split-save', {
+            left: this.splitLeftContent,
+            right: this.splitRightContent,
+            done: (success: boolean) => {
+                this.splitSaving = false
+                if (success) this.$store.dispatch('editor/close')
+            },
         })
     }
 

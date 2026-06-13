@@ -1315,6 +1315,12 @@ export default class ConfigSync extends Mixins(BaseMixin) {
     lineReviewDialog = false
     lineReviewCandidateId: string | null = null
     lineReviewOps: DiffOperation[] = []
+
+    // Split (diff review) editor save context
+    splitEditingTemplateId: string | null = null
+    splitEditingPrinterId: string | null = null
+    splitEditingSourcePath: string | null = null
+    private splitSaveHandler: ((payload: { left: string; right: string; done: (success: boolean) => void }) => void) | null = null
     readonly idexConfigFilenameAliases: string[] = [
         'mainsail-idex.cfg',
         'mainsail_idex.cfg',
@@ -1382,10 +1388,16 @@ export default class ConfigSync extends Mixins(BaseMixin) {
     mounted() {
         this.refreshData()
         this.loadClientStatus()
+        this.splitSaveHandler = (payload) => this.handleSplitEditorSave(payload)
+        this.$root.$on('editor:split-save', this.splitSaveHandler)
     }
 
     beforeDestroy() {
         this.stopClientStatusPolling()
+        if (this.splitSaveHandler) {
+            this.$root.$off('editor:split-save', this.splitSaveHandler)
+            this.splitSaveHandler = null
+        }
     }
 
     get normalizedToken(): string {
@@ -2068,6 +2080,12 @@ export default class ConfigSync extends Mixins(BaseMixin) {
         const remoteContent = candidate.sourceContent || newContent || ''
         const remoteHost = this.migrationPrinter?.printerHost || this.migrationPrinter?.printerName || this.migrationPrinter?.printerId || 'unknown-host'
 
+        // Remember which template/printer/file this split review maps to so the
+        // editor's "Save Both" button can write each pane back to its source.
+        this.splitEditingTemplateId = candidate.templateId || null
+        this.splitEditingPrinterId = this.migrationPrinter?.printerId || null
+        this.splitEditingSourcePath = remotePath || null
+
         this.$store.commit('editor/setPermissions', 'r')
         this.$store.commit('editor/openFile', {
             filename: `${this.getBasename(normalizedPath)}.review`,
@@ -2083,6 +2101,101 @@ export default class ConfigSync extends Mixins(BaseMixin) {
             splitRightContent: remoteContent,
         })
         this.$store.commit('editor/showEditor')
+    }
+
+    async handleSplitEditorSave(payload: { left: string; right: string; done: (success: boolean) => void }) {
+        const templateId = this.splitEditingTemplateId
+        const printerId = this.splitEditingPrinterId
+        const sourcePath = this.splitEditingSourcePath
+        const candidate = templateId
+            ? this.migrationCandidates.find((c: MigrationCandidate) => c.templateId === templateId)
+            : undefined
+
+        const leftContent = payload.left ?? ''
+        const rightContent = payload.right ?? ''
+
+        const leftChanged = !candidate || leftContent !== (candidate.currentContent || '')
+        const rightChanged = !candidate || rightContent !== (candidate.sourceContent || '')
+
+        if (!leftChanged && !rightChanged) {
+            this.showSuccess('No changes to save')
+            payload.done(true)
+            return
+        }
+
+        let templateSaved = false
+        let remoteSaved = false
+
+        try {
+            // Save left pane back to the config template
+            if (templateId && leftChanged) {
+                const response = await fetch(`/api/config-sync/templates/${templateId}`, {
+                    method: 'PUT',
+                    headers: {
+                        ...this.authHeaders,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ content: leftContent }),
+                })
+
+                if (response.status === 401) {
+                    await this.handleUnauthorized()
+                    payload.done(false)
+                    return
+                }
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}))
+                    this.showError(data.error || 'Failed to save template')
+                    payload.done(false)
+                    return
+                }
+                templateSaved = true
+            }
+
+            // Save right pane back to the printer file
+            if (printerId && sourcePath && rightChanged) {
+                const response = await fetch(`/api/config-sync/push-file/${printerId}`, {
+                    method: 'POST',
+                    headers: {
+                        ...this.authHeaders,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ path: sourcePath, content: rightContent }),
+                })
+
+                if (response.status === 401) {
+                    await this.handleUnauthorized()
+                    payload.done(false)
+                    return
+                }
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}))
+                    this.showError(data.error || 'Failed to save file to printer')
+                    payload.done(false)
+                    return
+                }
+                remoteSaved = true
+            }
+
+            // Reflect saved content back onto the candidate so re-opening the diff
+            // compares against the new baseline.
+            if (candidate) {
+                if (leftChanged) candidate.currentContent = leftContent
+                if (rightChanged) candidate.sourceContent = rightContent
+            }
+
+            const savedParts = []
+            if (templateSaved) savedParts.push('template')
+            if (remoteSaved) savedParts.push('printer')
+            this.showSuccess(`Saved changes to ${savedParts.join(' and ') || 'both files'}`)
+
+            await this.loadSyncStatus()
+            payload.done(true)
+        } catch (error) {
+            console.error('Error saving split editor changes:', error)
+            this.showError('Failed to save changes')
+            payload.done(false)
+        }
     }
 
     buildDiffOperations(oldContent: string, newContent: string): DiffOperation[] {
