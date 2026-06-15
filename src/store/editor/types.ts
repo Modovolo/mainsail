@@ -9,6 +9,7 @@ export interface EditorState {
     sourcecode: string
     splitLeftTitle: string
     splitRightTitle: string
+    splitRightHost: string
     splitLeftFilename: string
     splitRightFilename: string
     splitLeftContent: string

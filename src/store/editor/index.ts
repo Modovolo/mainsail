@@ -16,6 +16,7 @@ export const getDefaultState = (): EditorState => {
         sourcecode: '',
         splitLeftTitle: '',
         splitRightTitle: '',
+        splitRightHost: '',
         splitLeftFilename: '',
         splitRightFilename: '',
         splitLeftContent: '',

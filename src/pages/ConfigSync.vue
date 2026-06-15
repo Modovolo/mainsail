@@ -1320,7 +1320,7 @@ export default class ConfigSync extends Mixins(BaseMixin) {
     splitEditingTemplateId: string | null = null
     splitEditingPrinterId: string | null = null
     splitEditingSourcePath: string | null = null
-    private splitSaveHandler: ((payload: { left: string; right: string; done: (success: boolean) => void }) => void) | null = null
+    private splitSaveHandler: ((payload: { target: 'template' | 'remote'; left: string; right: string; done: (success: boolean) => void }) => void) | null = null
     readonly idexConfigFilenameAliases: string[] = [
         'mainsail-idex.cfg',
         'mainsail_idex.cfg',
@@ -2103,6 +2103,7 @@ export default class ConfigSync extends Mixins(BaseMixin) {
             splitMode: true,
             splitLeftTitle: `Template · ${this.getBasename(normalizedPath)}`,
             splitRightTitle: `${remoteFilename} · ${remoteHost}`,
+            splitRightHost: remoteHost,
             splitLeftFilename: this.getBasename(normalizedPath),
             splitRightFilename: remoteFilename,
             splitLeftContent: templateContent,
@@ -2111,7 +2112,7 @@ export default class ConfigSync extends Mixins(BaseMixin) {
         this.$store.commit('editor/showEditor')
     }
 
-    async handleSplitEditorSave(payload: { left: string; right: string; done: (success: boolean) => void }) {
+    async handleSplitEditorSave(payload: { target: 'template' | 'remote'; left: string; right: string; done: (success: boolean) => void }) {
         const templateId = this.splitEditingTemplateId
         const printerId = this.splitEditingPrinterId
         const sourcePath = this.splitEditingSourcePath
@@ -2121,12 +2122,14 @@ export default class ConfigSync extends Mixins(BaseMixin) {
 
         const leftContent = payload.left ?? ''
         const rightContent = payload.right ?? ''
+        const saveTemplateTarget = payload.target === 'template'
+        const saveRemoteTarget = payload.target === 'remote'
 
-        const leftChanged = !candidate || leftContent !== (candidate.currentContent || '')
-        const rightChanged = !candidate || rightContent !== (candidate.sourceContent || '')
+        const leftChanged = saveTemplateTarget && (!candidate || leftContent !== (candidate.currentContent || ''))
+        const rightChanged = saveRemoteTarget && (!candidate || rightContent !== (candidate.sourceContent || ''))
 
         if (!leftChanged && !rightChanged) {
-            this.showSuccess('No changes to save')
+            this.showSuccess(saveTemplateTarget ? 'No template changes to save' : 'No remote changes to save')
             payload.done(true)
             return
         }
@@ -2195,7 +2198,7 @@ export default class ConfigSync extends Mixins(BaseMixin) {
             const savedParts = []
             if (templateSaved) savedParts.push('template')
             if (remoteSaved) savedParts.push('printer')
-            this.showSuccess(`Saved changes to ${savedParts.join(' and ') || 'both files'}`)
+            this.showSuccess(`Saved changes to ${savedParts.join(' and ') || 'selected target'}`)
 
             await this.loadSyncStatus()
             payload.done(true)

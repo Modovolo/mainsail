@@ -32,6 +32,7 @@ export const mutations: MutationTree<EditorState> = {
         Vue.set(state, 'sourcecode', file)
         Vue.set(state, 'splitLeftTitle', payload.splitLeftTitle ?? '')
         Vue.set(state, 'splitRightTitle', payload.splitRightTitle ?? '')
+        Vue.set(state, 'splitRightHost', payload.splitRightHost ?? '')
         Vue.set(state, 'splitLeftFilename', payload.splitLeftFilename ?? '')
         Vue.set(state, 'splitRightFilename', payload.splitRightFilename ?? '')
         Vue.set(state, 'splitLeftContent', payload.splitLeftContent ?? '')

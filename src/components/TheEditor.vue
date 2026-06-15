@@ -10,8 +10,8 @@
             @keydown.esc="escClose"
             @keydown.ctrl.shift.s.prevent="!isSplitMode && restartServiceNameExists && save(restartServiceName)"
             @keydown.meta.shift.s.prevent="!isSplitMode && restartServiceNameExists && save(restartServiceName)"
-            @keydown.ctrl.s.prevent="isSplitMode ? saveSplit() : save(null)"
-            @keydown.meta.s.prevent="isSplitMode ? saveSplit() : save(null)">
+            @keydown.ctrl.s.prevent="isSplitMode ? saveSplit('template') : save(null)"
+            @keydown.meta.s.prevent="isSplitMode ? saveSplit('template') : save(null)">
             <panel
                 card-class="editor-dialog"
                 :icon="editorIcon"
@@ -58,11 +58,24 @@
                         color="primary"
                         text
                         tile
-                        :loading="splitSaving"
+                        :loading="splitSavingTarget === 'template'"
+                        :disabled="splitSavingTarget !== null"
                         class="d-none d-sm-flex"
-                        @click="saveSplit()">
+                        @click="saveSplit('template')">
                         <v-icon small class="mr-1">{{ mdiContentSave }}</v-icon>
-                        Save Both
+                        Save Template
+                    </v-btn>
+                    <v-btn
+                        v-if="isSplitMode"
+                        color="info"
+                        text
+                        tile
+                        :loading="splitSavingTarget === 'remote'"
+                        :disabled="splitSavingTarget !== null"
+                        class="d-none d-sm-flex"
+                        @click="saveSplit('remote')">
+                        <v-icon small class="mr-1">{{ mdiContentSave }}</v-icon>
+                        {{ splitRemoteSaveLabel }}
                     </v-btn>
                     <v-btn icon tile @click="close">
                         <v-icon>{{ mdiCloseThick }}</v-icon>
@@ -244,7 +257,7 @@ export default class TheEditor extends Mixins(BaseMixin) {
     structureActive: number[] = []
     structureOpen: number[] = []
     structureActiveChangedBySidebar: boolean = false
-    splitSaving = false
+    splitSavingTarget: 'template' | 'remote' | null = null
 
     formatFilesize = formatFilesize
 
@@ -311,6 +324,19 @@ export default class TheEditor extends Mixins(BaseMixin) {
 
     get splitRightTitle(): string {
         return this.$store.state.editor.splitRightTitle ?? 'Remote'
+    }
+
+    get splitRightHost(): string {
+        return this.$store.state.editor.splitRightHost ?? ''
+    }
+
+    get splitRemoteSaveLabel(): string {
+        const host = (this.splitRightHost || '').trim()
+        if (!host || host.toLowerCase() === 'remote' || host.toLowerCase() === 'unknown-host') {
+            return 'Save Remote'
+        }
+
+        return `Save ${host}`
     }
 
     get splitLeftFilename(): string {
@@ -637,18 +663,17 @@ export default class TheEditor extends Mixins(BaseMixin) {
     }
 
     // Saving in split (diff review) mode is handled by whoever opened the editor
-    // (currently ConfigSync). We expose the current pane contents via a root event
-    // and reflect the in-flight state back through `editor/setSplitSaving`.
-    saveSplit() {
-        if (this.splitSaving) return
+    // (currently ConfigSync). Emit the target pane so we can save one side at a time.
+    saveSplit(target: 'template' | 'remote') {
+        if (this.splitSavingTarget !== null) return
 
-        this.splitSaving = true
+        this.splitSavingTarget = target
         this.$root.$emit('editor:split-save', {
+            target,
             left: this.splitLeftContent,
             right: this.splitRightContent,
-            done: (success: boolean) => {
-                this.splitSaving = false
-                if (success) this.$store.dispatch('editor/close')
+            done: () => {
+                this.splitSavingTarget = null
             },
         })
     }
