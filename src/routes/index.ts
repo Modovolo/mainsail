@@ -45,6 +45,15 @@ import {
 
 const routes: AppRoute[] = [
     {
+        title: null,
+        path: '/',
+        redirect: '/slicing?mode=prepare',
+        component: null,
+        alwaysShow: false,
+        showInNavi: false,
+        meta: { requiresAuth: true },
+    },
+    {
         name: 'login',
         title: 'Login',
         path: '/login',
@@ -54,7 +63,8 @@ const routes: AppRoute[] = [
         showInNavi: false,
         meta: { requiresAuth: false, isPublic: true },
     },
-    {        name: 'callback',
+    {
+        name: 'callback',
         title: 'Callback',
         path: '/callback',
         icon: mdiLogin,
@@ -63,7 +73,8 @@ const routes: AppRoute[] = [
         showInNavi: false,
         meta: { requiresAuth: false, isPublic: true },
     },
-    {        name: 'slicing',
+    {
+        name: 'slicing',
         title: 'Slicing',
         path: '/slicing',
         icon: mdiPrinter3dNozzle,
@@ -71,6 +82,7 @@ const routes: AppRoute[] = [
         alwaysShow: true,
         showInNavi: true,
         position: 15,
+        fullscreen: true,
         meta: { requiresAuth: true },
     },
     {
@@ -104,7 +116,7 @@ const routes: AppRoute[] = [
     {
         name: 'fleet-dashboard',
         title: 'Fleet Dashboard',
-        path: '/',
+        path: '/fleet-dashboard',
         icon: mdiViewDashboard,
         component: FleetDashboard,
         alwaysShow: true,

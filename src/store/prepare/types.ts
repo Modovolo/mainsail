@@ -23,6 +23,8 @@ export type PrepareAction =
     | 'delete'
     | 'arrange'
     | 'selectAll'
+    | 'createPrinterProfile'
+    | 'editPrinterProfile'
     | null
 
 export type TransformMode = 'move' | 'rotate' | 'scale'
@@ -39,8 +41,8 @@ export interface AdhesionMarker {
     confirmed: boolean
     reason?: string
     priority?: number
-    width?: number  // raft pad only
-    depth?: number  // raft pad only
+    width?: number // raft pad only
+    depth?: number // raft pad only
 }
 
 export interface FootprintData {

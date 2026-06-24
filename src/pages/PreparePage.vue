@@ -11,14 +11,13 @@
 
         <!-- Full-screen 3D Viewer -->
         <div class="viewer-fullscreen">
-            <div 
-                ref="viewerContainer" 
+            <div
+                ref="viewerContainer"
                 class="viewer-container"
                 @dragover.prevent="isDragging = true"
                 @dragleave="isDragging = false"
-                @drop.prevent="handleFileDrop">
-            </div>
-            
+                @drop.prevent="handleFileDrop"></div>
+
             <!-- Drop overlay -->
             <div v-if="isDragging" class="drop-overlay">
                 <v-icon size="80" color="primary">{{ icons.mdiCloudUpload }}</v-icon>
@@ -64,81 +63,6 @@
             </div>
         </div>
 
-        <!-- Top Bar -->
-        <div class="top-bar">
-            <div class="top-bar-left">
-                <v-btn text small class="mr-2" @click="openFilePicker">
-                    <v-icon left small>{{ icons.mdiImport }}</v-icon>
-                    Import
-                </v-btn>
-            </div>
-            <div class="top-bar-center">
-                <!-- Printer Profile Selector -->
-                <v-menu
-                    v-model="showPrinterMenu"
-                    :close-on-content-click="false"
-                    offset-y
-                    bottom
-                    max-width="400">
-                    <template #activator="{ on, attrs }">
-                        <v-btn text class="printer-selector" v-bind="attrs" v-on="on">
-                            <v-icon left>{{ icons.mdiPrinter3d }}</v-icon>
-                            {{ currentPrinterProfile.name }}
-                            <v-icon right small>{{ showPrinterMenu ? icons.mdiChevronUp : icons.mdiChevronDown }}</v-icon>
-                        </v-btn>
-                    </template>
-                    <v-card class="printer-menu-card">
-                        <v-card-title class="py-2 text-subtitle-2">
-                            Printer Profile
-                        </v-card-title>
-                        <v-divider />
-                        <v-list dense class="py-0" style="max-height: 300px; overflow-y: auto;">
-                            <v-list-item
-                                v-for="profile in printerProfileList"
-                                :key="profile.id"
-                                :class="{ 'primary--text v-list-item--active': selectedPrinterId === profile.id }"
-                                @click="selectPrinterProfile(profile.id)">
-                                <v-list-item-icon class="mr-2">
-                                    <v-icon small>{{ icons.mdiPrinter3d }}</v-icon>
-                                </v-list-item-icon>
-                                <v-list-item-content>
-                                    <v-list-item-title>{{ profile.name }}</v-list-item-title>
-                                    <v-list-item-subtitle class="text-caption">
-                                        {{ profile.buildVolume.x }}×{{ profile.buildVolume.y }}×{{ profile.buildVolume.z }}mm
-                                        · {{ profile.extruderCount }} extruder{{ profile.extruderCount > 1 ? 's' : '' }}
-                                    </v-list-item-subtitle>
-                                </v-list-item-content>
-                                <v-list-item-action class="my-0" v-if="!profile.isBuiltIn">
-                                    <v-btn icon x-small @click.stop="editPrinterProfile(profile)">
-                                        <v-icon x-small>{{ icons.mdiPencil }}</v-icon>
-                                    </v-btn>
-                                </v-list-item-action>
-                            </v-list-item>
-                        </v-list>
-                        <v-divider />
-                        <v-card-actions class="py-2">
-                            <v-btn text small color="primary" @click="createNewPrinterProfile">
-                                <v-icon left small>{{ icons.mdiPlus }}</v-icon>
-                                New Profile
-                            </v-btn>
-                            <v-spacer />
-                            <v-btn text small @click="showPrinterMenu = false">Close</v-btn>
-                        </v-card-actions>
-                    </v-card>
-                </v-menu>
-            </div>
-            <div class="top-bar-right">
-                <v-btn-toggle v-model="viewMode" mandatory dense class="mr-2">
-                    <v-btn small value="solid">
-                        <v-icon small>{{ icons.mdiCube }}</v-icon>
-                    </v-btn>
-                    <v-btn small value="wireframe">
-                        <v-icon small>{{ icons.mdiVectorSquare }}</v-icon>
-                    </v-btn>
-                </v-btn-toggle>
-            </div>
-        </div>
-
         <!-- Left Toolbar -->
         <div class="left-toolbar">
             <!-- Objects List -->
@@ -162,16 +86,20 @@
                             </v-btn>
                         </template>
                         <v-card class="toolbar-popout">
-                            <v-card-title class="py-2 text-subtitle-2">
-                                Objects ({{ widgetCount }})
-                            </v-card-title>
+                            <v-card-title class="py-2 text-subtitle-2">Objects ({{ widgetCount }})</v-card-title>
                             <v-divider />
-                            <v-list dense class="py-0" style="max-height: 300px; overflow-y: auto;">
+                            <v-list dense class="py-0" style="max-height: 300px; overflow-y: auto">
                                 <v-list-item
                                     v-for="widget in widgets"
                                     :key="widget.id"
                                     :class="{ 'primary--text': selectedWidgetIds.includes(widget.id) }"
-                                    @click="onWidgetPanelSelect({ widget, shiftKey: $event.shiftKey, ctrlKey: $event.ctrlKey })">
+                                    @click="
+                                        onWidgetPanelSelect({
+                                            widget,
+                                            shiftKey: $event.shiftKey,
+                                            ctrlKey: $event.ctrlKey,
+                                        })
+                                    ">
                                     <v-list-item-icon class="mr-2">
                                         <v-icon small>{{ icons.mdiCubeOutline }}</v-icon>
                                     </v-list-item-icon>
@@ -184,9 +112,7 @@
                                         </v-btn>
                                     </v-list-item-action>
                                 </v-list-item>
-                                <v-list-item v-if="!hasWidgets" class="text-caption grey--text">
-                                    No objects
-                                </v-list-item>
+                                <v-list-item v-if="!hasWidgets" class="text-caption grey--text">No objects</v-list-item>
                             </v-list>
                         </v-card>
                     </v-menu>
@@ -349,12 +275,7 @@
                             <v-card-title class="py-2 text-subtitle-2">Scale</v-card-title>
                             <v-divider />
                             <v-card-text class="py-2">
-                                <v-switch
-                                    v-model="uniformScale"
-                                    label="Uniform"
-                                    dense
-                                    hide-details
-                                    class="mt-0 mb-2" />
+                                <v-switch v-model="uniformScale" label="Uniform" dense hide-details class="mt-0 mb-2" />
                                 <v-text-field
                                     v-model.number="transformInputs.scaleX"
                                     label="X"
@@ -522,51 +443,62 @@
                 </div>
             </div>
         </transition>
-        
+
         <!-- Context Menu -->
-        <v-menu
-            v-model="contextMenu.show"
-            :position-x="contextMenu.x"
-            :position-y="contextMenu.y"
-            absolute
-            offset-y>
+        <v-menu v-model="contextMenu.show" :position-x="contextMenu.x" :position-y="contextMenu.y" absolute offset-y>
             <v-list dense>
                 <v-list-item @click="openFilePicker">
-                    <v-list-item-icon><v-icon small>{{ icons.mdiImport }}</v-icon></v-list-item-icon>
+                    <v-list-item-icon>
+                        <v-icon small>{{ icons.mdiImport }}</v-icon>
+                    </v-list-item-icon>
                     <v-list-item-title>Import Model...</v-list-item-title>
                 </v-list-item>
                 <template v-if="hasSelection">
                     <v-divider />
                     <v-list-item @click="centerSelected">
-                        <v-list-item-icon><v-icon small>{{ icons.mdiAlignHorizontalCenter }}</v-icon></v-list-item-icon>
+                        <v-list-item-icon>
+                            <v-icon small>{{ icons.mdiAlignHorizontalCenter }}</v-icon>
+                        </v-list-item-icon>
                         <v-list-item-title>Center on Platform</v-list-item-title>
                     </v-list-item>
                     <v-list-item @click="layFlatSelected">
-                        <v-list-item-icon><v-icon small>{{ icons.mdiAlignVerticalBottom }}</v-icon></v-list-item-icon>
+                        <v-list-item-icon>
+                            <v-icon small>{{ icons.mdiAlignVerticalBottom }}</v-icon>
+                        </v-list-item-icon>
                         <v-list-item-title>Lay Flat</v-list-item-title>
                     </v-list-item>
                     <v-list-item @click="duplicateSelected">
-                        <v-list-item-icon><v-icon small>{{ icons.mdiContentDuplicate }}</v-icon></v-list-item-icon>
+                        <v-list-item-icon>
+                            <v-icon small>{{ icons.mdiContentDuplicate }}</v-icon>
+                        </v-list-item-icon>
                         <v-list-item-title>Duplicate</v-list-item-title>
                     </v-list-item>
                     <v-list-item @click="mirrorSelected">
-                        <v-list-item-icon><v-icon small>{{ icons.mdiFlipHorizontal }}</v-icon></v-list-item-icon>
+                        <v-list-item-icon>
+                            <v-icon small>{{ icons.mdiFlipHorizontal }}</v-icon>
+                        </v-list-item-icon>
                         <v-list-item-title>Mirror</v-list-item-title>
                     </v-list-item>
                     <v-divider />
                     <v-list-item @click="deleteSelected">
-                        <v-list-item-icon><v-icon small color="error">{{ icons.mdiDelete }}</v-icon></v-list-item-icon>
+                        <v-list-item-icon>
+                            <v-icon small color="error">{{ icons.mdiDelete }}</v-icon>
+                        </v-list-item-icon>
                         <v-list-item-title class="error--text">Delete</v-list-item-title>
                     </v-list-item>
                 </template>
                 <template v-if="hasWidgets">
                     <v-divider />
                     <v-list-item @click="selectAll">
-                        <v-list-item-icon><v-icon small>{{ icons.mdiSelectAll }}</v-icon></v-list-item-icon>
+                        <v-list-item-icon>
+                            <v-icon small>{{ icons.mdiSelectAll }}</v-icon>
+                        </v-list-item-icon>
                         <v-list-item-title>Select All</v-list-item-title>
                     </v-list-item>
                     <v-list-item @click="arrangeAll">
-                        <v-list-item-icon><v-icon small>{{ icons.mdiViewGrid }}</v-icon></v-list-item-icon>
+                        <v-list-item-icon>
+                            <v-icon small>{{ icons.mdiViewGrid }}</v-icon>
+                        </v-list-item-icon>
                         <v-list-item-title>Auto Arrange</v-list-item-title>
                     </v-list-item>
                 </template>
@@ -590,7 +522,7 @@
                 </v-card-text>
             </v-card>
         </v-dialog>
-        
+
         <!-- Slice Complete Dialog -->
         <v-dialog v-model="showResultDialog" max-width="600">
             <v-card v-if="sliceResult">
@@ -635,8 +567,7 @@
                                         dense
                                         prepend-icon="mdi-tag"
                                         hint="Version number"
-                                        persistent-hint
-                                    ></v-text-field>
+                                        persistent-hint></v-text-field>
                                 </v-col>
                                 <v-col cols="12" sm="4">
                                     <v-combobox
@@ -651,20 +582,20 @@
                                         prepend-icon="mdi-shape"
                                         hint="Select or type new"
                                         persistent-hint
-                                        :return-object="false"
-                                    ></v-combobox>
+                                        :return-object="false"></v-combobox>
                                 </v-col>
                                 <v-col cols="12" sm="4">
                                     <v-text-field
                                         v-model="uploadPrintTime"
                                         label="Print Time (Optional)"
-                                        :placeholder="sliceResult ? sliceResult.estimated_time_formatted : 'e.g., 2h 30m'"
+                                        :placeholder="
+                                            sliceResult ? sliceResult.estimated_time_formatted : 'e.g., 2h 30m'
+                                        "
                                         outlined
                                         dense
                                         prepend-icon="mdi-clock-outline"
                                         hint="Estimated print time"
-                                        persistent-hint
-                                    ></v-text-field>
+                                        persistent-hint></v-text-field>
                                 </v-col>
                             </v-row>
                         </v-card-text>
@@ -719,8 +650,7 @@
                         outlined
                         prepend-icon="mdi-printer-3d"
                         :loading="loadingFleetPrinters"
-                        no-data-text="No printers available"
-                    ></v-select>
+                        no-data-text="No printers available"></v-select>
                 </v-card-text>
                 <v-card-actions>
                     <v-spacer />
@@ -729,8 +659,7 @@
                         color="primary"
                         :disabled="!sendToPrinterId"
                         :loading="sendingToPrinter"
-                        @click="uploadAndSendToPrinter"
-                    >
+                        @click="uploadAndSendToPrinter">
                         <v-icon left>mdi-send</v-icon>
                         Send
                     </v-btn>
@@ -752,8 +681,7 @@
                         outlined
                         readonly
                         prepend-icon="mdi-file-document"
-                        class="mb-2"
-                    ></v-text-field>
+                        class="mb-2"></v-text-field>
                     <v-row dense>
                         <v-col cols="6">
                             <v-text-field
@@ -763,8 +691,7 @@
                                 max="100"
                                 label="Number of Copies"
                                 outlined
-                                prepend-icon="mdi-content-copy"
-                            ></v-text-field>
+                                prepend-icon="mdi-content-copy"></v-text-field>
                         </v-col>
                         <v-col cols="6">
                             <v-select
@@ -772,19 +699,14 @@
                                 :items="queuePriorityOptions"
                                 label="Priority"
                                 outlined
-                                prepend-icon="mdi-flag"
-                            ></v-select>
+                                prepend-icon="mdi-flag"></v-select>
                         </v-col>
                     </v-row>
                 </v-card-text>
                 <v-card-actions>
                     <v-spacer />
                     <v-btn text @click="showQueueJobDialog = false">Cancel</v-btn>
-                    <v-btn
-                        color="warning"
-                        :loading="queuingJob"
-                        @click="uploadAndQueueJob"
-                    >
+                    <v-btn color="warning" :loading="queuingJob" @click="uploadAndQueueJob">
                         <v-icon left>mdi-playlist-plus</v-icon>
                         Add to Queue
                     </v-btn>
@@ -1026,7 +948,7 @@
                 </v-card-text>
                 <v-card-actions>
                     <v-btn
-                        v-if="editingProfileId && !printerProfileList.find(p => p.id === editingProfileId)?.isBuiltIn"
+                        v-if="editingProfileId && !printerProfileList.find((p) => p.id === editingProfileId)?.isBuiltIn"
                         text
                         color="error"
                         @click="deletePrinterProfile">
@@ -1053,14 +975,7 @@ import axios from 'axios'
 import { v4 as uuidv4 } from 'uuid'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
-import {
-    loadMeshFile,
-    LoadResult,
-    PrepareWidget,
-    Platform,
-    PlatformConfig,
-    encodeSTL,
-} from '@/util/mesh'
+import { loadMeshFile, LoadResult, PrepareWidget, Platform, PlatformConfig, encodeSTL } from '@/util/mesh'
 import ObjectListPanel from '@/components/panels/Prepare/ObjectListPanel.vue'
 import TransformPanel from '@/components/panels/Prepare/TransformPanel.vue'
 import SliceSettingsPanel from '@/components/panels/Prepare/SliceSettingsPanel.vue'
@@ -1168,22 +1083,60 @@ const DEG5 = Math.PI / 36
 })
 export default class PreparePage extends Mixins(BaseMixin) {
     icons = {
-        mdiCube, mdiCubeOutline, mdiCubeUnfolded, mdiVectorSquare, mdiRadioactive,
-        mdiCloudUpload, mdiFolder, mdiTriangle, mdiAlert, mdiClose, mdiTune,
-        mdiLayers, mdiGridLarge, mdiSpeedometer, mdiThermometer, mdiPillar,
-        mdiFlask, mdiPrinter3dNozzle, mdiCheckCircle, mdiEye, mdiDownload,
-        mdiFile, mdiImport, mdiExport, mdiCameraFlip, mdiArrowUpBold,
-        mdiArrowDownBold, mdiArrowRightBold, mdiCheck, mdiAlignHorizontalCenter,
-        mdiAlignVerticalBottom, mdiResize, mdiRotate3dVariant, mdiContentDuplicate,
-        mdiFlipHorizontal, mdiDelete, mdiViewGrid, mdiSelectAll, mdiCropFree,
-        mdiChevronLeft, mdiChevronRight, mdiFormatListBulleted, mdiAxisArrow,
-        mdiPrinter3d, mdiChevronUp, mdiChevronDown, mdiPencil, mdiPlus,
+        mdiCube,
+        mdiCubeOutline,
+        mdiCubeUnfolded,
+        mdiVectorSquare,
+        mdiRadioactive,
+        mdiCloudUpload,
+        mdiFolder,
+        mdiTriangle,
+        mdiAlert,
+        mdiClose,
+        mdiTune,
+        mdiLayers,
+        mdiGridLarge,
+        mdiSpeedometer,
+        mdiThermometer,
+        mdiPillar,
+        mdiFlask,
+        mdiPrinter3dNozzle,
+        mdiCheckCircle,
+        mdiEye,
+        mdiDownload,
+        mdiFile,
+        mdiImport,
+        mdiExport,
+        mdiCameraFlip,
+        mdiArrowUpBold,
+        mdiArrowDownBold,
+        mdiArrowRightBold,
+        mdiCheck,
+        mdiAlignHorizontalCenter,
+        mdiAlignVerticalBottom,
+        mdiResize,
+        mdiRotate3dVariant,
+        mdiContentDuplicate,
+        mdiFlipHorizontal,
+        mdiDelete,
+        mdiViewGrid,
+        mdiSelectAll,
+        mdiCropFree,
+        mdiChevronLeft,
+        mdiChevronRight,
+        mdiFormatListBulleted,
+        mdiAxisArrow,
+        mdiPrinter3d,
+        mdiChevronUp,
+        mdiChevronDown,
+        mdiPencil,
+        mdiPlus,
     }
-    
+
     // Panel visibility state
     showLeftPanel = true
     showRightPanel = true
-    
+
     // Toolbar menu states
     toolbarMenus = {
         objects: false,
@@ -1192,7 +1145,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         scale: false,
         mirror: false,
     }
-    
+
     // Transform input values
     transformInputs = {
         posX: 0,
@@ -1205,9 +1158,9 @@ export default class PreparePage extends Mixins(BaseMixin) {
         scaleY: 1,
         scaleZ: 1,
     }
-    
+
     uniformScale = true
-    
+
     // View state
     viewMode = 'solid'
     isDragging = false
@@ -1219,10 +1172,10 @@ export default class PreparePage extends Mixins(BaseMixin) {
     slicingProgress = 0
     slicingMessage = ''
     openPanels: number[] = [0, 1]
-    
+
     // Context menu
     contextMenu = { show: false, x: 0, y: 0 }
-    
+
     // Three.js
     scene: THREE.Scene | null = null
     camera: THREE.PerspectiveCamera | null = null
@@ -1236,16 +1189,16 @@ export default class PreparePage extends Mixins(BaseMixin) {
     private lastHoverWidgetId: string | null = null
     private lastCursorStyle: string = 'default'
     private readonly onControlsChange = () => this.requestRender()
-    
+
     // Platform & widgets
     platform: Platform | null = null
-    
+
     // Mouse interaction state
     private mouseStart: { x: number; y: number } | null = null
     private mouseDragPoint: THREE.Vector3 | null = null
     private dragPlatformPlane: THREE.Mesh | null = null
     private isDraggingWidget = false
-    
+
     // Slicing
     qualityPreset = 'normal'
     sliceResult: SliceResult | null = null
@@ -1275,11 +1228,11 @@ export default class PreparePage extends Mixins(BaseMixin) {
     queuePriority = 'Normal'
     queuePriorityOptions = ['Low', 'Normal', 'High', 'Urgent']
     queuingJob = false
-    
+
     get sliceParams() {
         return this.$store.state.prepare.sliceParams
     }
-    
+
     infillPatterns = [
         { text: 'Grid', value: 'grid' },
         { text: 'Lines', value: 'lines' },
@@ -1287,77 +1240,79 @@ export default class PreparePage extends Mixins(BaseMixin) {
         { text: 'Gyroid', value: 'gyroid' },
         { text: 'Honeycomb', value: 'honeycomb' },
     ]
-    
+
     supportPatterns = [
         { text: 'Grid', value: 'grid' },
         { text: 'Lines', value: 'lines' },
         { text: 'ZigZag', value: 'zigzag' },
     ]
-    
+
     idexModes = [
         { text: 'Normal', value: 'normal' },
         { text: 'Mirror', value: 'mirror' },
         { text: 'Duplicate', value: 'duplicate' },
     ]
-    
+
     // Printer profile management (local UI state only)
     showPrinterMenu = false
     showPrinterProfileDialog = false
     editingProfileId: string | null = null
     printerProfileForm: PrinterProfile = { ...EMPTY_PRINTER_PROFILE }
-    
+
     bedShapeOptions = [
         { text: 'Rectangular', value: 'rectangular' },
         { text: 'Circular', value: 'circular' },
     ]
-    
+
     multiExtruderTypeOptions = [
         { text: 'Single Nozzle (Switching)', value: 'single' },
         { text: 'Dual Nozzle', value: 'dual' },
         { text: 'IDEX', value: 'idex' },
         { text: 'Tool Changer', value: 'toolchanger' },
     ]
-    
+
     // Store-backed computed properties for printer profiles
     get printerProfileList(): PrinterProfile[] {
         return this.$store.state.prepare.printerProfiles
     }
-    
+
     get selectedPrinterId(): string {
         return this.$store.state.prepare.activePrinterId || 'generic'
     }
-    
+
     set selectedPrinterId(id: string) {
         this.$store.dispatch('prepare/selectPrinter', id)
     }
-    
+
     get currentPrinterProfile(): PrinterProfile {
-        return this.printerProfileList.find(p => p.id === this.selectedPrinterId) ||
+        return (
+            this.printerProfileList.find((p) => p.id === this.selectedPrinterId) ||
             this.printerProfileList[0] || { ...EMPTY_PRINTER_PROFILE, id: 'generic', name: 'Generic Printer' }
+        )
     }
-    
+
     // --- Computed ---
-    
+
     get hasWidgets(): boolean {
         return this.platform ? this.platform.widgetCount > 0 : false
     }
-    
+
     get hasSelection(): boolean {
         return this.platform ? this.platform.hasSelection : false
     }
-    
+
     get widgets(): PrepareWidget[] {
         return this.platform ? this.platform.widgets : []
     }
-    
+
     get widgetCount(): number {
         return this.platform ? this.platform.widgetCount : 0
     }
-    
+
     get totalTriangles(): number {
         return this.platform ? this.platform.totalTriangles : 0
     }
-    
+
     get selectionTriangles(): number {
         if (!this.platform) return 0
         let count = 0
@@ -1367,7 +1322,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         }
         return count
     }
-    
+
     get selectionDimensions(): string {
         if (!this.platform) return ''
         const info = this.platform.getSelectionInfo()
@@ -1375,11 +1330,11 @@ export default class PreparePage extends Mixins(BaseMixin) {
         const d = info.dimensions
         return `${d.x.toFixed(1)} × ${d.z.toFixed(1)} × ${d.y.toFixed(1)} mm`
     }
-    
+
     get viewerCols(): number {
         return this.hasWidgets ? 7 : 9
     }
-    
+
     get slicerServiceUrl(): string {
         return process.env.VUE_APP_SLICER_URL || 'http://localhost:8090'
     }
@@ -1406,24 +1361,23 @@ export default class PreparePage extends Mixins(BaseMixin) {
 
         return `${trimmed}/api/slicer`
     }
-    
+
     get selectedWidgetIds(): string[] {
         if (!this.platform) return []
-        return this.platform.selected.map(w => w.id)
+        return this.platform.selected.map((w) => w.id)
     }
-    
+
     get selectedWidget(): PrepareWidget | null {
         if (!this.platform || this.platform.selectionCount === 0) return null
         return this.platform.selected[0]
     }
-    
-    // --- Lifecycle ---
-    
-    mounted() {
 
+    // --- Lifecycle ---
+
+    mounted() {
         // Load printer profiles from PostgreSQL via fleet API
         this.$store.dispatch('prepare/initPrinterProfiles')
-        
+
         // Use multiple strategies to ensure 3D environment loads
         this.$nextTick(() => {
             this.setupContainerResizeObserver()
@@ -1439,7 +1393,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         window.addEventListener('resize', this.onWindowResize)
         window.addEventListener('keydown', this.handleKeyDown)
     }
-    
+
     beforeDestroy() {
         window.removeEventListener('resize', this.onWindowResize)
         window.removeEventListener('keydown', this.handleKeyDown)
@@ -1454,19 +1408,19 @@ export default class PreparePage extends Mixins(BaseMixin) {
     beforeRouteLeave(_to: any, _from: any, next: any) {
         next()
     }
-    
+
     // --- Watchers ---
-    
+
     @Watch('selectedPrinterId')
     onPrinterChange() {
         this.rebuildBuildVolume()
     }
-    
+
     @Watch('qualityPreset')
     onQualityPresetChange(preset: string) {
         this.$store.commit('prepare/setQualityPreset', preset)
     }
-    
+
     @Watch('viewMode')
     onViewModeChange(mode: string) {
         if (!this.platform) return
@@ -1487,7 +1441,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             }
         }
     }
-    
+
     // Watch for store view mode changes from topbar
     @Watch('$store.state.prepare.viewMode')
     onStoreViewModeChange(mode: string) {
@@ -1495,33 +1449,69 @@ export default class PreparePage extends Mixins(BaseMixin) {
             this.viewMode = mode
         }
     }
-    
+
     // Watch for store actions from topbar
     @Watch('$store.state.prepare.actionCounter')
     onPrepareAction() {
         const action = this.$store.state.prepare.pendingAction
         if (!action) return
-        
+
         switch (action) {
-            case 'import': this.openFilePicker(); break
-            case 'clear': this.clearPlatform(); break
-            case 'exportSTL': this.exportSelectedSTL(); break
-            case 'resetCamera': this.resetCamera(); break
-            case 'fitAll': this.fitCameraToAll(); break
-            case 'viewTop': this.setViewTop(); break
-            case 'viewFront': this.setViewFront(); break
-            case 'viewRight': this.setViewRight(); break
-            case 'centerSelected': this.centerSelected(); break
-            case 'layFlat': this.layFlatSelected(); break
-            case 'duplicate': this.duplicateSelected(); break
-            case 'mirror': this.mirrorSelected(); break
-            case 'delete': this.deleteSelected(); break
-            case 'arrange': this.arrangeAll(); break
-            case 'selectAll': this.selectAll(); break
+            case 'import':
+                this.openFilePicker()
+                break
+            case 'clear':
+                this.clearPlatform()
+                break
+            case 'exportSTL':
+                this.exportSelectedSTL()
+                break
+            case 'resetCamera':
+                this.resetCamera()
+                break
+            case 'fitAll':
+                this.fitCameraToAll()
+                break
+            case 'viewTop':
+                this.setViewTop()
+                break
+            case 'viewFront':
+                this.setViewFront()
+                break
+            case 'viewRight':
+                this.setViewRight()
+                break
+            case 'centerSelected':
+                this.centerSelected()
+                break
+            case 'layFlat':
+                this.layFlatSelected()
+                break
+            case 'duplicate':
+                this.duplicateSelected()
+                break
+            case 'mirror':
+                this.mirrorSelected()
+                break
+            case 'delete':
+                this.deleteSelected()
+                break
+            case 'arrange':
+                this.arrangeAll()
+                break
+            case 'selectAll':
+                this.selectAll()
+                break
+            case 'createPrinterProfile':
+                this.createNewPrinterProfile()
+                break
+            case 'editPrinterProfile':
+                if (!this.currentPrinterProfile.isBuiltIn) this.editPrinterProfile(this.currentPrinterProfile)
+                break
         }
         this.$store.commit('prepare/clearAction')
     }
-    
+
     // Sync platform state to store for topbar menu enable/disable
     syncStateToStore() {
         this.$store.dispatch('prepare/updateState', {
@@ -1531,7 +1521,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             selectionCount: this.platform?.selectionCount ?? 0,
         })
     }
-    
+
     // Helper: update UI and sync state to store
     syncAndUpdate() {
         this.$forceUpdate()
@@ -1551,9 +1541,9 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.renderPending = true
         requestAnimationFrame(() => this.renderScene())
     }
-    
+
     // --- Three.js setup ---
-    
+
     private initRetryCount = 0
     private containerResizeObserver: ResizeObserver | null = null
 
@@ -1576,14 +1566,14 @@ export default class PreparePage extends Mixins(BaseMixin) {
 
         this.containerResizeObserver.observe(container)
     }
-    
+
     initThreeJS() {
         const container = this.$refs.viewerContainer as HTMLElement
         if (!container) {
             // Container not ready yet (nextTick/observer will retry)
             return
         }
-        
+
         // Guard against 0-height container (layout not ready yet)
         if (container.clientHeight === 0 || container.clientWidth === 0) {
             // Common when rendered under /slicing while hidden; wait for resize observer.
@@ -1595,43 +1585,43 @@ export default class PreparePage extends Mixins(BaseMixin) {
         }
 
         this.initRetryCount = 0
-        
+
         // Already initialized
         if (this.scene) return
-        
+
         const profile = this.getPrinterProfile()
-        
+
         // Scene
         this.scene = new THREE.Scene()
         this.scene.background = new THREE.Color(0x1e1e2e)
-        
+
         // Camera
         const aspect = container.clientWidth / container.clientHeight
         this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 10000)
-        
+
         // Renderer
         this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
         this.renderer.setSize(container.clientWidth, container.clientHeight)
         this.renderer.setPixelRatio(window.devicePixelRatio)
         container.appendChild(this.renderer.domElement)
-        
+
         // Controls
         this.controls = new OrbitControls(this.camera, this.renderer.domElement)
         this.controls.enableDamping = false
         this.controls.addEventListener('change', this.onControlsChange)
-        
+
         // Lighting
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
         this.scene.add(ambientLight)
-        
+
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
         directionalLight.position.set(1, 2, 1)
         this.scene.add(directionalLight)
-        
+
         const backLight = new THREE.DirectionalLight(0xffffff, 0.3)
         backLight.position.set(-1, 1, -1)
         this.scene.add(backLight)
-        
+
         // Invisible drag plane for widget dragging
         const dragGeo = new THREE.PlaneGeometry(10000, 10000)
         const dragMat = new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })
@@ -1639,7 +1629,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.dragPlatformPlane.rotation.x = -Math.PI / 2
         this.dragPlatformPlane.position.y = 0
         this.scene.add(this.dragPlatformPlane)
-        
+
         // Platform
         const platformConfig: PlatformConfig = {
             bedWidth: profile.bed_size_x,
@@ -1648,32 +1638,32 @@ export default class PreparePage extends Mixins(BaseMixin) {
             gap: 5,
         }
         this.platform = new Platform(this.scene, platformConfig)
-        
+
         // Build volume visualization
         this.updateBuildVolume()
-        
+
         // Set initial camera position
         this.resetCamera()
-        
+
         // Mouse event handlers
         const canvas = this.renderer.domElement
         canvas.addEventListener('mousedown', this.onMouseDown)
         canvas.addEventListener('mousemove', this.onMouseMove)
         canvas.addEventListener('mouseup', this.onMouseUp)
-        
+
         this.requestRender()
     }
-    
+
     updateBuildVolume() {
         if (!this.scene) return
-        
+
         const profile = this.getPrinterProfile()
         const { bed_size_x, bed_size_y, bed_size_z } = profile
-        
+
         // Remove old build volume elements
-        const toRemove = this.scene.children.filter(c => c.userData.isBuildVolume)
-        toRemove.forEach(c => this.scene?.remove(c))
-        
+        const toRemove = this.scene.children.filter((c) => c.userData.isBuildVolume)
+        toRemove.forEach((c) => this.scene?.remove(c))
+
         // Grid
         const gridSize = Math.max(bed_size_x, bed_size_y)
         const gridDivisions = Math.round(gridSize / 10)
@@ -1681,19 +1671,21 @@ export default class PreparePage extends Mixins(BaseMixin) {
         gridHelper.position.set(bed_size_x / 2, 0, bed_size_y / 2)
         gridHelper.userData.isBuildVolume = true
         this.scene.add(gridHelper)
-        
+
         // Floor plate
         const plateGeometry = new THREE.PlaneGeometry(bed_size_x, bed_size_y)
         const plateMaterial = new THREE.MeshBasicMaterial({
-            color: 0x2a2a4a, side: THREE.DoubleSide,
-            transparent: true, opacity: 0.6,
+            color: 0x2a2a4a,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.6,
         })
         const plateMesh = new THREE.Mesh(plateGeometry, plateMaterial)
         plateMesh.rotation.x = -Math.PI / 2
         plateMesh.position.set(bed_size_x / 2, -0.1, bed_size_y / 2)
         plateMesh.userData.isBuildVolume = true
         this.scene.add(plateMesh)
-        
+
         // Wireframe box
         const boxGeometry = new THREE.BoxGeometry(bed_size_x, bed_size_z, bed_size_y)
         const edges = new THREE.EdgesGeometry(boxGeometry)
@@ -1702,7 +1694,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         wireframe.position.set(bed_size_x / 2, bed_size_z / 2, bed_size_y / 2)
         wireframe.userData.isBuildVolume = true
         this.scene.add(wireframe)
-        
+
         // Origin axes
         const axesHelper = new THREE.AxesHelper(20)
         axesHelper.userData.isBuildVolume = true
@@ -1710,7 +1702,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
 
         this.requestRender()
     }
-    
+
     onWindowResize() {
         const container = this.$refs.viewerContainer as HTMLElement
         if (!container) return
@@ -1720,13 +1712,13 @@ export default class PreparePage extends Mixins(BaseMixin) {
             }
             return
         }
-        if (container.clientHeight === 0) return  // Guard against collapsed container
+        if (container.clientHeight === 0) return // Guard against collapsed container
         this.camera.aspect = container.clientWidth / container.clientHeight
         this.camera.updateProjectionMatrix()
         this.renderer.setSize(container.clientWidth, container.clientHeight)
         this.requestRender()
     }
-    
+
     disposeThreeJS() {
         const canvas = this.renderer?.domElement
         if (canvas) {
@@ -1738,30 +1730,30 @@ export default class PreparePage extends Mixins(BaseMixin) {
         if (this.renderer) this.renderer.dispose()
         if (this.platform) this.platform.removeAll()
     }
-    
+
     // --- Mouse interaction (Kiri:Moto pattern) ---
-    
+
     onMouseDown(event: MouseEvent) {
         if (event.button !== 0) return // Left click only
-        
+
         const container = this.$refs.viewerContainer as HTMLElement
         if (!container || !this.camera || !this.platform) return
-        
+
         const rect = container.getBoundingClientRect()
         this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
         this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-        
+
         this.mouseStart = { x: this.mouse.x, y: this.mouse.y }
-        
+
         // Raycast against widget meshes
         this.raycaster.setFromCamera(this.mouse, this.camera)
         const meshes = this.platform.getMeshes()
         const intersections = this.raycaster.intersectObjects(meshes, false)
-        
+
         if (intersections.length > 0) {
             const hit = intersections[0]
             const widget = this.platform.widgetFromIntersection(hit)
-            
+
             if (widget) {
                 // Ctrl+click = lay flat on face
                 if (event.ctrlKey || event.metaKey) {
@@ -1780,12 +1772,12 @@ export default class PreparePage extends Mixins(BaseMixin) {
                             const planeHits = this.raycaster.intersectObject(this.dragPlatformPlane, false)
                             if (planeHits.length > 0) {
                                 const pt = planeHits[0].point
-                                const markerType = (adhesionType === 'raft_pads') ? 'raft_pad' : 'mouse_ear'
+                                const markerType = adhesionType === 'raft_pads' ? 'raft_pad' : 'mouse_ear'
                                 const marker: AdhesionMarker = {
                                     id: uuidv4(),
                                     type: markerType,
                                     x: pt.x,
-                                    y: pt.z,  // Three.js Z = platform Y
+                                    y: pt.z, // Three.js Z = platform Y
                                     confirmed: true,
                                 }
                                 this.$store.commit('prepare/addAdhesionMarker', marker)
@@ -1795,7 +1787,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
                     }
                     return
                 }
-                
+
                 // Start drag - record start point on platform plane
                 if (this.dragPlatformPlane) {
                     const planeHits = this.raycaster.intersectObject(this.dragPlatformPlane, false)
@@ -1805,7 +1797,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
                         if (this.controls) this.controls.enabled = false
                     }
                 }
-                
+
                 // Select on mousedown if not already selected
                 if (!this.platform.isSelected(widget)) {
                     this.platform.select(widget, event.shiftKey)
@@ -1814,17 +1806,17 @@ export default class PreparePage extends Mixins(BaseMixin) {
             }
         }
     }
-    
+
     onMouseMove(event: MouseEvent) {
         const container = this.$refs.viewerContainer as HTMLElement
         if (!container || !this.camera || !this.platform) return
-        
+
         const rect = container.getBoundingClientRect()
         this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
         this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-        
+
         this.raycaster.setFromCamera(this.mouse, this.camera)
-        
+
         if (this.isDraggingWidget && this.mouseDragPoint && this.dragPlatformPlane) {
             // Drag mode: compute delta on platform plane
             const planeHits = this.raycaster.intersectObject(this.dragPlatformPlane, false)
@@ -1834,7 +1826,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
                 this.mouseDragPoint = newPoint.clone()
 
                 if (delta.lengthSq() < 0.000001) return
-                
+
                 // Move selected widgets (delta.x = X, delta.z = Y on platform)
                 this.platform.moveSelected(delta.x, delta.z, 0)
                 this.requestRender()
@@ -1847,7 +1839,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             // Hover mode: highlight widget under cursor
             const meshes = this.platform.getMeshes()
             const intersections = this.raycaster.intersectObjects(meshes, false)
-            
+
             if (intersections.length > 0) {
                 const widget = this.platform.widgetFromIntersection(intersections[0])
                 const widgetId = widget?.id || null
@@ -1873,35 +1865,36 @@ export default class PreparePage extends Mixins(BaseMixin) {
             }
         }
     }
-    
+
     onMouseUp(event: MouseEvent) {
         if (event.button !== 0) return
-        
+
         const container = this.$refs.viewerContainer as HTMLElement
         if (!container || !this.camera || !this.platform) return
-        
+
         // Re-enable orbit controls
         if (this.controls && this.isDraggingWidget) {
             this.controls.enabled = true
         }
-        
+
         // Check if it was a click (no movement) vs drag
         const rect = container.getBoundingClientRect()
         const mouseEnd = {
             x: ((event.clientX - rect.left) / rect.width) * 2 - 1,
             y: -((event.clientY - rect.top) / rect.height) * 2 + 1,
         }
-        
-        const isClick = this.mouseStart &&
+
+        const isClick =
+            this.mouseStart &&
             Math.abs(mouseEnd.x - this.mouseStart.x) < 0.01 &&
             Math.abs(mouseEnd.y - this.mouseStart.y) < 0.01
-        
+
         if (isClick && !this.isDraggingWidget) {
             // Click on empty space = deselect
             this.raycaster.setFromCamera(this.mouse, this.camera)
             const meshes = this.platform.getMeshes()
             const intersections = this.raycaster.intersectObjects(meshes, false)
-            
+
             if (intersections.length > 0) {
                 const widget = this.platform.widgetFromIntersection(intersections[0])
                 if (widget) {
@@ -1913,49 +1906,57 @@ export default class PreparePage extends Mixins(BaseMixin) {
                 this.syncAndUpdate()
             }
         }
-        
+
         this.mouseDragPoint = null
         this.mouseStart = null
         this.isDraggingWidget = false
     }
-    
+
     // --- Keyboard shortcuts (Kiri:Moto style) ---
-    
+
     handleKeyDown(event: KeyboardEvent) {
         // Don't handle keys if typing in input
         const target = event.target as HTMLElement
         if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
-        
+
         const ctrl = event.ctrlKey || event.metaKey
         const shift = event.shiftKey
         const alt = event.altKey
-        
+
         switch (event.key) {
             // File operations
             case 'i':
-                if (ctrl) { event.preventDefault(); this.openFilePicker() }
-                else this.openFilePicker()
+                if (ctrl) {
+                    event.preventDefault()
+                    this.openFilePicker()
+                } else this.openFilePicker()
                 break
-            
+
             // Selection
             case 'a':
-                if (ctrl) { event.preventDefault(); this.selectAll() }
-                else this.arrangeAll()
+                if (ctrl) {
+                    event.preventDefault()
+                    this.selectAll()
+                } else this.arrangeAll()
                 break
             case 'Escape':
                 this.platform?.deselect()
                 this.syncAndUpdate()
                 break
-            
+
             // Model operations
-            case 'd': this.duplicateSelected(); break
-            case 'm': this.mirrorSelected(); break
+            case 'd':
+                this.duplicateSelected()
+                break
+            case 'm':
+                this.mirrorSelected()
+                break
             case 'Delete':
             case 'Backspace':
                 event.preventDefault()
                 this.deleteSelected()
                 break
-            
+
             // Arrow keys: rotate (default) or move (with Alt)
             case 'ArrowLeft':
                 event.preventDefault()
@@ -1981,32 +1982,41 @@ export default class PreparePage extends Mixins(BaseMixin) {
                 else this.platform?.rotateSelected(shift ? -DEG5 : -DEG90, 0, 0)
                 this.syncAndUpdate()
                 break
-            
+
             // View shortcuts
-            case 'Home': this.resetCamera(); break
-            case 'f': case 'F': this.fitCameraToAll(); break
-            case 't': case 'T': this.setViewTop(); break
-            case 'w': case 'W':
+            case 'Home':
+                this.resetCamera()
+                break
+            case 'f':
+            case 'F':
+                this.fitCameraToAll()
+                break
+            case 't':
+            case 'T':
+                this.setViewTop()
+                break
+            case 'w':
+            case 'W':
                 this.viewMode = this.viewMode === 'wireframe' ? 'solid' : 'wireframe'
                 break
         }
     }
-    
+
     // --- Context menu ---
-    
+
     showContextMenu(event: MouseEvent) {
         this.contextMenu.x = event.clientX
         this.contextMenu.y = event.clientY
         this.contextMenu.show = true
     }
-    
+
     // --- File operations ---
-    
+
     openFilePicker() {
         const input = this.$refs.fileInput as HTMLInputElement
         input?.click()
     }
-    
+
     handleFileSelect(event: Event) {
         const input = event.target as HTMLInputElement
         if (input.files) {
@@ -2017,7 +2027,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         // Reset input so same file can be selected again
         input.value = ''
     }
-    
+
     handleFileDrop(event: DragEvent) {
         this.isDragging = false
         if (event.dataTransfer?.files) {
@@ -2026,45 +2036,44 @@ export default class PreparePage extends Mixins(BaseMixin) {
             }
         }
     }
-    
+
     async loadModelFile(file: File) {
         const ext = '.' + file.name.split('.').pop()?.toLowerCase()
         const allowedExts = ['.stl', '.3mf', '.obj']
-        
+
         if (!allowedExts.includes(ext)) {
             this.$toast?.error?.(`Unsupported file type: ${ext}`)
             return
         }
-        
+
         this.isProcessing = true
         this.processingMessage = `Loading ${file.name}...`
-        
+
         try {
             const result: LoadResult = await loadMeshFile(file)
-            
+
             if (!this.platform || !this.scene) return
-            
+
             // Create widgets for each geometry in the file
             for (const { name, geometry } of result.geometries) {
                 // Ensure normals
                 if (!geometry.attributes.normal) {
                     geometry.computeVertexNormals()
                 }
-                
+
                 const widget = new PrepareWidget(geometry, name || file.name)
                 this.platform.add(widget, true)
-                
+
                 // Select the newly added widget
                 this.platform.select(widget, result.geometries.length > 1)
             }
-            
+
             // Apply current view mode
             this.onViewModeChange(this.viewMode)
-            
+
             // Fit camera to show all
             this.fitCameraToAll()
             this.syncAndUpdate()
-            
         } catch (error) {
             console.error('Failed to load model:', error)
             this.$toast?.error?.('Failed to load model')
@@ -2072,71 +2081,71 @@ export default class PreparePage extends Mixins(BaseMixin) {
             this.isProcessing = false
         }
     }
-    
+
     // --- Platform operations ---
-    
+
     clearPlatform() {
         this.platform?.removeAll()
         this.syncAndUpdate()
     }
-    
+
     selectAll() {
         this.platform?.selectAll()
         this.syncAndUpdate()
     }
-    
+
     deleteSelected() {
         this.platform?.removeSelected()
         this.syncAndUpdate()
     }
-    
+
     deleteWidget(widget: PrepareWidget) {
         this.platform?.remove(widget)
         this.syncAndUpdate()
     }
-    
+
     centerSelected() {
         this.platform?.centerSelected()
     }
-    
+
     layFlatSelected() {
         if (!this.platform) return
         for (const w of this.platform.selected) {
             w.layFlat()
         }
     }
-    
+
     duplicateSelected() {
         this.platform?.duplicateSelected()
         this.syncAndUpdate()
     }
-    
+
     mirrorSelected() {
         this.platform?.mirrorSelected()
     }
-    
+
     arrangeAll() {
         this.platform?.arrange()
     }
-    
+
     // --- Widget list sidebar ---
-    
+
     isWidgetSelected(widget: PrepareWidget): boolean {
         return this.platform?.isSelected(widget) || false
     }
-    
+
     onWidgetListClick(widget: PrepareWidget, event: MouseEvent) {
         this.platform?.select(widget, event.shiftKey)
         this.fitCameraToSelection()
         this.syncAndUpdate()
     }
-    
+
     onWidgetListHover(widget: PrepareWidget | null) {
         this.platform?.setHover(widget)
     }
-    
+
     // --- Panel component event handlers ---
-    
+
     onWidgetPanelSelect({ widget, shiftKey, ctrlKey }: { widget: PrepareWidget; shiftKey: boolean; ctrlKey: boolean }) {
         if (!this.platform) return
         if (ctrlKey) {
@@ -2152,34 +2161,46 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.fitCameraToSelection()
         this.syncAndUpdate()
     }
-    
+
     handlePanelAction(action: string) {
         switch (action) {
-            case 'selectAll': this.selectAll(); break
-            case 'arrange': this.arrangeAll(); break
-            case 'clear': this.clearPlatform(); break
-            case 'centerSelected': this.centerSelected(); break
-            case 'layFlat': this.layFlatSelected(); break
-            case 'mirror': this.mirrorSelected(); break
+            case 'selectAll':
+                this.selectAll()
+                break
+            case 'arrange':
+                this.arrangeAll()
+                break
+            case 'clear':
+                this.clearPlatform()
+                break
+            case 'centerSelected':
+                this.centerSelected()
+                break
+            case 'layFlat':
+                this.layFlatSelected()
+                break
+            case 'mirror':
+                this.mirrorSelected()
+                break
         }
     }
-    
+
     toggleWidgetVisibility(widget: PrepareWidget) {
         if (!widget.mesh) return
         const visible = widget.mesh.visible
         widget.mesh.visible = !visible
         this.syncAndUpdate()
     }
-    
+
     toggleWidgetLock(widget: PrepareWidget) {
         // Toggle locked state (stored on widget)
         ;(widget as any).locked = !(widget as any).locked
         this.syncAndUpdate()
     }
-    
+
     applyTransform({ type, value }: { type: string; value: { x: number; y: number; z: number } }) {
         if (!this.platform || !this.hasSelection) return
-        
+
         for (const widget of this.platform.selected) {
             switch (type) {
                 case 'position':
@@ -2187,87 +2208,86 @@ export default class PreparePage extends Mixins(BaseMixin) {
                     break
                 case 'rotation':
                     // Reset and apply new rotation
-                    widget.rotate(value.x - widget.track.rot.x, value.y - widget.track.rot.y, value.z - widget.track.rot.z)
+                    widget.rotate(
+                        value.x - widget.track.rot.x,
+                        value.y - widget.track.rot.y,
+                        value.z - widget.track.rot.z
+                    )
                     break
                 case 'scale':
                     widget.scale(value.x, value.y, value.z)
                     break
             }
         }
-        
+
         this.layFlatSelected()
         this.syncAndUpdate()
     }
-    
+
     resetTransform() {
         if (!this.platform || !this.hasSelection) return
-        
+
         for (const widget of this.platform.selected) {
             // Reset scale
             widget.scale(1, 1, 1)
             // Center the widget
             widget.move(0, 0, 0, true)
         }
-        
+
         this.layFlatSelected()
         this.centerSelected()
         this.syncAndUpdate()
     }
-    
+
     // --- Toolbar transform methods ---
-    
+
     updateTransformInputsFromSelection() {
         const defaultInputs = { posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0, scaleX: 1, scaleY: 1, scaleZ: 1 }
-        
+
         if (!this.platform || !this.hasSelection) {
             this.transformInputs = defaultInputs
             return
         }
-        
+
         const widget = this.platform.selected[0]
         if (!widget || !widget.mesh || !widget.track) {
             this.transformInputs = defaultInputs
             return
         }
-        
+
         const pos = widget.mesh.position
         const rot = widget.track.rot
         const scale = widget.track.scale
-        
+
         if (!pos || !rot || !scale) {
             this.transformInputs = defaultInputs
             return
         }
-        
+
         this.transformInputs.posX = Math.round(pos.x * 10) / 10
-        this.transformInputs.posY = Math.round(pos.z * 10) / 10  // Z in Three.js is Y on platform
-        this.transformInputs.posZ = Math.round(pos.y * 10) / 10  // Y in Three.js is Z height
-        this.transformInputs.rotX = Math.round((rot.x * 180 / Math.PI) * 10) / 10
-        this.transformInputs.rotY = Math.round((rot.y * 180 / Math.PI) * 10) / 10
-        this.transformInputs.rotZ = Math.round((rot.z * 180 / Math.PI) * 10) / 10
+        this.transformInputs.posY = Math.round(pos.z * 10) / 10 // Z in Three.js is Y on platform
+        this.transformInputs.posZ = Math.round(pos.y * 10) / 10 // Y in Three.js is Z height
+        this.transformInputs.rotX = Math.round(((rot.x * 180) / Math.PI) * 10) / 10
+        this.transformInputs.rotY = Math.round(((rot.y * 180) / Math.PI) * 10) / 10
+        this.transformInputs.rotZ = Math.round(((rot.z * 180) / Math.PI) * 10) / 10
         this.transformInputs.scaleX = Math.round(scale.x * 100) / 100
         this.transformInputs.scaleY = Math.round(scale.y * 100) / 100
         this.transformInputs.scaleZ = Math.round(scale.z * 100) / 100
     }
-    
+
     applyPositionFromInputs() {
         if (!this.platform || !this.hasSelection) return
-        
+
         for (const widget of this.platform.selected) {
-            widget.move(
-                this.transformInputs.posX,
-                this.transformInputs.posY,
-                this.transformInputs.posZ,
-                true
-            )
+            widget.move(this.transformInputs.posX, this.transformInputs.posY, this.transformInputs.posZ, true)
         }
         this.layFlatSelected()
         this.syncAndUpdate()
     }
-    
+
     applyRotationFromInputs() {
         if (!this.platform || !this.hasSelection) return
-        
+
         const toRad = Math.PI / 180
         for (const widget of this.platform.selected) {
             const currentRot = widget.track.rot
@@ -2280,37 +2300,38 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.layFlatSelected()
         this.syncAndUpdate()
     }
-    
+
     applyScaleFromInputs(axis: string) {
         if (!this.platform || !this.hasSelection) return
-        
+
         if (this.uniformScale) {
             // Apply same scale to all axes
-            const scale = axis === 'x' ? this.transformInputs.scaleX : axis === 'y' ? this.transformInputs.scaleY : this.transformInputs.scaleZ
+            const scale =
+                axis === 'x'
+                    ? this.transformInputs.scaleX
+                    : axis === 'y'
+                      ? this.transformInputs.scaleY
+                      : this.transformInputs.scaleZ
             this.transformInputs.scaleX = scale
             this.transformInputs.scaleY = scale
             this.transformInputs.scaleZ = scale
-            
+
             for (const widget of this.platform.selected) {
                 widget.scale(scale, scale, scale)
             }
         } else {
             for (const widget of this.platform.selected) {
-                widget.scale(
-                    this.transformInputs.scaleX,
-                    this.transformInputs.scaleY,
-                    this.transformInputs.scaleZ
-                )
+                widget.scale(this.transformInputs.scaleX, this.transformInputs.scaleY, this.transformInputs.scaleZ)
             }
         }
         this.layFlatSelected()
         this.syncAndUpdate()
     }
-    
+
     rotateBy(degrees: number, axis: string) {
         if (!this.platform || !this.hasSelection) return
-        
-        const rad = degrees * Math.PI / 180
+
+        const rad = (degrees * Math.PI) / 180
         for (const widget of this.platform.selected) {
             if (axis === 'x') widget.rotate(rad, 0, 0)
             else if (axis === 'y') widget.rotate(0, rad, 0)
@@ -2320,10 +2341,10 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.updateTransformInputsFromSelection()
         this.syncAndUpdate()
     }
-    
+
     scaleBy(factor: number) {
         if (!this.platform || !this.hasSelection) return
-        
+
         for (const widget of this.platform.selected) {
             widget.scale(factor, factor, factor)
         }
@@ -2331,10 +2352,10 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.updateTransformInputsFromSelection()
         this.syncAndUpdate()
     }
-    
+
     mirrorAxis(axis: string) {
         if (!this.platform || !this.hasSelection) return
-        
+
         for (const widget of this.platform.selected) {
             if (axis === 'x') widget.mirror('x')
             else if (axis === 'y') widget.mirror('y')
@@ -2343,12 +2364,12 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.syncAndUpdate()
         this.toolbarMenus.mirror = false
     }
-    
+
     saveProfile() {
         // TODO: Show profile save dialog
         console.log('Save profile - to be implemented')
     }
-    
+
     loadProfile() {
         // TODO: Show profile load dialog
         console.log('Load profile - to be implemented')
@@ -2363,27 +2384,27 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.$store.commit('prepare/clearAdhesionMarkers')
         this.requestRender()
     }
-    
+
     // --- Printer Profile Management ---
-    
+
     selectPrinterProfile(profileId: string) {
         this.$store.dispatch('prepare/selectPrinter', profileId)
         this.showPrinterMenu = false
     }
-    
+
     createNewPrinterProfile() {
         this.editingProfileId = null
-        this.printerProfileForm = { 
+        this.printerProfileForm = {
             ...EMPTY_PRINTER_PROFILE,
             id: `custom-${Date.now()}`,
         }
         this.showPrinterMenu = false
         this.showPrinterProfileDialog = true
     }
-    
+
     editPrinterProfile(profile: PrinterProfile) {
         this.editingProfileId = profile.id
-        this.printerProfileForm = { 
+        this.printerProfileForm = {
             ...profile,
             buildVolume: { ...profile.buildVolume },
             bedHeaterZones: (profile.bedHeaterZones ?? []).map((z) => ({ ...z })),
@@ -2391,7 +2412,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         this.showPrinterMenu = false
         this.showPrinterProfileDialog = true
     }
-    
+
     savePrinterProfile() {
         const profile: PrinterProfile = {
             ...this.printerProfileForm,
@@ -2403,22 +2424,22 @@ export default class PreparePage extends Mixins(BaseMixin) {
         if (!profile.name.trim()) {
             profile.name = 'Custom Printer'
         }
-        
+
         if (this.editingProfileId) {
             this.$store.dispatch('prepare/updatePrinterProfile', profile)
         } else {
             this.$store.dispatch('prepare/addPrinterProfile', profile)
         }
-        
+
         this.closePrinterProfileDialog()
     }
-    
+
     deletePrinterProfile() {
         if (!this.editingProfileId) return
         this.$store.dispatch('prepare/deletePrinterProfile', this.editingProfileId)
         this.closePrinterProfileDialog()
     }
-    
+
     closePrinterProfileDialog() {
         this.showPrinterProfileDialog = false
         this.editingProfileId = null
@@ -2440,14 +2461,14 @@ export default class PreparePage extends Mixins(BaseMixin) {
     removeHeaterZone(index: number) {
         this.printerProfileForm.bedHeaterZones?.splice(index, 1)
     }
-    
+
     rebuildBuildVolume() {
         if (!this.scene) return
         const profile = this.currentPrinterProfile
-        
+
         // Update the build volume visualization
         this.updateBuildVolume()
-        
+
         // Update platform config if platform exists
         if (this.platform) {
             this.platform.config = {
@@ -2457,7 +2478,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
                 gap: 5,
             }
         }
-        
+
         // Reposition camera to fit new build volume
         this.resetCamera()
     }
@@ -2468,33 +2489,27 @@ export default class PreparePage extends Mixins(BaseMixin) {
         bb.getSize(size)
         return `${size.x.toFixed(1)} × ${size.z.toFixed(1)} × ${size.y.toFixed(1)} mm`
     }
-    
+
     // --- Camera controls ---
-    
+
     resetCamera() {
         if (!this.camera || !this.controls) return
         const profile = this.getPrinterProfile()
         const cx = profile.bed_size_x / 2
         const cz = profile.bed_size_y / 2
         const dist = Math.max(profile.bed_size_x, profile.bed_size_y) * 1.2
-        
-        this.tweenCamera(
-            new THREE.Vector3(cx + dist, dist * 0.8, cz + dist),
-            new THREE.Vector3(cx, 0, cz)
-        )
+
+        this.tweenCamera(new THREE.Vector3(cx + dist, dist * 0.8, cz + dist), new THREE.Vector3(cx, 0, cz))
     }
-    
+
     setViewTop() {
         if (!this.camera || !this.controls) return
         const profile = this.getPrinterProfile()
         const cx = profile.bed_size_x / 2
         const cz = profile.bed_size_y / 2
-        this.tweenCamera(
-            new THREE.Vector3(cx, profile.bed_size_z * 2, cz + 0.01),
-            new THREE.Vector3(cx, 0, cz)
-        )
+        this.tweenCamera(new THREE.Vector3(cx, profile.bed_size_z * 2, cz + 0.01), new THREE.Vector3(cx, 0, cz))
     }
-    
+
     setViewFront() {
         if (!this.camera || !this.controls) return
         const profile = this.getPrinterProfile()
@@ -2504,7 +2519,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             new THREE.Vector3(cx, profile.bed_size_z / 2, 0)
         )
     }
-    
+
     setViewRight() {
         if (!this.camera || !this.controls) return
         const profile = this.getPrinterProfile()
@@ -2514,76 +2529,73 @@ export default class PreparePage extends Mixins(BaseMixin) {
             new THREE.Vector3(0, profile.bed_size_z / 2, cz)
         )
     }
-    
+
     fitCameraToAll() {
         if (!this.platform || !this.camera || !this.controls) return
-        
+
         if (this.platform.widgetCount === 0) {
             this.resetCamera()
             return
         }
-        
+
         const bounds = this.platform.getAllBounds()
         this.fitCameraToBounds(bounds)
     }
-    
+
     fitCameraToSelection() {
         if (!this.platform || !this.camera || !this.controls) return
         const bounds = this.platform.getSelectionBounds()
         if (bounds) this.fitCameraToBounds(bounds)
     }
-    
+
     fitCameraToBounds(bounds: THREE.Box3) {
         if (!this.camera || !this.controls) return
-        
+
         const size = bounds.getSize(new THREE.Vector3())
         const center = bounds.getCenter(new THREE.Vector3())
-        
+
         const maxDim = Math.max(size.x, size.y, size.z)
         const fov = this.camera.fov * (Math.PI / 180)
-        const dist = maxDim / (2 * Math.tan(fov / 2)) * 1.5
-        
-        this.tweenCamera(
-            new THREE.Vector3(center.x + dist * 0.7, center.y + dist * 0.5, center.z + dist * 0.7),
-            center
-        )
+        const dist = (maxDim / (2 * Math.tan(fov / 2))) * 1.5
+
+        this.tweenCamera(new THREE.Vector3(center.x + dist * 0.7, center.y + dist * 0.5, center.z + dist * 0.7), center)
     }
-    
+
     /**
      * Animated camera transition
      */
     private tweenCamera(targetPosition: THREE.Vector3, targetLookAt: THREE.Vector3) {
         if (!this.camera || !this.controls) return
-        
+
         const startPos = this.camera.position.clone()
         const startTarget = this.controls.target.clone()
         const duration = 400 // ms
         const startTime = performance.now()
-        
+
         const animate = () => {
             const elapsed = performance.now() - startTime
             const t = Math.min(elapsed / duration, 1)
             // Ease out cubic
             const ease = 1 - Math.pow(1 - t, 3)
-            
+
             this.camera!.position.lerpVectors(startPos, targetPosition, ease)
             this.controls!.target.lerpVectors(startTarget, targetLookAt, ease)
             this.controls!.update()
             this.requestRender()
-            
+
             if (t < 1) {
                 requestAnimationFrame(animate)
             }
         }
-        
+
         requestAnimationFrame(animate)
     }
-    
+
     // --- Export ---
-    
+
     exportSelectedSTL() {
         if (!this.platform || this.platform.selectionCount === 0) return
-        
+
         const selected = this.platform.selected
         // Combine all selected geometries
         const positions: number[] = []
@@ -2595,10 +2607,10 @@ export default class PreparePage extends Mixins(BaseMixin) {
                 }
             }
         }
-        
+
         const vertices = new Float32Array(positions)
         const buffer = encodeSTL(vertices)
-        
+
         const blob = new Blob([buffer], { type: 'application/octet-stream' })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
@@ -2607,12 +2619,12 @@ export default class PreparePage extends Mixins(BaseMixin) {
         a.click()
         URL.revokeObjectURL(url)
     }
-    
+
     // --- Slicing ---
-    
+
     /** Last generated G-code for download/preview */
     private lastGcodeOutput = ''
-    
+
     /**
      * Extract raw triangle vertices from all widgets on the platform.
      * Returns a single Float32Array with all triangles merged,
@@ -2620,19 +2632,19 @@ export default class PreparePage extends Mixins(BaseMixin) {
      */
     private extractVertices(): Float32Array | null {
         if (!this.platform || this.platform.widgets.length === 0) return null
-        
+
         const allPositions: number[] = []
-        
+
         for (const widget of this.platform.widgets) {
             const geo = widget.mesh.geometry as THREE.BufferGeometry
             const posAttr = geo.getAttribute('position')
             if (!posAttr) continue
-            
+
             // Apply mesh world transform to get actual vertex positions
             const tempGeo = geo.clone()
             tempGeo.applyMatrix4(widget.mesh.matrixWorld)
             const pos = tempGeo.getAttribute('position')
-            
+
             if (geo.index) {
                 // Indexed geometry — expand to non-indexed
                 const idx = geo.index
@@ -2648,13 +2660,13 @@ export default class PreparePage extends Mixins(BaseMixin) {
                     allPositions.push(pos.getX(i), pos.getZ(i), pos.getY(i))
                 }
             }
-            
+
             tempGeo.dispose()
         }
-        
+
         return new Float32Array(allPositions)
     }
-    
+
     /**
      * Capture a screenshot of the build volume for gcode thumbnail embedding.
      * Renders the current scene to a 300×300 PNG and returns the base64 data.
@@ -2689,12 +2701,12 @@ export default class PreparePage extends Mixins(BaseMixin) {
 
     async startSlicing() {
         if (!this.hasWidgets) return
-        
+
         this.isSlicing = true
         this.showSlicingDialog = true
         this.slicingProgress = 0
         this.slicingMessage = 'Preparing mesh data...'
-        
+
         try {
             // Capture thumbnail screenshot before slicing
             const thumbnail = this.captureThumbnail()
@@ -2704,7 +2716,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             if (!vertices || vertices.length === 0) {
                 throw new Error('No mesh geometry found')
             }
-            
+
             // Map settings
             const config = mapSettings(this.sliceParams, this.currentPrinterProfile)
 
@@ -2720,24 +2732,23 @@ export default class PreparePage extends Mixins(BaseMixin) {
             this.slicingMessage = 'Selecting slicer backend...'
 
             const output = await this.runSliceWithSelectedBackend(vertices, config, thumbnail)
-            
+
             // Store the G-code and structured toolpath data
             this.lastGcodeOutput = output.gcode
             this.$store.commit('prepare/setLastGcode', output.gcode)
             this.$store.commit('prepare/setLastToolpaths', output.toolpaths)
-            
+
             // Show results
             this.sliceResult = output.result
-            
+
             this.jobId = Date.now().toString(36)
             this.showSlicingDialog = false
             this.showResultDialog = true
-            
         } catch (error: any) {
             console.error('Slicing failed:', error)
             this.slicingMessage = `Error: ${error.message}`
             // Keep dialog open briefly to show error
-            await new Promise(resolve => setTimeout(resolve, 2000))
+            await new Promise((resolve) => setTimeout(resolve, 2000))
         } finally {
             this.isSlicing = false
             this.showSlicingDialog = false
@@ -2811,7 +2822,10 @@ export default class PreparePage extends Mixins(BaseMixin) {
 
         const client = getSlicerClient(this.slicerApiBaseUrl)
         const stlData = encodeSTL(vertices)
-        const meshBuffer = stlData.buffer.slice(stlData.byteOffset, stlData.byteOffset + stlData.byteLength) as ArrayBuffer
+        const meshBuffer = stlData.buffer.slice(
+            stlData.byteOffset,
+            stlData.byteOffset + stlData.byteLength
+        ) as ArrayBuffer
 
         const completion = await new Promise<{ result: SliceResult; gcodeUrl: string }>((resolve, reject) => {
             client
@@ -2852,9 +2866,9 @@ export default class PreparePage extends Mixins(BaseMixin) {
             },
         }
     }
-    
+
     // --- Helpers ---
-    
+
     getPrinterProfile() {
         const profile = this.currentPrinterProfile
         return {
@@ -2866,25 +2880,25 @@ export default class PreparePage extends Mixins(BaseMixin) {
             filament_diameter: profile.filamentDiameter,
         }
     }
-    
+
     formatTime(minutes: number): string {
         const hours = Math.floor(minutes / 60)
         const mins = Math.round(minutes % 60)
         return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`
     }
-    
+
     formatNumber(num: number): string {
         return num.toLocaleString()
     }
-    
+
     previewGcode() {
         this.showResultDialog = false
         this.$router.push({ path: '/slicing', query: { mode: 'preview' } })
     }
-    
+
     async downloadGcode() {
         if (!this.lastGcodeOutput) return
-        
+
         // Generate filename from first widget name
         let filename = 'model'
         if (this.platform && this.platform.widgets.length > 0) {
@@ -2894,7 +2908,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             }
         }
         filename += `_${this.sliceParams.layer_height}mm.gcode`
-        
+
         const blob = new Blob([this.lastGcodeOutput], { type: 'text/plain' })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
@@ -2903,7 +2917,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         a.click()
         URL.revokeObjectURL(url)
     }
-    
+
     getGcodeFilename(): string {
         let filename = 'model'
         if (this.platform && this.platform.widgets.length > 0) {
@@ -2971,7 +2985,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         try {
             const token = localStorage.getItem('fleet_token')
             const response = await fetch('/api/printers/accessible', {
-                headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
             })
             if (response.ok) {
                 const data = await response.json()
@@ -3008,7 +3022,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
                 },
                 body: JSON.stringify({
                     fileId: upload.fileId,
@@ -3104,7 +3118,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
 /* Full-screen 3D viewer */
 .viewer-fullscreen {
     position: absolute;
-    top: 48px;
+    top: 0;
     left: 0;
     right: 0;
     bottom: 0;
@@ -3121,9 +3135,9 @@ export default class PreparePage extends Mixins(BaseMixin) {
 /* Left toolbar */
 .left-toolbar {
     position: absolute;
-    top: 60px;
+    top: 12px;
     left: 12px;
-    bottom: 60px;
+    bottom: 12px;
     width: 48px;
     background: rgba(30, 30, 46, 0.95);
     border-radius: 8px;
@@ -3157,9 +3171,9 @@ export default class PreparePage extends Mixins(BaseMixin) {
 /* Floating panels */
 .floating-panel {
     position: absolute;
-    top: 60px;
-    bottom: 60px;
-    width: 300px;
+    top: 12px;
+    bottom: 12px;
+    width: 370px;
     background: rgba(30, 30, 46, 0.95);
     border-radius: 8px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
@@ -3192,7 +3206,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
 /* Right panel toggle button */
 .panel-toggle {
     position: absolute;
-    top: 60px;
+    top: 12px;
     z-index: 101;
     background: rgba(30, 30, 46, 0.95) !important;
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -3205,7 +3219,9 @@ export default class PreparePage extends Mixins(BaseMixin) {
 /* Slide transitions for right panel */
 .slide-right-enter-active,
 .slide-right-leave-active {
-    transition: transform 0.3s ease, opacity 0.3s ease;
+    transition:
+        transform 0.3s ease,
+        opacity 0.3s ease;
 }
 
 .slide-right-enter,
@@ -3262,52 +3278,5 @@ export default class PreparePage extends Mixins(BaseMixin) {
 
 :deep(.v-expansion-panel-content__wrap) {
     padding: 8px 16px 16px;
-}
-
-/* Top bar */
-.top-bar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 48px;
-    background: rgba(30, 30, 46, 0.95);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    z-index: 101;
-    display: flex;
-    align-items: center;
-    padding: 0 12px;
-    backdrop-filter: blur(8px);
-}
-
-.top-bar-left {
-    flex: 1;
-    display: flex;
-    align-items: center;
-}
-
-.top-bar-center {
-    flex: 2;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.top-bar-right {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-}
-
-.printer-selector {
-    text-transform: none !important;
-    letter-spacing: normal !important;
-}
-
-.printer-menu-card {
-    background: rgba(30, 30, 46, 0.98) !important;
-    backdrop-filter: blur(8px);
-    min-width: 300px;
 }
 </style>

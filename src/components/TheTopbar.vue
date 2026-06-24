@@ -1,10 +1,7 @@
 <template>
     <div>
         <v-app-bar app elevate-on-scroll :height="topbarHeight" class="topbar pa-0" clipped-left>
-            <v-app-bar-nav-icon 
-                tile 
-                :disabled="viewMode !== 'devices'" 
-                @click.stop="naviDrawer = !naviDrawer" />
+            <v-app-bar-nav-icon tile :disabled="viewMode !== 'devices'" @click.stop="naviDrawer = !naviDrawer" />
             <router-link to="/">
                 <img src="/img/modovolo-logo-logomark-white.svg" :class="logoClasses" alt="Modovolo Logo" />
             </router-link>
@@ -13,11 +10,11 @@
             <v-spacer />
             <v-btn-toggle
                 :value="viewMode"
-                @change="onViewModeToggle"
                 mandatory
                 dense
                 class="view-mode-toggle"
-                color="primary">
+                color="primary"
+                @change="onViewModeToggle">
                 <v-btn small value="prepare">
                     <v-icon small class="mr-1">{{ mdiWrench }}</v-icon>
                     <span class="d-none d-md-inline">Prepare</span>
@@ -38,26 +35,86 @@
 
             <!-- Prepare Page Menus - only show when viewMode === 'prepare' -->
             <template v-if="viewMode === 'prepare'">
+                <v-menu
+                    v-model="showPreparePrinterMenu"
+                    :close-on-content-click="false"
+                    offset-y
+                    bottom
+                    max-width="400">
+                    <template #activator="{ on, attrs }">
+                        <v-btn text small class="prepare-printer-selector ml-2" v-bind="attrs" v-on="on">
+                            <v-icon left small>{{ mdiPrinter3d }}</v-icon>
+                            <span class="d-none d-lg-inline">{{ currentPreparePrinterProfile.name }}</span>
+                            <span class="d-lg-none">Printer</span>
+                            <v-icon right small>{{ showPreparePrinterMenu ? mdiChevronUp : mdiChevronDown }}</v-icon>
+                        </v-btn>
+                    </template>
+                    <v-card class="prepare-printer-menu-card">
+                        <v-card-title class="py-2 text-subtitle-2">Printer Profile</v-card-title>
+                        <v-divider />
+                        <v-list dense class="py-0 prepare-printer-profile-list">
+                            <v-list-item
+                                v-for="profile in preparePrinterProfileList"
+                                :key="profile.id"
+                                :class="{
+                                    'primary--text v-list-item--active': selectedPreparePrinterId === profile.id,
+                                }"
+                                @click="selectPreparePrinterProfile(profile.id)">
+                                <v-list-item-icon class="mr-2">
+                                    <v-icon small>{{ mdiPrinter3d }}</v-icon>
+                                </v-list-item-icon>
+                                <v-list-item-content>
+                                    <v-list-item-title>{{ profile.name }}</v-list-item-title>
+                                    <v-list-item-subtitle class="text-caption">
+                                        {{ preparePrinterBuildVolumeText(profile) }}
+                                        · {{ profile.extruderCount }} extruder{{ profile.extruderCount > 1 ? 's' : '' }}
+                                    </v-list-item-subtitle>
+                                </v-list-item-content>
+                                <v-list-item-action v-if="!profile.isBuiltIn" class="my-0">
+                                    <v-btn icon x-small @click.stop="editPreparePrinterProfile(profile)">
+                                        <v-icon x-small>{{ mdiPencil }}</v-icon>
+                                    </v-btn>
+                                </v-list-item-action>
+                            </v-list-item>
+                        </v-list>
+                        <v-divider />
+                        <v-card-actions class="py-2">
+                            <v-btn text small color="primary" @click="createPreparePrinterProfile">
+                                <v-icon left small>{{ mdiPlus }}</v-icon>
+                                New Profile
+                            </v-btn>
+                            <v-spacer />
+                            <v-btn text small @click="showPreparePrinterMenu = false">Close</v-btn>
+                        </v-card-actions>
+                    </v-card>
+                </v-menu>
+
                 <v-menu offset-y>
                     <template #activator="{ on, attrs }">
-                        <v-btn text small v-bind="attrs" v-on="on" class="ml-2">
+                        <v-btn text small class="ml-2" v-bind="attrs" v-on="on">
                             <v-icon left small>{{ mdiFile }}</v-icon>
                             File
                         </v-btn>
                     </template>
                     <v-list dense>
                         <v-list-item @click="prepareAction('import')">
-                            <v-list-item-icon><v-icon>{{ mdiImport }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiImport }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Import Model...</v-list-item-title>
                             <v-list-item-action class="text-caption grey--text">Ctrl+I</v-list-item-action>
                         </v-list-item>
                         <v-list-item :disabled="!prepareHasWidgets" @click="prepareAction('clear')">
-                            <v-list-item-icon><v-icon>{{ mdiClose }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiClose }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Clear Platform</v-list-item-title>
                         </v-list-item>
                         <v-divider />
                         <v-list-item :disabled="!prepareHasSelection" @click="prepareAction('exportSTL')">
-                            <v-list-item-icon><v-icon>{{ mdiExport }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiExport }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Export STL...</v-list-item-title>
                         </v-list-item>
                     </v-list>
@@ -72,44 +129,72 @@
                     </template>
                     <v-list dense>
                         <v-list-item @click="prepareAction('resetCamera')">
-                            <v-list-item-icon><v-icon>{{ mdiCameraFlip }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiCameraFlip }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Reset Camera</v-list-item-title>
                             <v-list-item-action class="text-caption grey--text">Home</v-list-item-action>
                         </v-list-item>
                         <v-list-item @click="prepareAction('fitAll')">
-                            <v-list-item-icon><v-icon>{{ mdiCropFree }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiCropFree }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Fit All</v-list-item-title>
                             <v-list-item-action class="text-caption grey--text">F</v-list-item-action>
                         </v-list-item>
                         <v-divider />
                         <v-list-item @click="prepareAction('viewTop')">
-                            <v-list-item-icon><v-icon>{{ mdiArrowUpBold }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiArrowUpBold }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Top View</v-list-item-title>
                             <v-list-item-action class="text-caption grey--text">T</v-list-item-action>
                         </v-list-item>
                         <v-list-item @click="prepareAction('viewFront')">
-                            <v-list-item-icon><v-icon>{{ mdiArrowDownBold }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiArrowDownBold }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Front View</v-list-item-title>
                         </v-list-item>
                         <v-list-item @click="prepareAction('viewRight')">
-                            <v-list-item-icon><v-icon>{{ mdiArrowRightBold }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiArrowRightBold }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Right View</v-list-item-title>
                         </v-list-item>
                         <v-divider />
                         <v-list-item @click="setPrepareViewMode('solid')">
-                            <v-list-item-icon><v-icon>{{ mdiCube }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiCube }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Solid</v-list-item-title>
-                            <v-list-item-action><v-icon v-if="prepareRenderMode === 'solid'" small color="primary">{{ mdiCheck }}</v-icon></v-list-item-action>
+                            <v-list-item-action>
+                                <v-icon v-if="prepareRenderMode === 'solid'" small color="primary">
+                                    {{ mdiCheck }}
+                                </v-icon>
+                            </v-list-item-action>
                         </v-list-item>
                         <v-list-item @click="setPrepareViewMode('wireframe')">
-                            <v-list-item-icon><v-icon>{{ mdiVectorSquare }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiVectorSquare }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Wireframe</v-list-item-title>
-                            <v-list-item-action><v-icon v-if="prepareRenderMode === 'wireframe'" small color="primary">{{ mdiCheck }}</v-icon></v-list-item-action>
+                            <v-list-item-action>
+                                <v-icon v-if="prepareRenderMode === 'wireframe'" small color="primary">
+                                    {{ mdiCheck }}
+                                </v-icon>
+                            </v-list-item-action>
                         </v-list-item>
                         <v-list-item @click="setPrepareViewMode('xray')">
-                            <v-list-item-icon><v-icon>{{ mdiRadioactive }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiRadioactive }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>X-Ray</v-list-item-title>
-                            <v-list-item-action><v-icon v-if="prepareRenderMode === 'xray'" small color="primary">{{ mdiCheck }}</v-icon></v-list-item-action>
+                            <v-list-item-action>
+                                <v-icon v-if="prepareRenderMode === 'xray'" small color="primary">
+                                    {{ mdiCheck }}
+                                </v-icon>
+                            </v-list-item-action>
                         </v-list-item>
                     </v-list>
                 </v-menu>
@@ -123,37 +208,51 @@
                     </template>
                     <v-list dense>
                         <v-list-item :disabled="!prepareHasSelection" @click="prepareAction('centerSelected')">
-                            <v-list-item-icon><v-icon>{{ mdiAlignHorizontalCenter }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiAlignHorizontalCenter }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Center on Platform</v-list-item-title>
                         </v-list-item>
                         <v-list-item :disabled="!prepareHasSelection" @click="prepareAction('layFlat')">
-                            <v-list-item-icon><v-icon>{{ mdiAlignVerticalBottom }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiAlignVerticalBottom }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Lay Flat</v-list-item-title>
                         </v-list-item>
                         <v-divider />
                         <v-list-item :disabled="!prepareHasSelection" @click="prepareAction('duplicate')">
-                            <v-list-item-icon><v-icon>{{ mdiContentDuplicate }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiContentDuplicate }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Duplicate</v-list-item-title>
                             <v-list-item-action class="text-caption grey--text">D</v-list-item-action>
                         </v-list-item>
                         <v-list-item :disabled="!prepareHasSelection" @click="prepareAction('mirror')">
-                            <v-list-item-icon><v-icon>{{ mdiFlipHorizontal }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiFlipHorizontal }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Mirror</v-list-item-title>
                             <v-list-item-action class="text-caption grey--text">M</v-list-item-action>
                         </v-list-item>
                         <v-list-item :disabled="!prepareHasSelection" @click="prepareAction('delete')">
-                            <v-list-item-icon><v-icon>{{ mdiDelete }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiDelete }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Delete</v-list-item-title>
                             <v-list-item-action class="text-caption grey--text">Del</v-list-item-action>
                         </v-list-item>
                         <v-divider />
                         <v-list-item :disabled="!prepareHasWidgets" @click="prepareAction('arrange')">
-                            <v-list-item-icon><v-icon>{{ mdiViewGrid }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiViewGrid }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Auto Arrange</v-list-item-title>
                             <v-list-item-action class="text-caption grey--text">A</v-list-item-action>
                         </v-list-item>
                         <v-list-item @click="prepareAction('selectAll')">
-                            <v-list-item-icon><v-icon>{{ mdiSelectAll }}</v-icon></v-list-item-icon>
+                            <v-list-item-icon>
+                                <v-icon>{{ mdiSelectAll }}</v-icon>
+                            </v-list-item-icon>
                             <v-list-item-title>Select All</v-list-item-title>
                             <v-list-item-action class="text-caption grey--text">Ctrl+A</v-list-item-action>
                         </v-list-item>
@@ -284,10 +383,16 @@ import {
     mdiDelete,
     mdiViewGrid,
     mdiSelectAll,
+    mdiPrinter3d,
+    mdiChevronUp,
+    mdiChevronDown,
+    mdiPencil,
+    mdiPlus,
 } from '@mdi/js'
 import EmergencyStopDialog from '@/components/dialogs/EmergencyStopDialog.vue'
 import InlineSvg from 'vue-inline-svg'
 import ThemeMixin from '@/components/mixins/theme'
+import type { PrinterProfile } from '@/store/prepare/types'
 
 type uploadSnackbar = {
     status: boolean
@@ -312,10 +417,13 @@ type uploadSnackbar = {
     },
 })
 export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
-    private readonly viewModeConfig: Record<'prepare' | 'preview' | 'devices' | 'monitoring', { prefixes: string[]; target: string }> = {
+    private readonly viewModeConfig: Record<
+        'prepare' | 'preview' | 'devices' | 'monitoring',
+        { prefixes: string[]; target: string }
+    > = {
         prepare: { prefixes: ['/slicing', '/prepare'], target: '/slicing?mode=prepare' },
         preview: { prefixes: ['/slicing', '/preview'], target: '/slicing?mode=preview' },
-        devices: { prefixes: ['/'], target: '/' },
+        devices: { prefixes: ['/fleet-dashboard'], target: '/fleet-dashboard' },
         monitoring: { prefixes: ['/monitoring'], target: '/monitoring' },
     }
 
@@ -350,10 +458,16 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
     mdiDelete = mdiDelete
     mdiViewGrid = mdiViewGrid
     mdiSelectAll = mdiSelectAll
+    mdiPrinter3d = mdiPrinter3d
+    mdiChevronUp = mdiChevronUp
+    mdiChevronDown = mdiChevronDown
+    mdiPencil = mdiPencil
+    mdiPlus = mdiPlus
 
     topbarHeight = topbarHeight
 
     showEmergencyStopDialog = false
+    showPreparePrinterMenu = false
 
     uploadSnackbar: uploadSnackbar = {
         status: false,
@@ -451,9 +565,17 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
      */
     get showDisconnectButton(): boolean {
         const socketHostname = this.$store.state.socket.hostname ?? ''
-        const socketPort = this.$store.state.socket.port ? Number(this.$store.state.socket.port) : (window.location.protocol === 'https:' ? 443 : 80)
+        const socketPort = this.$store.state.socket.port
+            ? Number(this.$store.state.socket.port)
+            : window.location.protocol === 'https:'
+              ? 443
+              : 80
         const locationHostname = window.location.hostname ?? ''
-        const locationPort = window.location.port ? Number(window.location.port) : (window.location.protocol === 'https:' ? 443 : 80)
+        const locationPort = window.location.port
+            ? Number(window.location.port)
+            : window.location.protocol === 'https:'
+              ? 443
+              : 80
 
         if (!socketHostname) return false
         return socketHostname !== locationHostname || socketPort !== locationPort
@@ -475,6 +597,36 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
 
     get prepareRenderMode(): string {
         return this.$store.state.prepare?.viewMode ?? 'solid'
+    }
+
+    get preparePrinterProfileList(): PrinterProfile[] {
+        return this.$store.state.prepare?.printerProfiles ?? []
+    }
+
+    get selectedPreparePrinterId(): string {
+        return this.$store.state.prepare?.activePrinterId || 'generic'
+    }
+
+    get currentPreparePrinterProfile(): PrinterProfile {
+        return (
+            this.preparePrinterProfileList.find((profile) => profile.id === this.selectedPreparePrinterId) ||
+            this.preparePrinterProfileList[0] || {
+                id: 'generic',
+                name: 'Generic Printer',
+                firmware: 'klipper',
+                gcodeFlavor: 'marlin',
+                buildVolume: { x: 220, y: 220, z: 250 },
+                extruderCount: 1,
+                nozzleDiameter: 0.4,
+                filamentDiameter: 1.75,
+                bedShape: 'rectangular',
+                heatedBed: true,
+                bedHeaterControllerCount: 1,
+                heatedChamber: false,
+                autoBedLeveling: false,
+                directDrive: false,
+            }
+        )
     }
 
     mounted() {
@@ -554,6 +706,27 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
 
     setPrepareViewMode(mode: string) {
         this.$store.commit('prepare/setViewMode', mode)
+    }
+
+    selectPreparePrinterProfile(profileId: string) {
+        this.$store.dispatch('prepare/selectPrinter', profileId)
+        this.showPreparePrinterMenu = false
+    }
+
+    createPreparePrinterProfile() {
+        this.showPreparePrinterMenu = false
+        this.prepareAction('createPrinterProfile')
+    }
+
+    editPreparePrinterProfile(profile: PrinterProfile) {
+        this.$store.dispatch('prepare/selectPrinter', profile.id)
+        this.showPreparePrinterMenu = false
+        this.prepareAction('editPrinterProfile')
+    }
+
+    preparePrinterBuildVolumeText(profile: PrinterProfile): string {
+        const volume = profile.buildVolume
+        return `${volume.x}×${volume.y}×${volume.z}mm`
     }
 
     btnEmergencyStop() {
@@ -648,9 +821,15 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
                         const path = result?.data?.item?.path
                         if (path) {
                             const root = path.split('/')[0]
-                            this.$socket.emit('server.files.get_directory', { path: root }, { action: 'files/getDirectory' })
+                            this.$socket.emit(
+                                'server.files.get_directory',
+                                { path: root },
+                                { action: 'files/getDirectory' }
+                            )
                         }
-                    } catch (_) {}
+                    } catch {
+                        // Best-effort directory refresh only.
+                    }
 
                     resolve(result.data.result)
                 })
@@ -746,5 +925,21 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
 .view-mode-toggle .v-btn {
     height: 32px !important;
     text-transform: none !important;
+}
+
+.prepare-printer-selector {
+    height: 32px !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+}
+
+.prepare-printer-menu-card {
+    background: rgba(30, 30, 46, 0.98) !important;
+    min-width: 320px;
+}
+
+.prepare-printer-profile-list {
+    max-height: 300px;
+    overflow-y: auto;
 }
 </style>
