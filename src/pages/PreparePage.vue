@@ -3171,17 +3171,16 @@ export default class PreparePage extends Mixins(BaseMixin) {
 /* Floating panels */
 .floating-panel {
     position: absolute;
-    top: 12px;
-    bottom: 12px;
+    top: 0;
+    bottom: 0;
     width: 370px;
-    background: rgba(30, 30, 46, 0.95);
-    border-radius: 8px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    background: #1f2030;
+    border-radius: 0;
+    box-shadow: none;
     z-index: 100;
     display: flex;
     flex-direction: column;
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 0;
 }
 
 .floating-panel-left {
@@ -3189,31 +3188,42 @@ export default class PreparePage extends Mixins(BaseMixin) {
 }
 
 .floating-panel-right {
-    right: 12px;
+    right: 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .panel-header {
+    min-height: 52px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     flex-shrink: 0;
+    background: #1f2030;
 }
 
 .panel-content {
     flex: 1;
     overflow-y: auto;
-    padding: 8px;
+    padding: 0;
+    min-height: 0;
+    background: #2f3135;
 }
 
 /* Right panel toggle button */
 .panel-toggle {
     position: absolute;
-    top: 12px;
+    top: 8px;
     z-index: 101;
-    background: rgba(30, 30, 46, 0.95) !important;
+    background: #1f2030 !important;
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .panel-toggle-right {
-    right: 12px;
+    right: 8px;
+}
+
+.panel-toggle-right.panel-hidden {
+    right: 0;
+    border-right: 0;
+    border-radius: 4px 0 0 4px;
 }
 
 /* Slide transitions for right panel */
@@ -3226,7 +3236,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
 
 .slide-right-enter,
 .slide-right-leave-to {
-    transform: translateX(320px);
+    transform: translateX(370px);
     opacity: 0;
 }
 

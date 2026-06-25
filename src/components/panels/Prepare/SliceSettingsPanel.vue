@@ -1054,7 +1054,7 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
     flex-shrink: 0;
     background: #303236;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    padding: 8px;
+    padding: 8px 10px;
 }
 
 .settings-title-row,
@@ -1210,7 +1210,7 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
     min-width: 0;
     flex: 1;
     overflow-y: auto;
-    padding: 8px;
+    padding: 8px 10px;
 }
 
 .settings-panels {
@@ -1260,8 +1260,9 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
 
 .slice-actions {
     margin-top: auto;
-    padding: 10px 8px 0;
+    padding: 10px;
     flex-shrink: 0;
     background: #2f3135;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 </style>
