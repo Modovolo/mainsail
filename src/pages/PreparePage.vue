@@ -524,8 +524,8 @@
         </v-dialog>
 
         <!-- Slice Complete Dialog -->
-        <v-dialog v-model="showResultDialog" max-width="600">
-            <v-card v-if="sliceResult">
+        <v-dialog v-model="showResultDialog" max-width="760">
+            <v-card v-if="sliceResult" class="slice-result-card">
                 <v-card-title class="success--text">
                     <v-icon left color="success">{{ icons.mdiCheckCircle }}</v-icon>
                     Slicing Complete
@@ -599,8 +599,7 @@
                                 </v-col>
                             </v-row>
                         </v-card-text>
-                        <v-card-actions>
-                            <v-spacer />
+                        <v-card-actions class="slice-result-actions">
                             <v-btn text @click="showUploadTagging = false">Cancel</v-btn>
                             <v-btn color="info" @click="openSendToPrinterDialog">
                                 <v-icon left>{{ icons.mdiCloudUpload }}</v-icon>
@@ -610,8 +609,7 @@
                     </div>
                 </v-expand-transition>
 
-                <v-card-actions v-if="!showUploadTagging">
-                    <v-spacer />
+                <v-card-actions v-if="!showUploadTagging" class="slice-result-actions">
                     <v-btn text @click="showResultDialog = false">Close</v-btn>
                     <v-btn color="primary" @click="previewGcode">
                         <v-icon left>{{ icons.mdiEye }}</v-icon>
@@ -1078,6 +1076,9 @@ const BUILD_PLATE_COLOR = 0x141519
 const BUILD_GRID_CENTER_COLOR = 0xdce3f2
 const BUILD_GRID_LINE_COLOR = 0x4c5160
 const BUILD_VOLUME_ACCENT_COLOR = 0x123dff
+const ORIGIN_AXIS_X_COLOR = 0xff4d5a
+const ORIGIN_AXIS_Y_COLOR = 0x30d158
+const ORIGIN_AXIS_Z_COLOR = 0x4d8dff
 
 @Component({
     components: {
@@ -1706,41 +1707,66 @@ export default class PreparePage extends Mixins(BaseMixin) {
 
         // Origin marker
         const originMarker = new THREE.Group()
-        const originNeutralMaterial = new THREE.LineBasicMaterial({
-            color: BUILD_GRID_CENTER_COLOR,
-            transparent: true,
-            opacity: 0.72,
-        })
-        const originAccentMaterial = new THREE.LineBasicMaterial({
-            color: BUILD_VOLUME_ACCENT_COLOR,
-            transparent: true,
-            opacity: 0.9,
-        })
+        const originAxisMaterial = (color: number) =>
+            new THREE.LineBasicMaterial({
+                color,
+                transparent: true,
+                opacity: 0.92,
+            })
         const originLines = [
             new THREE.Line(
                 new THREE.BufferGeometry().setFromPoints([
                     new THREE.Vector3(0, 0.05, 0),
                     new THREE.Vector3(20, 0.05, 0),
                 ]),
-                originAccentMaterial
+                originAxisMaterial(ORIGIN_AXIS_X_COLOR)
             ),
             new THREE.Line(
                 new THREE.BufferGeometry().setFromPoints([
                     new THREE.Vector3(0, 0.05, 0),
                     new THREE.Vector3(0, 0.05, 20),
                 ]),
-                originNeutralMaterial
+                originAxisMaterial(ORIGIN_AXIS_Y_COLOR)
             ),
             new THREE.Line(
                 new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 20, 0)]),
-                originNeutralMaterial
+                originAxisMaterial(ORIGIN_AXIS_Z_COLOR)
             ),
         ]
         originLines.forEach((line) => originMarker.add(line))
+        originMarker.add(this.createAxisLabelSprite('X', ORIGIN_AXIS_X_COLOR, new THREE.Vector3(24, 0.5, 0)))
+        originMarker.add(this.createAxisLabelSprite('Y', ORIGIN_AXIS_Y_COLOR, new THREE.Vector3(0, 0.5, 24)))
+        originMarker.add(this.createAxisLabelSprite('Z', ORIGIN_AXIS_Z_COLOR, new THREE.Vector3(0, 24, 0)))
+        originMarker.add(this.createAxisLabelSprite('0,0', BUILD_GRID_CENTER_COLOR, new THREE.Vector3(0, 2, -8), 10))
         originMarker.userData.isBuildVolume = true
         this.scene.add(originMarker)
 
         this.requestRender()
+    }
+
+    private createAxisLabelSprite(text: string, color: number, position: THREE.Vector3, scale = 7): THREE.Sprite {
+        const canvas = document.createElement('canvas')
+        canvas.width = 128
+        canvas.height = 64
+
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+            ctx.font = '700 34px Arial, sans-serif'
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'middle'
+            ctx.lineWidth = 5
+            ctx.strokeStyle = '#101115'
+            ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`
+            ctx.strokeText(text, canvas.width / 2, canvas.height / 2)
+            ctx.fillText(text, canvas.width / 2, canvas.height / 2)
+        }
+
+        const texture = new THREE.CanvasTexture(canvas)
+        const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false })
+        const sprite = new THREE.Sprite(material)
+        sprite.position.copy(position)
+        sprite.scale.set(scale * 2, scale, 1)
+        return sprite
     }
 
     onWindowResize() {
@@ -3000,9 +3026,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         const formData = this.buildUploadFormData(filename)
 
         try {
-            const response = await axios.post('/api/files/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-            })
+            const response = await axios.post('/api/files/upload', formData)
             const uploadedFiles = response.data?.files || []
             const fileId = uploadedFiles[0]?.id || undefined
             return { ok: true, fileId }
@@ -3109,6 +3133,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
             // Add to print queue
             await axios.post('/api/print-queue/add', {
                 fileId: upload.fileId,
+                fileName: this.getGcodeFilename(),
                 copies: this.queueCopies,
                 priority: this.queuePriority,
             })
@@ -3154,6 +3179,23 @@ export default class PreparePage extends Mixins(BaseMixin) {
 
 .zone-table td {
     padding: 2px 4px !important;
+}
+
+.slice-result-card {
+    overflow-x: hidden;
+}
+
+.slice-result-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    overflow-x: hidden;
+    background: inherit;
+}
+
+.slice-result-actions .v-btn {
+    margin: 0 !important;
 }
 
 /* Full-screen 3D viewer */
