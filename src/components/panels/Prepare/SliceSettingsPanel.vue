@@ -1046,13 +1046,18 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
 }
 
 .creality-settings {
+    --prepare-accent-blue: var(--color-primary, #123dff);
+    --prepare-accent-blue-soft: rgba(18, 61, 255, 0.28);
+    --prepare-surface-low: #111217;
+    --prepare-surface-mid: #181a20;
+    --prepare-surface-high: #24262b;
     color: #f2f4f8;
 }
 
 .settings-top-block,
 .process-top-block {
     flex-shrink: 0;
-    background: #303236;
+    background: var(--prepare-surface-high);
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     padding: 8px 10px;
 }
@@ -1102,7 +1107,7 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
 }
 
 .filament-slot.active {
-    box-shadow: inset 0 0 0 2px #25d672;
+    box-shadow: inset 0 0 0 2px var(--prepare-accent-blue);
 }
 
 .filament-slot-number {
@@ -1119,7 +1124,7 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
 }
 
 .process-top-block {
-    background: #37393d;
+    background: #202228;
 }
 
 .process-row {
@@ -1179,14 +1184,14 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
     display: flex;
     min-height: 0;
     flex: 1;
-    background: #2f3135;
+    background: var(--prepare-surface-mid);
 }
 
 .settings-rail {
     width: 36px;
     flex-shrink: 0;
     padding: 8px 4px;
-    background: #24262a;
+    background: var(--prepare-surface-low);
     border-right: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
     flex-direction: column;
@@ -1202,7 +1207,7 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
 }
 
 .settings-rail-btn.active {
-    background: #22c56b !important;
+    background: var(--prepare-accent-blue) !important;
     color: #ffffff !important;
 }
 
@@ -1220,14 +1225,15 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
 }
 
 .settings-panels ::v-deep .v-expansion-panel {
-    background: #3a3c40 !important;
+    background: var(--prepare-surface-high) !important;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 2px !important;
     color: #f2f4f8 !important;
 }
 
 .settings-panels ::v-deep .v-expansion-panel--active {
-    border-color: #25d672;
+    border-color: var(--prepare-accent-blue);
+    box-shadow: 0 0 0 1px var(--prepare-accent-blue-soft);
 }
 
 .settings-panels ::v-deep .v-expansion-panel-header {
@@ -1251,7 +1257,7 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
 .creality-settings ::v-deep .v-text-field--outlined .v-input__control .v-input__slot,
 .creality-settings ::v-deep .v-select.v-text-field--outlined .v-input__control .v-input__slot {
     min-height: 36px;
-    background: #303236;
+    background: #181a20;
 }
 
 .creality-settings ::v-deep .v-text-field__suffix {
@@ -1262,7 +1268,7 @@ export default class SliceSettingsPanel extends Mixins(BaseMixin) {
     margin-top: auto;
     padding: 10px;
     flex-shrink: 0;
-    background: #2f3135;
+    background: var(--prepare-surface-mid);
     border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 </style>

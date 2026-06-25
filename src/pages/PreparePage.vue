@@ -1073,6 +1073,11 @@ const EMPTY_PRINTER_PROFILE: PrinterProfile = {
 
 const DEG90 = Math.PI / 2
 const DEG5 = Math.PI / 36
+const SCENE_BACKGROUND_COLOR = 0x101115
+const BUILD_PLATE_COLOR = 0x141519
+const BUILD_GRID_CENTER_COLOR = 0xdce3f2
+const BUILD_GRID_LINE_COLOR = 0x4c5160
+const BUILD_VOLUME_ACCENT_COLOR = 0x123dff
 
 @Component({
     components: {
@@ -1593,7 +1598,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
 
         // Scene
         this.scene = new THREE.Scene()
-        this.scene.background = new THREE.Color(0x1e1e2e)
+        this.scene.background = new THREE.Color(SCENE_BACKGROUND_COLOR)
 
         // Camera
         const aspect = container.clientWidth / container.clientHeight
@@ -1667,7 +1672,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
         // Grid
         const gridSize = Math.max(bed_size_x, bed_size_y)
         const gridDivisions = Math.round(gridSize / 10)
-        const gridHelper = new THREE.GridHelper(gridSize, gridDivisions, 0x444466, 0x333344)
+        const gridHelper = new THREE.GridHelper(gridSize, gridDivisions, BUILD_GRID_CENTER_COLOR, BUILD_GRID_LINE_COLOR)
         gridHelper.position.set(bed_size_x / 2, 0, bed_size_y / 2)
         gridHelper.userData.isBuildVolume = true
         this.scene.add(gridHelper)
@@ -1675,10 +1680,10 @@ export default class PreparePage extends Mixins(BaseMixin) {
         // Floor plate
         const plateGeometry = new THREE.PlaneGeometry(bed_size_x, bed_size_y)
         const plateMaterial = new THREE.MeshBasicMaterial({
-            color: 0x2a2a4a,
+            color: BUILD_PLATE_COLOR,
             side: THREE.DoubleSide,
             transparent: true,
-            opacity: 0.6,
+            opacity: 0.82,
         })
         const plateMesh = new THREE.Mesh(plateGeometry, plateMaterial)
         plateMesh.rotation.x = -Math.PI / 2
@@ -1689,16 +1694,51 @@ export default class PreparePage extends Mixins(BaseMixin) {
         // Wireframe box
         const boxGeometry = new THREE.BoxGeometry(bed_size_x, bed_size_z, bed_size_y)
         const edges = new THREE.EdgesGeometry(boxGeometry)
-        const lineMaterial = new THREE.LineBasicMaterial({ color: 0x4466aa, transparent: true, opacity: 0.5 })
+        const lineMaterial = new THREE.LineBasicMaterial({
+            color: BUILD_VOLUME_ACCENT_COLOR,
+            transparent: true,
+            opacity: 0.42,
+        })
         const wireframe = new THREE.LineSegments(edges, lineMaterial)
         wireframe.position.set(bed_size_x / 2, bed_size_z / 2, bed_size_y / 2)
         wireframe.userData.isBuildVolume = true
         this.scene.add(wireframe)
 
-        // Origin axes
-        const axesHelper = new THREE.AxesHelper(20)
-        axesHelper.userData.isBuildVolume = true
-        this.scene.add(axesHelper)
+        // Origin marker
+        const originMarker = new THREE.Group()
+        const originNeutralMaterial = new THREE.LineBasicMaterial({
+            color: BUILD_GRID_CENTER_COLOR,
+            transparent: true,
+            opacity: 0.72,
+        })
+        const originAccentMaterial = new THREE.LineBasicMaterial({
+            color: BUILD_VOLUME_ACCENT_COLOR,
+            transparent: true,
+            opacity: 0.9,
+        })
+        const originLines = [
+            new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(0, 0.05, 0),
+                    new THREE.Vector3(20, 0.05, 0),
+                ]),
+                originAccentMaterial
+            ),
+            new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(0, 0.05, 0),
+                    new THREE.Vector3(0, 0.05, 20),
+                ]),
+                originNeutralMaterial
+            ),
+            new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 20, 0)]),
+                originNeutralMaterial
+            ),
+        ]
+        originLines.forEach((line) => originMarker.add(line))
+        originMarker.userData.isBuildVolume = true
+        this.scene.add(originMarker)
 
         this.requestRender()
     }
@@ -3100,6 +3140,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
     right: 0;
     bottom: 0;
     overflow: hidden;
+    background: #101115;
 }
 
 .monospace-textarea >>> textarea {
@@ -3139,7 +3180,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
     left: 12px;
     bottom: 12px;
     width: 48px;
-    background: rgba(30, 30, 46, 0.95);
+    background: rgba(17, 18, 23, 0.96);
     border-radius: 8px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
     z-index: 100;
@@ -3156,7 +3197,8 @@ export default class PreparePage extends Mixins(BaseMixin) {
 }
 
 .toolbar-btn.active {
-    background: rgba(var(--v-primary-base), 0.2) !important;
+    background: rgba(18, 61, 255, 0.24) !important;
+    color: var(--color-primary, #123dff) !important;
 }
 
 .toolbar-btn:disabled {
@@ -3164,7 +3206,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
 }
 
 .toolbar-popout {
-    background: rgba(30, 30, 46, 0.98) !important;
+    background: rgba(17, 18, 23, 0.98) !important;
     backdrop-filter: blur(8px);
 }
 
@@ -3174,7 +3216,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
     top: 0;
     bottom: 0;
     width: 370px;
-    background: #1f2030;
+    background: #111217;
     border-radius: 0;
     box-shadow: none;
     z-index: 100;
@@ -3196,7 +3238,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
     min-height: 52px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     flex-shrink: 0;
-    background: #1f2030;
+    background: #111217;
 }
 
 .panel-content {
@@ -3204,7 +3246,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
     overflow-y: auto;
     padding: 0;
     min-height: 0;
-    background: #2f3135;
+    background: #181a20;
 }
 
 /* Right panel toggle button */
@@ -3212,7 +3254,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
     position: absolute;
     top: 8px;
     z-index: 101;
-    background: #1f2030 !important;
+    background: #111217 !important;
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
