@@ -2900,6 +2900,7 @@ export default class PreparePage extends Mixins(BaseMixin) {
                         meshes: [meshBuffer],
                         params: this.sliceParams,
                         printerProfile: this.currentPrinterProfile.id,
+                        printerProfileConfig: this.currentPrinterProfile,
                     },
                     {
                         onProgress: (event) => {

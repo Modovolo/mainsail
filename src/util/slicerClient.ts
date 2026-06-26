@@ -5,12 +5,13 @@
  * Handles mesh uploads, slicing jobs, progress tracking, and result downloads.
  */
 
-import { SliceParams, SliceResult } from '@/store/prepare/types'
+import { PrinterProfile, SliceParams, SliceResult } from '@/store/prepare/types'
 
 export interface SliceJobRequest {
     meshes: ArrayBuffer[] // STL binary data
     params: SliceParams
     printerProfile?: string
+    printerProfileConfig?: PrinterProfile
 }
 
 export interface SliceJobResponse {
@@ -112,6 +113,10 @@ export class SlicerClient {
 
         if (request.printerProfile) {
             formData.append('printer_profile', request.printerProfile)
+        }
+
+        if (request.printerProfileConfig) {
+            formData.append('printer_profile_config', JSON.stringify(request.printerProfileConfig))
         }
 
         // Submit the slice job
@@ -397,7 +402,7 @@ export class MockSlicerClient extends SlicerClient {
         return jobId
     }
 
-    async cancel(_jobId: string): Promise<boolean> {
+    async cancel(): Promise<boolean> {
         return true
     }
 }
