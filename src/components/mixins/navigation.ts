@@ -104,6 +104,7 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
                 'My Printers',
                 'Register Printer',
                 'Config Sync',
+                'Software Versions',
                 'All Printers',
                 'Printers',
                 'Farm',

@@ -14,6 +14,7 @@ import CentralFiles from '../pages/CentralFiles.vue'
 import BuildPlateComposer from '../pages/BuildPlateComposer.vue'
 import ConfigSync from '../pages/ConfigSync.vue'
 import PrintQueue from '../pages/PrintQueue.vue'
+import SoftwareVersions from '../pages/SoftwareVersions.vue'
 import Settings from '../pages/Settings.vue'
 import SlicingPage from '../pages/SlicingPage.vue'
 import MonitoringPage from '../pages/MonitoringPage.vue'
@@ -41,6 +42,7 @@ import {
     mdiPrinter3d,
     mdiPrinter3dNozzle,
     mdiClipboardTextClock,
+    mdiServerNetwork,
 } from '@mdi/js'
 
 const routes: AppRoute[] = [
@@ -199,6 +201,17 @@ const routes: AppRoute[] = [
         alwaysShow: true,
         showInNavi: true,
         position: 9.5,
+        meta: { requiresAuth: true },
+    },
+    {
+        name: 'software-versions',
+        title: 'Software Versions',
+        path: '/software-versions',
+        icon: mdiServerNetwork,
+        component: SoftwareVersions,
+        alwaysShow: true,
+        showInNavi: true,
+        position: 9.7,
         meta: { requiresAuth: true },
     },
     {

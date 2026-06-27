@@ -170,6 +170,16 @@ export const themes: Theme[] = [
         mainBackground: { show: false, light: false },
     },
     {
+        name: 'cloudconsole',
+        displayName: 'Cloud Console',
+        colorLogo: '#1f5fd0',
+        colorPrimary: '#1f5fd0',
+        css: true,
+        logo: { show: false, light: false },
+        sidebarBackground: { show: false, light: false },
+        mainBackground: { show: false, light: false },
+    },
+    {
         name: 'klipper',
         displayName: 'Klipper',
         colorLogo: '#b12f35',

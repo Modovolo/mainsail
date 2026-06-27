@@ -1,0 +1,157 @@
+/* Cloud Console Theme: clean enterprise control-plane styling */
+
+:root {
+    --cloud-bg: #eef3f9;
+    --cloud-bg-soft: #f6f9fd;
+    --cloud-border: #d7e0ec;
+    --cloud-text: #1e2c3f;
+    --cloud-text-muted: #5b6f89;
+    --cloud-nav-bg: #253349;
+    --cloud-nav-bg-2: #1f2b3e;
+    --cloud-primary: #1f5fd0;
+}
+
+body,
+.v-application {
+    font-family: 'IBM Plex Sans', 'Source Sans Pro', 'Segoe UI', Tahoma, sans-serif !important;
+}
+
+#content {
+    background: linear-gradient(180deg, var(--cloud-bg-soft) 0%, var(--cloud-bg) 100%) !important;
+}
+
+/* Top bar */
+.topbar.v-app-bar {
+    background: #ffffff !important;
+    border-bottom: 1px solid var(--cloud-border);
+    box-shadow: none !important;
+}
+
+.topbar .v-toolbar__title,
+.topbar .v-btn,
+.topbar .v-icon {
+    color: var(--cloud-text) !important;
+}
+
+/* Sidebar */
+.v-navigation-drawer {
+    background: linear-gradient(180deg, var(--cloud-nav-bg) 0%, var(--cloud-nav-bg-2) 100%) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.v-navigation-drawer .v-list-item {
+    border-radius: 8px;
+    margin: 4px 8px;
+}
+
+.v-navigation-drawer .v-list-item .v-list-item__title,
+.v-navigation-drawer .v-list-item .v-icon {
+    color: rgba(237, 244, 255, 0.92) !important;
+}
+
+.v-navigation-drawer .active-nav-item,
+.v-navigation-drawer .v-list-item--active {
+    background: rgba(31, 95, 208, 0.24) !important;
+}
+
+.container-hashes {
+    border-top: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+/* Panels and cards */
+.v-card {
+    border: 1px solid var(--cloud-border);
+    box-shadow: 0 1px 0 rgba(17, 24, 39, 0.04) !important;
+    border-radius: 10px !important;
+}
+
+.v-card__title {
+    color: var(--cloud-text);
+    font-weight: 600;
+}
+
+.v-card__subtitle,
+.v-card__text,
+.text--secondary,
+.grey--text {
+    color: var(--cloud-text-muted) !important;
+}
+
+/* Data tables */
+.v-data-table,
+.v-simple-table {
+    border: 1px solid var(--cloud-border);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.v-data-table thead tr,
+.v-simple-table thead tr {
+    background: #f2f6fc;
+}
+
+.v-data-table thead th,
+.v-simple-table thead th {
+    color: #304766 !important;
+    font-weight: 600;
+    font-size: 0.78rem;
+    letter-spacing: 0.02em;
+}
+
+.v-data-table tbody tr:nth-child(even),
+.v-simple-table tbody tr:nth-child(even) {
+    background: rgba(31, 95, 208, 0.02);
+}
+
+/* Form controls */
+.v-input__slot {
+    border-radius: 8px !important;
+}
+
+.v-btn {
+    letter-spacing: 0.01em;
+    text-transform: none;
+}
+
+.v-btn.primary {
+    box-shadow: none !important;
+}
+
+/* Dark mode fallback while keeping cloud visual language */
+html.theme--dark #content {
+    background: linear-gradient(180deg, #111a27 0%, #0f1723 100%) !important;
+}
+
+html.theme--dark .topbar.v-app-bar {
+    background: #182438 !important;
+    border-bottom-color: rgba(173, 190, 214, 0.2);
+}
+
+html.theme--dark .topbar .v-toolbar__title,
+html.theme--dark .topbar .v-btn,
+html.theme--dark .topbar .v-icon {
+    color: #deebff !important;
+}
+
+html.theme--dark .v-card,
+html.theme--dark .v-data-table,
+html.theme--dark .v-simple-table {
+    border-color: rgba(173, 190, 214, 0.22);
+    box-shadow: none !important;
+}
+
+html.theme--dark .v-data-table thead tr,
+html.theme--dark .v-simple-table thead tr {
+    background: rgba(44, 64, 94, 0.55);
+}
+
+html.theme--dark .v-card__title,
+html.theme--dark .v-data-table thead th,
+html.theme--dark .v-simple-table thead th {
+    color: #dce8fb !important;
+}
+
+html.theme--dark .v-card__text,
+html.theme--dark .grey--text {
+    color: #9db0cc !important;
+}
