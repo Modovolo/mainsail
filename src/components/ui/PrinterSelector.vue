@@ -57,7 +57,7 @@ export default class PrinterSelector extends Mixins(BaseMixin) {
     }
 
     switchToPrinters() {
-        router.push('/allPrinters')
+        router.push('/printer')
     }
 
     getPrinterName(namespace: string) {

@@ -79,10 +79,9 @@ export default class TheFullscreenUpload extends Mixins(BaseMixin) {
             const files = [...e.dataTransfer.files]
 
             const routeName = (this.$route?.name as string | undefined) ?? ''
-            const routePath = this.$route?.path ?? ''
-            const isFarmRoute = routeName === 'farm' || routePath.endsWith('/allPrinters')
+            const isFleetListRoute = routeName === 'dashboard' && !this.$route?.params?.id
 
-            if (isFarmRoute) {
+            if (isFleetListRoute) {
                 EventBus.$emit(FARM_UPLOAD_DROP, files)
                 return
             }

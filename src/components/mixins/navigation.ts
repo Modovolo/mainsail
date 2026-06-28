@@ -33,7 +33,7 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
             points.push({
                 title: this.$t('App.Printers'),
                 icon: mdiViewDashboardOutline,
-                to: '/allPrinters',
+                to: '/printer',
                 position: 0,
                 visible: true,
             } as NaviPoint)
@@ -105,9 +105,7 @@ export default class NavigationMixin extends Mixins(BaseMixin) {
                 'Register Printer',
                 'Config Sync',
                 'Software Versions',
-                'All Printers',
                 'Printers',
-                'Farm',
                 'Files',
                 'G-Code Files',
                 'Central File Repository',

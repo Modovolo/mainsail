@@ -61,7 +61,7 @@ export default class SidebarItem extends Mixins(BaseMixin) {
     }
 
     get borderBottom() {
-        return this.item.to === '/allPrinters'
+        return this.item.to === '/printer'
     }
 }
 </script>

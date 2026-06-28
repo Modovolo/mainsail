@@ -4,7 +4,7 @@
         <v-container v-if="isFleetMode && printerId" fluid class="pa-0">
             <v-btn text class="mb-2 ml-2" @click="disconnectAndGoBack">
                 <v-icon left>mdi-arrow-left</v-icon>
-                Back to All Printers
+                Back to Printers
             </v-btn>
         </v-container>
 
@@ -28,8 +28,10 @@
             </v-row>
         </v-alert>
 
+        <farm v-if="showFleetList" />
+
         <!-- Standard Dashboard Layout -->
-        <v-row v-if="isMobile">
+        <v-row v-if="!showFleetList && isMobile">
             <v-col>
                 <status-panel />
                 <template v-for="component in mobileLayout">
@@ -40,7 +42,7 @@
                 </template>
             </v-col>
         </v-row>
-        <v-row v-else-if="isTablet">
+        <v-row v-else-if="!showFleetList && isTablet">
             <v-col class="col-6">
                 <status-panel />
                 <template v-for="component in tabletLayout1">
@@ -59,7 +61,7 @@
                 </template>
             </v-col>
         </v-row>
-        <v-row v-else-if="isDesktop">
+        <v-row v-else-if="!showFleetList && isDesktop">
             <v-col class="col-5">
                 <status-panel />
                 <template v-for="component in desktopLayout1">
@@ -78,7 +80,7 @@
                 </template>
             </v-col>
         </v-row>
-        <v-row v-else-if="isWidescreen">
+        <v-row v-else-if="!showFleetList && isWidescreen">
             <v-col class="col-3">
                 <status-panel />
                 <template v-for="component in widescreenLayout1">
@@ -128,6 +130,7 @@ import StatusPanel from '@/components/panels/StatusPanel.vue'
 import ToolheadControlPanel from '@/components/panels/ToolheadControlPanel.vue'
 import TemperaturePanel from '@/components/panels/TemperaturePanel.vue'
 import WebcamPanel from '@/components/panels/WebcamPanel.vue'
+import Farm from '@/pages/Farm.vue'
 
 @Component({
     components: {
@@ -146,6 +149,7 @@ import WebcamPanel from '@/components/panels/WebcamPanel.vue'
         ToolheadControlPanel,
         TemperaturePanel,
         WebcamPanel,
+        Farm,
     },
 })
 export default class PageDashboard extends Mixins(DashboardMixin) {
@@ -157,6 +161,10 @@ export default class PageDashboard extends Mixins(DashboardMixin) {
 
     get printerId(): string {
         return this.$route.params.id || ''
+    }
+
+    get showFleetList(): boolean {
+        return this.isFleetMode && !this.printerId
     }
 
     get fleetPrinterConnected(): boolean | null {
@@ -173,8 +181,8 @@ export default class PageDashboard extends Mixins(DashboardMixin) {
     }
 
     disconnectAndGoBack() {
-        // Disconnect from the current printer before navigating to all printers
-        console.log('[Dashboard] Disconnecting fleet socket before navigating to all printers')
+        // Disconnect from the current printer before navigating back to the fleet printer list.
+        console.log('[Dashboard] Disconnecting fleet socket before navigating to printer list')
         
         // Close the WebSocket connection
         Vue.$socket.close()
@@ -194,7 +202,7 @@ export default class PageDashboard extends Mixins(DashboardMixin) {
         this.$store.commit('socket/setFleetPrinterId', null)
         this.$store.commit('socket/setFleetPrinterName', null)
         
-        this.$router.push('/allPrinters')
+        this.$router.push('/printer')
     }
 
     async mounted() {

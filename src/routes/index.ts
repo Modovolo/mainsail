@@ -1,7 +1,6 @@
 import Dashboard from '../pages/Dashboard.vue'
 import FleetDashboard from '../pages/FleetDashboard.vue'
 import Webcam from '../pages/Webcam.vue'
-import Farm from '../pages/Farm.vue'
 import Console from '../pages/Console.vue'
 import Files from '../pages/Files.vue'
 import History from '../pages/History.vue'
@@ -222,17 +221,6 @@ const routes: AppRoute[] = [
         component: Dashboard,
         alwaysShow: false,
         showInNavi: false,
-        position: 10,
-        meta: { requiresAuth: true },
-    },
-    {
-        name: 'farm',
-        title: 'All Printers',
-        path: '/allPrinters',
-        icon: mdiPrinter3d,
-        component: Farm,
-        alwaysShow: true,
-        showInNavi: true,
         position: 10,
         meta: { requiresAuth: true },
     },

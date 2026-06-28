@@ -32,9 +32,9 @@
                             </v-icon>
                         </div>
                         <v-divider class="my-4"></v-divider>
-                        <v-btn block color="primary" outlined to="/allPrinters">
+                        <v-btn block color="primary" outlined to="/printer">
                             <v-icon left>mdi-view-list</v-icon>
-                            View All Printers
+                            View Printers
                         </v-btn>
                     </v-card-text>
                 </v-card>
@@ -89,7 +89,7 @@
             </v-col>
         </v-row>
 
-        <v-row class="mt-2" v-if="telemetryPrinters.length">
+        <v-row class="mt-2" v-if="showTelemetryTable && telemetryPrinters.length">
             <v-col cols="12">
                 <v-card elevation="2">
                     <v-card-title>
@@ -230,6 +230,7 @@ export default Vue.extend({
             printingCount: 0,
             defectCount: 0,
             monitorRunning: false,
+            showTelemetryTable: false,
             loading: true,
         }
     },
