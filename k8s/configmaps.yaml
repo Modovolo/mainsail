@@ -158,7 +158,7 @@ data:
 
         # Upstream definitions
         upstream modovolo-frontend {
-          server modovolo-frontend:80;
+          server modovolo-frontend:8080;
             keepalive 32;
         }
 
