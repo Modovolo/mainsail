@@ -36,6 +36,7 @@ env:
   IMAGE_NAME: modovolo-frontend
   BUILD_CONTEXT: .
   DOCKERFILE_PATH: Dockerfile
+  DOCKER_BUILD_TARGET: unprivileged
   K8S_MANIFEST_PATH: k8s/modovolo-frontend.yaml
   K8S_CONFIGMAP_PATH: k8s/configmaps.yaml
   DEPLOYMENT_NAME: modovolo-frontend
@@ -89,7 +90,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker build -f "$DOCKERFILE_PATH" -t "local/${IMAGE_NAME}:${{ steps.meta.outputs.image_tag }}" "$BUILD_CONTEXT"
+          docker build --target "$DOCKER_BUILD_TARGET" -f "$DOCKERFILE_PATH" -t "local/${IMAGE_NAME}:${{ steps.meta.outputs.image_tag }}" "$BUILD_CONTEXT"
 
   push:
     runs-on: ubuntu-latest
@@ -114,6 +115,7 @@ jobs:
         with:
           context: ${{ env.BUILD_CONTEXT }}
           file: ${{ env.DOCKERFILE_PATH }}
+          target: ${{ env.DOCKER_BUILD_TARGET }}
           push: true
           tags: ${{ needs.build.outputs.registry_namespace }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.image_tag }}
 
@@ -216,4 +218,15 @@ jobs:
             kubectl rollout restart "deployment/${DEPLOYMENT_NAME}" -n "$NAMESPACE"
           fi
 
-          kubectl rollout status "deployment/${DEPLOYMENT_NAME}" -n "$NAMESPACE" --timeout=180s
+          if ! kubectl rollout status "deployment/${DEPLOYMENT_NAME}" -n "$NAMESPACE" --timeout=300s; then
+            echo "Rollout failed. Collecting diagnostics..."
+            kubectl get deployment "$DEPLOYMENT_NAME" -n "$NAMESPACE" -o wide || true
+            kubectl get rs -n "$NAMESPACE" -l app="$DEPLOYMENT_NAME" -o wide || true
+            kubectl get pods -n "$NAMESPACE" -l app="$DEPLOYMENT_NAME" -o wide || true
+            kubectl logs -n "$NAMESPACE" -l app="$DEPLOYMENT_NAME" --all-containers --tail=200 || true
+
+            echo "Rolling back failed deployment revision..."
+            kubectl rollout undo "deployment/${DEPLOYMENT_NAME}" -n "$NAMESPACE" || true
+            kubectl rollout status "deployment/${DEPLOYMENT_NAME}" -n "$NAMESPACE" --timeout=180s || true
+            exit 1
+          fi
