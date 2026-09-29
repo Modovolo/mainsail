@@ -13,6 +13,11 @@ on:
         required: false
         default: ""
         type: string
+      allow_modovolo_frontend_deploy:
+        description: Allow this workflow to deploy to modovolo-frontend (safety gate)
+        required: false
+        default: false
+        type: boolean
       registry_namespace:
         description: Docker registry namespace
         required: false
@@ -130,7 +135,7 @@ jobs:
     needs:
       - build
       - push
-    if: github.event_name == 'push' || github.event.inputs.run_deploy == 'true'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_deploy == 'true' && github.event.inputs.allow_modovolo_frontend_deploy == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
