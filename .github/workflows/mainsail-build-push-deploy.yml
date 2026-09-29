@@ -1,4 +1,4 @@
-name: Mainsail Build Push Deploy
+name: Modovolo Frontend Build Push Deploy
 
 on:
   push:
@@ -33,12 +33,12 @@ permissions:
   contents: read
 
 env:
-  IMAGE_NAME: mainsail
+  IMAGE_NAME: modovolo-frontend
   BUILD_CONTEXT: .
   DOCKERFILE_PATH: Dockerfile
-  K8S_MANIFEST_PATH: k8s/mainsail.yaml
+  K8S_MANIFEST_PATH: k8s/modovolo-frontend.yaml
   K8S_CONFIGMAP_PATH: k8s/configmaps.yaml
-  DEPLOYMENT_NAME: mainsail
+  DEPLOYMENT_NAME: modovolo-frontend
 
 jobs:
   build:
@@ -194,16 +194,16 @@ jobs:
             echo "$image_ref"
           }
 
-          CURRENT_MAINSAIL_IMAGE="$(get_deployment_image "$DEPLOYMENT_NAME" "$DEPLOYMENT_NAME")"
-          CURRENT_MAINSAIL_HASH="$(extract_image_hash "$CURRENT_MAINSAIL_IMAGE")"
-          NEXT_MAINSAIL_HASH="$(extract_image_hash "$IMAGE_REF")"
+          CURRENT_FRONTEND_IMAGE="$(get_deployment_image "$DEPLOYMENT_NAME" "$DEPLOYMENT_NAME")"
+          CURRENT_FRONTEND_HASH="$(extract_image_hash "$CURRENT_FRONTEND_IMAGE")"
+          NEXT_FRONTEND_HASH="$(extract_image_hash "$IMAGE_REF")"
 
           FLEET_MANAGER_HASH="$(extract_image_hash "$(get_deployment_image fleet-manager fleet-manager)")"
           MOONRAKER_HASH="$(extract_image_hash "$(get_deployment_image moonraker moonraker)")"
           BFP_MONITOR_HASH="$(extract_image_hash "$(get_deployment_image bfp-print-monitor bfp-print-monitor)")"
 
           sed -i "s|\"fleetManager\": \".*\"|\"fleetManager\": \"${FLEET_MANAGER_HASH}\"|g" "$K8S_CONFIGMAP_PATH"
-          sed -i "s|\"mainsail\": \".*\"|\"mainsail\": \"${NEXT_MAINSAIL_HASH}\"|g" "$K8S_CONFIGMAP_PATH"
+          sed -i "s|\"modovoloFrontend\": \".*\"|\"modovoloFrontend\": \"${NEXT_FRONTEND_HASH}\"|g" "$K8S_CONFIGMAP_PATH"
           sed -i "s|\"bfpPrintMonitor\": \".*\"|\"bfpPrintMonitor\": \"${BFP_MONITOR_HASH}\"|g" "$K8S_CONFIGMAP_PATH"
           sed -i "s|\"moonraker\": \".*\"|\"moonraker\": \"${MOONRAKER_HASH}\"|g" "$K8S_CONFIGMAP_PATH"
 
@@ -211,7 +211,7 @@ jobs:
           kubectl apply -f "$K8S_MANIFEST_PATH"
           kubectl set image "deployment/${DEPLOYMENT_NAME}" "${DEPLOYMENT_NAME}=${IMAGE_REF}" -n "$NAMESPACE"
 
-          if [[ "$CURRENT_MAINSAIL_HASH" == "$NEXT_MAINSAIL_HASH" ]]; then
+          if [[ "$CURRENT_FRONTEND_HASH" == "$NEXT_FRONTEND_HASH" ]]; then
             # config.json is mounted via subPath, so force restart when image stays the same
             kubectl rollout restart "deployment/${DEPLOYMENT_NAME}" -n "$NAMESPACE"
           fi

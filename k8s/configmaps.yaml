@@ -1,12 +1,12 @@
 ---
-# Mainsail frontend configuration
+# Modovolo frontend configuration
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: mainsail-config
+  name: modovolo-frontend-config
   namespace: fleet
   labels:
-    app.kubernetes.io/name: mainsail
+    app.kubernetes.io/name: modovolo-frontend
     app.kubernetes.io/component: frontend
 data:
   config.json: |
@@ -21,7 +21,7 @@ data:
       "path": null,
       "containerImageHashes": {
         "fleetManager": "latest",
-        "mainsail": "latest",
+        "modovoloFrontend": "latest",
         "bfpPrintMonitor": "latest",
         "moonraker": "latest"
       }
@@ -84,16 +84,16 @@ data:
 
     [announcements]
     subscriptions:
-      mainsail
+      modovolo-frontend
 
     [update_manager]
     enable_auto_refresh: True
 
-    [update_manager mainsail]
+    [update_manager modovolo-frontend]
     type: web
     channel: stable
-    repo: mainsail-crew/mainsail
-    path: /printer_data/mainsail
+    repo: Modovolo/modovolo-frontend
+    path: /printer_data/modovolo-frontend
 
     # Fleet Management WebSocket Support
     [fleet_manager]
@@ -157,8 +157,8 @@ data:
         limit_req_zone $binary_remote_addr zone=api_limit:10m rate=30r/s;
 
         # Upstream definitions
-        upstream mainsail {
-            server mainsail:8080;
+        upstream modovolo-frontend {
+          server modovolo-frontend:80;
             keepalive 32;
         }
 
@@ -181,16 +181,16 @@ data:
                 add_header Content-Type text/plain;
             }
 
-            # Mainsail frontend (SPA)
+            # Modovolo frontend (SPA)
             location / {
-                proxy_pass http://mainsail;
+                proxy_pass http://modovolo-frontend;
                 proxy_http_version 1.1;
                 proxy_set_header Host $host;
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header X-Forwarded-Proto $scheme;
 
-                # SPA fallback handled by mainsail container
+                # SPA fallback handled by modovolo-frontend container
             }
 
             # Moonraker API
@@ -239,7 +239,7 @@ data:
             }
 
             # Moonraker printer API endpoints (exact sub-paths only, so SPA
-            # routes like /printer/<uuid> fall through to the mainsail location)
+            # routes like /printer/<uuid> fall through to the modovolo-frontend location)
             location ~ ^/printer/(info|objects|restart|firmware_restart|emergency_stop|query_endstops|gcode)(/|$) {
                 proxy_pass http://moonraker;
                 proxy_http_version 1.1;

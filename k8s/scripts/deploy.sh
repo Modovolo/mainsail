@@ -45,9 +45,9 @@ build_images() {
     echo "Building Moonraker..."
     docker build -t fleet-moonraker:latest "$MOONRAKER_DIR"
     
-    # Build Mainsail (optional - can use official image)
-    echo "Building Mainsail..."
-    docker build -t fleet-mainsail:latest "$ROOT_DIR"
+    # Build modovolo-frontend (optional - can use official image)
+    echo "Building modovolo-frontend..."
+    docker build -t fleet-modovolo-frontend:latest "$ROOT_DIR"
     
     echo -e "${GREEN}Images built successfully${NC}"
 }
@@ -61,8 +61,8 @@ push_images() {
     docker tag fleet-moonraker:latest "$registry/moonraker:latest"
     docker push "$registry/moonraker:latest"
     
-    docker tag fleet-mainsail:latest "$registry/mainsail:latest"
-    docker push "$registry/mainsail:latest"
+    docker tag fleet-modovolo-frontend:latest "$registry/modovolo-frontend:latest"
+    docker push "$registry/modovolo-frontend:latest"
     
     echo -e "${GREEN}Images pushed successfully${NC}"
 }

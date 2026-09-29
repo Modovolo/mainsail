@@ -33,7 +33,7 @@ echo ""
 
 # Parse arguments
 BUILD_FLEET_MANAGER=false
-BUILD_MAINSAIL=false
+BUILD_FRONTEND=false
 BUILD_MOONRAKER=false
 BUILD_BFP_MONITOR=false
 APPLY_MANIFESTS=false
@@ -44,7 +44,8 @@ usage() {
     echo ""
     echo "Options:"
     echo "  --fleet-manager    Build and push fleet-manager"
-    echo "  --mainsail         Build and push mainsail"
+    echo "  --modovolo-frontend Build and push modovolo-frontend"
+    echo "  --mainsail          Alias for --modovolo-frontend"
     echo "  --moonraker        Build and push moonraker"
     echo "  --monitor          Build and push bfp-print-monitor web API"
     echo "  --all              Build and push all containers"
@@ -75,8 +76,8 @@ for arg in "${ARGS[@]}"; do
         --fleet-manager)
             BUILD_FLEET_MANAGER=true
             ;;
-        --mainsail)
-            BUILD_MAINSAIL=true
+        --modovolo-frontend|--mainsail)
+            BUILD_FRONTEND=true
             ;;
         --moonraker)
             BUILD_MOONRAKER=true
@@ -86,7 +87,7 @@ for arg in "${ARGS[@]}"; do
             ;;
         --all)
             BUILD_FLEET_MANAGER=true
-            BUILD_MAINSAIL=true
+            BUILD_FRONTEND=true
             BUILD_MOONRAKER=true
             BUILD_BFP_MONITOR=true
             ;;
@@ -98,7 +99,7 @@ for arg in "${ARGS[@]}"; do
             ;;
         --deploy)
             BUILD_FLEET_MANAGER=true
-            BUILD_MAINSAIL=true
+            BUILD_FRONTEND=true
             BUILD_MOONRAKER=true
             BUILD_BFP_MONITOR=true
             APPLY_MANIFESTS=true
@@ -124,13 +125,13 @@ if [ "$BUILD_FLEET_MANAGER" = true ]; then
     echo -e "${GREEN}fleet-manager:$TAG pushed${NC}"
 fi
 
-# Build mainsail
-if [ "$BUILD_MAINSAIL" = true ]; then
-    echo -e "${YELLOW}Building mainsail...${NC}"
-    docker build -t $REGISTRY/mainsail:$TAG .
-    echo -e "${YELLOW}Pushing mainsail...${NC}"
-    docker push $REGISTRY/mainsail:$TAG
-    echo -e "${GREEN}mainsail:$TAG pushed${NC}"
+# Build modovolo-frontend
+if [ "$BUILD_FRONTEND" = true ]; then
+    echo -e "${YELLOW}Building modovolo-frontend...${NC}"
+    docker build -t $REGISTRY/modovolo-frontend:$TAG .
+    echo -e "${YELLOW}Pushing modovolo-frontend...${NC}"
+    docker push $REGISTRY/modovolo-frontend:$TAG
+    echo -e "${GREEN}modovolo-frontend:$TAG pushed${NC}"
 fi
 
 # Build moonraker
@@ -166,14 +167,14 @@ update_manifests() {
     # Update fleet-manager.yaml
     sed -i "s|image: $REGISTRY/fleet-manager:.*|image: $REGISTRY/fleet-manager:$TAG|g" "$K8S_DIR/fleet-manager.yaml"
     
-    # Update deployments.yaml (mainsail and moonraker)
-    sed -i "s|image: $REGISTRY/mainsail:.*|image: $REGISTRY/mainsail:$TAG|g" "$K8S_DIR/deployments.yaml"
+    # Update deployments.yaml (modovolo-frontend and moonraker)
+    sed -i "s|image: $REGISTRY/modovolo-frontend:.*|image: $REGISTRY/modovolo-frontend:$TAG|g" "$K8S_DIR/deployments.yaml"
     sed -i "s|image: $REGISTRY/moonraker:.*|image: $REGISTRY/moonraker:$TAG|g" "$K8S_DIR/deployments.yaml"
     sed -i "s|image: $REGISTRY/bfp-print-monitor-web:.*|image: $REGISTRY/bfp-print-monitor-web:$TAG|g" "$K8S_DIR/deployments.yaml"
 
-    # Update displayed container image hashes in mainsail config
+    # Update displayed container image hashes in frontend config
     sed -i "s|\"fleetManager\": \".*\"|\"fleetManager\": \"$TAG\"|g" "$K8S_DIR/configmaps.yaml"
-    sed -i "s|\"mainsail\": \".*\"|\"mainsail\": \"$TAG\"|g" "$K8S_DIR/configmaps.yaml"
+    sed -i "s|\"modovoloFrontend\": \".*\"|\"modovoloFrontend\": \"$TAG\"|g" "$K8S_DIR/configmaps.yaml"
     sed -i "s|\"bfpPrintMonitor\": \".*\"|\"bfpPrintMonitor\": \"$TAG\"|g" "$K8S_DIR/configmaps.yaml"
     sed -i "s|\"moonraker\": \".*\"|\"moonraker\": \"$TAG\"|g" "$K8S_DIR/configmaps.yaml"
     
@@ -209,8 +210,8 @@ if [ "$RESTART_PODS" = true ]; then
         kubectl rollout restart deployment/fleet-manager -n fleet
     fi
     
-    if [ "$BUILD_MAINSAIL" = true ] || [ "$APPLY_MANIFESTS" = true ]; then
-        kubectl rollout restart deployment/mainsail -n fleet
+    if [ "$BUILD_FRONTEND" = true ] || [ "$APPLY_MANIFESTS" = true ]; then
+        kubectl rollout restart deployment/modovolo-frontend -n fleet
     fi
     
     if [ "$BUILD_MOONRAKER" = true ] || [ "$APPLY_MANIFESTS" = true ]; then
@@ -223,7 +224,7 @@ if [ "$RESTART_PODS" = true ]; then
     
     echo -e "${YELLOW}Waiting for rollouts...${NC}"
     kubectl rollout status deployment/fleet-manager -n fleet --timeout=120s || true
-    kubectl rollout status deployment/mainsail -n fleet --timeout=120s || true
+    kubectl rollout status deployment/modovolo-frontend -n fleet --timeout=120s || true
     kubectl rollout status deployment/moonraker -n fleet --timeout=120s || true
     kubectl rollout status deployment/bfp-print-monitor -n fleet --timeout=120s || true
     

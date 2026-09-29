@@ -3,20 +3,20 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: mainsail
+  name: modovolo-frontend
   namespace: fleet
   labels:
-    app.kubernetes.io/name: mainsail
+    app.kubernetes.io/name: modovolo-frontend
     app.kubernetes.io/component: frontend
 spec:
   type: ClusterIP
   ports:
     - port: 8080
-      targetPort: 80
+      targetPort: 8080
       protocol: TCP
       name: http
   selector:
-    app: mainsail
+    app: modovolo-frontend
 ---
 # Moonraker Service (internal)
 apiVersion: v1

@@ -22,8 +22,8 @@ images:
   - name: fleet-moonraker
     newName: jmarji/moonraker
     newTag: v0.0.1
-  - name: ghcr.io/mainsail-crew/mainsail
-    newName: jmarji/mainsail
+  - name: jmarji/modovolo-frontend
+    newName: jmarji/modovolo-frontend
     newTag: v0.0.1
 
 # ConfigMap generator for dynamic configuration
@@ -37,7 +37,7 @@ patches: []
 
 # Replicas override
 replicas:
-  - name: mainsail
+  - name: modovolo-frontend
     count: 2
   - name: nginx-proxy
     count: 2

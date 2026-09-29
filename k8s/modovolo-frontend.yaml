@@ -2,63 +2,63 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mainsail
+  name: modovolo-frontend
   namespace: fleet
   labels:
-    app: mainsail
+    app: modovolo-frontend
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: mainsail
+      app: modovolo-frontend
   template:
     metadata:
       labels:
-        app: mainsail
+        app: modovolo-frontend
     spec:
       imagePullSecrets:
         - name: dockerhub-creds
       containers:
-        - name: mainsail
-          image: jmarji/mainsail:latest
+        - name: modovolo-frontend
+          image: jmarji/modovolo-frontend:latest
           imagePullPolicy: Always
           ports:
-            - containerPort: 80
+            - containerPort: 8080
               name: http
           volumeMounts:
-            - name: mainsail-config
+            - name: modovolo-frontend-config
               mountPath: /usr/share/nginx/html/config.json
               subPath: config.json
           readinessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 15
             periodSeconds: 20
       volumes:
-        - name: mainsail-config
+        - name: modovolo-frontend-config
           configMap:
-            name: mainsail-config
+            name: modovolo-frontend-config
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: mainsail
+  name: modovolo-frontend
   namespace: fleet
   labels:
-    app: mainsail
+    app: modovolo-frontend
 spec:
   selector:
-    app: mainsail
+    app: modovolo-frontend
   ports:
     - name: http
       port: 8080
-      targetPort: 80
+      targetPort: 8080
       protocol: TCP
   type: ClusterIP
